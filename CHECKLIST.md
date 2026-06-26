@@ -34,6 +34,12 @@ Each item names the BRACE control it comes from and the question to answer befor
 - [ ] **Input validation at the boundary (Control 5).** Is all external data treated as untrusted and validated at the infrastructure boundary, with untrusted data kept on a separate channel from instructions?
 - [ ] **Context-size logging (T2).** Is the context size logged per action, so failures that only appear at large context sizes are visible and baselines can be split by size?
 - [ ] **Egress allowlist (Control 1).** Is outbound traffic restricted to an allowlist, with anything else blocked and alerted?
+- [ ] **Retrieval-corpus integrity (Control 5/6).** If the agent uses retrieval (RAG), is ingestion into the index scoped to trusted sources, does every chunk carry provenance (source, index time, trust tier), and is the index watched for poisoning and staleness — not just the chunk scanned at read time?
+  *Covers: index/context poisoning, stale-or-revoked-data answers, unattributable retrieved content; OWASP ASI06.*
+- [ ] **Recovery integrity (Control 9).** If checkpoints or audit logs are used to recover or replay a run, is the log tamper-evident (hash-chained or signed, verified before use) and is resume idempotent (side effects keyed so a replay can't re-fire them)?
+  *Covers: replay of attacker-modified state; double-execution of irreversible side effects (double-send, double-spend).*
+- [ ] **Inter-agent message trust (Control 5).** In a multi-agent system, is a peer agent's message treated as untrusted input — typed and schema-validated, carrying the sending agent's verified identity, and scoped to what that peer's role may request?
+  *Covers: confused-deputy and lateral movement between agents; injection laundered through a peer.*
 
 ## Gate 3 — Active detection: catch what prevention misses
 
@@ -43,6 +49,8 @@ Each item names the BRACE control it comes from and the question to answer befor
 - [ ] **Memory provenance and scoping (Control 6).** Is memory scoped per instance and per type, with no cross-type read without explicit gating, writes validated, and per-entry provenance queryable?
 - [ ] **Sub-agent and parent-prompt provenance (T3).** When the agent spawns sub-agents, are the parent-child link and the prompt the parent gave captured as audit data?
 - [ ] **Misaligned-intent signal (Control 7, defense-in-depth).** If deliberate misalignment is in scope, does second-model or sequence-pattern review carry at least a coarse intent-anomaly signal? (Deep intent detection — chain-of-thought transparency, activation monitoring — belongs to a model-level AI-control program, not BRACE.)
+- [ ] **Checker-model identity (Control 7 / T1).** Does every model in the loop — verifier, judge, reranker, world model — carry its own identity and content hash and emit attributable decisions, with a compromised or drifted checker treated as a control failure?
+  *Covers: a gamed verifier silently approving bad actions, a manipulated reranker controlling the agent's view, a poisoned world model labeling danger "safe."*
 
 ---
 
