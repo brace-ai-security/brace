@@ -1,5 +1,12 @@
 # Response to NIST CAISI Request for Information on Securing AI Agent Systems
 
+> **STATUS (2026-07-12): NOT SUBMITTED — RFI CLOSED.** The CAISI RFI (docket NIST-2025-0035)
+> closed **2026-03-09** (937 comments received) and was not submitted to in time. This draft is
+> retained as source material. It has been retargeted to live channels — see sibling files
+> `csa-agentic-control-plane-contribution.md`, `owasp-agentic-security-contribution.md`, and
+> `cosai-secure-design-patterns-input.md`. The ongoing successor channel is CAISI's AI Agent
+> Standards Initiative + sector listening sessions (caisi-events@nist.gov).
+
 **Respondent:** The BRACE Project
 **Date:** [DATE]
 **Subject:** Response to the NIST Center for AI Standards and Innovation (CAISI) Request for Information on Securing AI Agent Systems (issued January 2026)
