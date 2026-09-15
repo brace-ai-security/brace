@@ -126,10 +126,10 @@
 <section>
   <div class="wrap">
     <div class="idea">
-      Build-time bounds what an agent <em>can</em> do; run-time governs what happens while it runs against real, often hostile, input. The organizing assumption is straightforward: <strong>no current model reliably refuses adversarial input formatted as instructions.</strong> So you design as if injection will sometimes get through, and make sure that when it does, both the blast radius and your detection survive it. This guide covers the six principles behind BRACE's run-time controls — Data, Memory, and Behavioral.
+      Build-time bounds what an agent <em>can</em> do; run-time governs what happens while it runs against real, often hostile, input. The organizing assumption is straightforward: <strong>no current model reliably refuses adversarial input formatted as instructions.</strong> So you design as if injection will sometimes get through, and make sure that when it does, both the blast radius and your detection survive it. This guide covers the eight principles behind BRACE's run-time controls — Data, Memory, and Behavioral.
     </div>
     <div class="toc">
-      <b>The six principles</b>
+      <b>The eight principles</b>
       <ol>
         <li><a href="#r1">Treat every external input as untrusted</a></li>
         <li><a href="#r2">Keep the data channel separate from the instruction channel</a></li>
@@ -153,7 +153,7 @@
     <div class="principle">
       <span class="pnum">PRINCIPLE 1</span>
       <h2 style="margin-top:14px">Treat every external input as untrusted</h2>
-      <p class="statement">Every byte that enters the agent from outside — user messages, fetched web pages, tool outputs, retrieved documents, uploaded files — is potentially adversarial. Validate and sanitize at the boundary, and never assume a source is safe because it's "internal."</p>
+      <p class="statement">Every byte that enters the agent from outside — user messages, API responses, webhooks, connector and tool outputs, fetched web pages, retrieved documents, uploaded files — is potentially adversarial. Validate and sanitize at the boundary, and never assume a source is safe because it's "internal."</p>
       <div class="why">
         <p style="margin:0"><b class="k">Why it matters.</b> Prompt injection is text the agent reads as data, crafted so the agent obeys it as an instruction. The dangerous version is <em>indirect</em>: the payload rides in on content the agent fetches, such as a web page, a tool result, or a document in a RAG store, rather than from the user typing it. You cannot allowlist "trustworthy" content, because the agent's job is to read content you don't control. So you defend at the boundary, not by trusting the source.</p>
         <p style="margin:10px 0 0">Data hygiene runs both ways. A tool's <em>output</em> is a leakage channel too: agent frameworks often feed tool stdout — including debug logging — straight into the model's context window, and from there into your logs. An <a href="https://arxiv.org/abs/2604.03070">empirical study of 17,022 agent skills</a> found credentials leaking this way, with debug logging alone behind 73.5% of cases. Redact secrets from tool output before it reaches the context or the logs, and keep credentials scoped and short-lived so a leaked one is low value.</p>
@@ -178,7 +178,7 @@
           <text x="480" y="178" font-family="Helvetica,Arial,sans-serif" font-size="14" font-weight="bold" fill="#8f2e25" text-anchor="middle">DATA CHANNEL</text>
           <text x="480" y="200" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#8f2e25" text-anchor="middle">escaped · validated · provenance-tagged</text>
           <text x="480" y="232" font-family="ui-monospace,Menlo,monospace" font-size="11" fill="#8f2e25" text-anchor="middle">“ignore previous instructions…”</text>
-          <text x="480" y="252" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#8f2e25" text-anchor="middle">→ read as data, never executed</text>
+          <text x="480" y="252" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#8f2e25" text-anchor="middle">→ untrusted data; action gates still apply</text>
           <!-- instruction channel -->
           <rect x="330" y="56" width="300" height="64" rx="10" fill="#e9f5ee" stroke="#1f7a4d"/>
           <text x="480" y="82" font-family="Helvetica,Arial,sans-serif" font-size="14" font-weight="bold" fill="#1f5b3c" text-anchor="middle">INSTRUCTION CHANNEL</text>
@@ -198,7 +198,7 @@
             <marker id="rgry" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#9aa6b0"/></marker>
           </defs>
         </svg>
-        <figcaption>Untrusted input is defended at the boundary and kept in a data lane the model treats as data — never merged into the instruction lane it treats as policy.</figcaption>
+        <figcaption>Keep untrusted input outside trusted instruction channels. This reduces exposure; test independent action controls because the model may still follow injected instructions.</figcaption>
       </figure>
       <div class="eg">
         <div class="col bad">
@@ -207,7 +207,7 @@
         </div>
         <div class="col good">
           <div class="tag">✓ Defending the boundary</div>
-          All external content is validated, escaped, and wrapped as data with its provenance — so an instruction buried in it is inert.
+          All external content is validated and labeled as data with its provenance. Independent permission and action gates contain harmful instructions that still get through.
         </div>
       </div>
     </div>
@@ -221,7 +221,7 @@
       <h2 style="margin-top:14px">Keep the data channel separate from the instruction channel</h2>
       <p class="statement">Untrusted content must never share the channel the model reads as commands. Structurally separate the two — delimit and tag provenance, and never concatenate untrusted text into the system or instruction context.</p>
       <div class="why">
-        <p style="margin:0"><b class="k">Why it matters.</b> The entire injection class comes down to one thing: <em>data got read as instructions.</em> If untrusted text and trusted policy occupy the same undifferentiated context, the model has no reliable way to tell which is which. Keeping them in separate, labeled lanes is the structural mitigation, and it doesn't depend on the model "noticing" the attack. (See Principle 1's diagram.)</p>
+        <p style="margin:0"><b class="k">Why it matters.</b> The entire injection class comes down to one thing: <em>data got read as instructions.</em> If untrusted text and trusted policy occupy the same undifferentiated context, the model has no reliable way to tell which is which. Keeping them in separate, labeled lanes is a structural mitigation, but it cannot guarantee the model will ignore injected instructions. Enforce permissions and action gates independently. (See Principle 1's diagram.)</p>
       </div>
       <div class="eg">
         <div class="col bad">
@@ -322,6 +322,7 @@
       <span class="pnum">PRINCIPLE 5</span>
       <h2 style="margin-top:14px">Monitor behavior for security, not just quality</h2>
       <p class="statement">Baseline what normal action sequences look like early in production, alert on deviation, and route higher-severity events to a human. Security monitoring is a different job from quality evaluation — run it as its own thing.</p>
+      <p><b>Operational scope.</b> Measure detection against both legitimate traffic and seeded abuse, including context-size ranges. Start with narrow signals and hard limits; record misses and responder workload. Do not interpret a passing behavioral test as proof of hidden intent or universal attack detection.</p>
       <div class="why">
         <p style="margin:0"><b class="k">Why it matters.</b> Once injection succeeds, an unusual <em>sequence of actions</em> is often your only signal; there is no exception and no stack trace. Quality metrics won't catch it, because a hijacked agent that is confidently wrong looks fine to an eval. Build the detection along a gradient: start with static rules (deny-listed action patterns), add sequence-pattern baselines (this agent type never does X then Y), and escalate to a second model judging suspicious episodes. The largest deployed example monitors tens of millions of agent interactions this way.</p>
       </div>
@@ -380,6 +381,7 @@
       <span class="pnum">PRINCIPLE 7</span>
       <h2 style="margin-top:14px">Guard the retrieval corpus, not just the retrieved chunk</h2>
       <p class="statement">Scanning a retrieved chunk as untrusted at read time (Principle 1) handles the moment of consumption. But the retrieval index itself is a managed asset you own. Vet and scope what enters it, keep per-chunk provenance, and defend it against poisoning and staleness — because whoever controls what ranks for a query controls what your agent reads.</p>
+      <p><b>Operational scope.</b> The retrieval corpus is the documents searched for context; its index is the searchable store of documents or passages, such as a search engine or vector database. Test tenant filtering, revocation delays, caches, and active contexts. If derived copies cannot be located, quarantine the collection or reset affected memory and rebuild; record the loss of useful context as a deliberate tradeoff.</p>
       <div class="why">
         <p style="margin:0"><b class="k">Why it matters.</b> Most agents are now RAG agents, and the corpus is an attack surface in its own right. <em>Index poisoning</em> plants a document engineered to rank for a target query, so the agent retrieves attacker-controlled text exactly when it matters — quieter and more durable than a one-shot injection, because it sits in the index waiting. Staleness is the slower failure: the index drifts from the source of truth and the agent answers from revoked or outdated data. And without per-chunk provenance, you can't tell after an incident which source a damaging answer came from. Principle 1 scans the chunk leaving the index; this principle governs what was allowed in: scope ingestion so only trusted sources can write to a given index, stamp every chunk with its source, index time, and trust tier, watch for rank anomalies and re-index against the source of truth, and treat any agent- or user-supplied write to the index as untrusted (the same rule as memory, Principle 4).</p>
       </div>
@@ -398,11 +400,11 @@
       <h2 style="margin-top:14px">Make checkpoints tamper-evident and replay idempotent</h2>
       <p class="statement">An audit trail lets you reconstruct what happened. The moment you also use checkpoints or that log to <em>recover</em> — resume a crashed run, replay to a known state — two requirements appear: the checkpoint and log must be tamper-evident, and resume must be idempotent. Otherwise recovery itself becomes an attack.</p>
       <div class="why">
-        <p style="margin:0"><b class="k">Why it matters.</b> Forensics only reads the log; recovery executes from it, and that changes the threat model. If an attacker can edit a checkpoint or the log, replay restores attacker-chosen state and runs it with the agent's authority — the record stops being evidence and becomes a payload. And if resume isn't idempotent, replaying a run re-fires its side effects: a payment sent twice, an email re-sent, a destructive call re-issued by the &ldquo;recovery&rdquo; that was meant to undo it. A safe recovery path needs an append-only, integrity-checked log (hash-chained or signed, and verified before use) and side-effecting calls that carry an idempotency key, so re-execution is a no-op.</p>
+        <p style="margin:0"><b class="k">Why it matters.</b> Forensics only reads the log; recovery executes from it, and that changes the threat model. If an attacker can edit a checkpoint or the log, replay restores attacker-chosen state and runs it with the agent's authority — the record stops being evidence and becomes a payload. And if resume isn't idempotent, replaying a run re-fires its side effects: a payment sent twice, an email re-sent, a destructive call re-issued by the &ldquo;recovery&rdquo; that was meant to undo it. A safe recovery path needs an append-only, integrity-checked log (hash-chained or signed, and verified before use) and destination-enforced idempotency for side effects where supported. If a destination cannot suppress duplicates or resolve an ambiguous outcome, pause replay and reconcile manually.</p>
       </div>
       <div class="eg">
         <div class="col bad"><div class="tag">✗ Mutable checkpoint, blind replay</div>The run resumes from a checkpoint nobody can verify and replays every recorded action — including the irreversible ones — from scratch.</div>
-        <div class="col good"><div class="tag">✓ Signed log, idempotent resume</div>The checkpoint and log are hash-chained or signed and verified before use; every side-effecting call carries an idempotency key, so replay re-reads but never re-fires.</div>
+        <div class="col good"><div class="tag">✓ Signed log, idempotent resume</div>The checkpoint and log are hash-chained or signed and verified before use; destinations enforce idempotency keys for supported calls. Unsupported or ambiguous effects pause for reconciliation instead of being blindly replayed.</div>
       </div>
     </div>
   </div>
@@ -429,16 +431,22 @@
 <section>
   <div class="wrap">
     <h2>Run-time go / no-go</h2>
-    <p style="color:var(--muted)">A short gate before you ship. The full version lives in the BRACE sign-off checklist.</p>
+    <p style="color:var(--muted)">Review the matching checklist items below. G1 is blocking; G2 gaps require explicit risk acceptance; G3 is required for high-stakes or high-autonomy deployments, with documented deferrals permitted for lower-stakes deployments. Use the <a href="https://github.com/brace-ai-security/brace/blob/main/CHECKLIST.md#r--run-time">full requirements, operational challenges, fallbacks, and tradeoffs</a> and the <a href="https://github.com/brace-ai-security/brace/blob/main/CHECKLIST-VERIFICATION.md#r--run-time">verification recipes</a> before sign-off.</p>
     <ul class="check">
-      <li>All external input — including fetched and retrieved content — is validated at the boundary as untrusted.</li>
-      <li>Untrusted data is kept in a separate channel from instructions; the two are never concatenated.</li>
-      <li>A successful injection is contained by capability scope and the harness, not by the model refusing.</li>
-      <li>Memory writes are validated, scoped per instance and type, and carry per-entry provenance.</li>
-      <li>Behavioral (security) monitoring runs separately from quality evals, with a baseline and human escalation.</li>
-      <li>Every action logs decision-time context size.</li>
-      <li>The retrieval/RAG index is treated as a managed asset: ingestion is scoped per source, every chunk carries provenance, and the index is watched for poisoning and staleness.</li>
-      <li>If checkpoints or audit logs are used to recover, the log is tamper-evident (hash-chained or signed) and resume is idempotent — side effects keyed so a replay can't re-fire them.</li>
+      <li><b>R01 · G2</b> — Validate every input boundary, including API responses.</li>
+      <li><b>R02 · G2</b> — Separate data from instructions and test injection containment.</li>
+      <li><b>R03 · G2</b> — Prevent output and log leakage.</li>
+      <li><b>R04 · G2</b> — Retrieval-corpus integrity.</li>
+      <li><b>R05 · G3</b> — Memory isolation and write validation.</li>
+      <li><b>R06 · G3</b> — Memory provenance and cleanup.</li>
+      <li><b>R07 · G2</b> — Decision-time context size.</li>
+      <li><b>R08 · G3</b> — Security monitoring.</li>
+      <li><b>R09 · G3</b> — Sequence and context-aware detection.</li>
+      <li><b>R10 · G3</b> — Misaligned-behavior review.</li>
+      <li><b>R11 · G1</b> — Tested kill switch.</li>
+      <li><b>R12 · G1</b> — Safe state after stopping.</li>
+      <li><b>R13 · G1</b> — Full execution audit.</li>
+      <li><b>R14 · G2</b> — Recovery integrity.</li>
     </ul>
     <p style="margin-top:18px"><a href="https://github.com/brace-ai-security/brace/blob/main/CHECKLIST.md"><strong>→ Full BRACE sign-off checklist</strong></a></p>
   </div>

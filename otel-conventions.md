@@ -18,7 +18,7 @@ observability requirement (T1, T2, or T3).
 
 | Attribute key | Type | Requirement level | Description | Example value |
 | --- | --- | --- | --- | --- |
-| `agent.type.id` | string | Required | Content hash over the agent's defining inputs: container digest, harness version, system prompt, model id, and configuration. A fingerprint of the agent *type*. Two deployments with any of those inputs different have different `agent.type.id` values. | `sha256:9f1c...e3a` |
+| `agent.type.id` | string | Required | Content hash over the agent's defining inputs: container digest, harness version, system prompt, model identifier/version (including applicable checkpoint and fine-tune/adapter references), and configuration. A fingerprint of the agent *type*. Two deployments with any of those inputs different have different `agent.type.id` values. | `sha256:9f1c...e3a` |
 | `agent.instance.id` | string | Required | Id of a specific running agent instance. Each invocation gets one. Sub-agents are regular instances and get their own `agent.instance.id`. | `01HXYZ...K7` |
 | `agent.context.size` | int | Recommended | Number of tokens in the model's context at the moment of the action or decision. This is the live context occupancy, not a per-call token count. | `42137` |
 | `agent.parent.prompt` | string or reference | Conditionally required | The prompt the parent agent gave this sub-agent. Required when the agent was spawned by a parent. May be the full prompt body or a reference (for example a hash, with the body stored in a separate tier). | `sha256:a1b2...` or the prompt text |
@@ -37,6 +37,12 @@ Notes on the values:
   (a hash on the span, body in a separate, stricter-access tier) is the recommended
   default for shared-tenant deployments. The full-body form is for deployments that
   retain their audit data locally and have a policy reason to capture it inline.
+
+### Scope of identity and checklist priorities
+
+The type hash fingerprints the recorded configuration; verify its inputs against running artifacts. It cannot identify undisclosed weights, training lineage, or changes behind a hosted-model alias. Keep requested model IDs, observed served versions, and owned training/fine-tuning run and dataset references in the release manifest using the [model provenance fields](CHECKLIST-VERIFICATION.md#model-provenance-fields). Record provider-hidden fields explicitly; do not put secrets or training datasets into span attributes.
+
+The attribute requirement levels above describe this telemetry proposal. Production sign-off uses the [checklist](CHECKLIST.md): identity is **Obs-T1 / G1**, context size is **Obs-T2 / G2**, and parent/prompt provenance is **Obs-T3 / G3**. G3 is blocking for high-stakes or high-autonomy deployments; permitted lower-stakes deferrals require documented acceptance. Parent provenance is applicable when sub-agents exist. These gate labels are distinct from the observability requirement numbers.
 
 ## Mapping to BRACE observability requirements
 

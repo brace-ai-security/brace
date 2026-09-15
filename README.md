@@ -16,8 +16,8 @@ BRACE names the controls over that configuration, says which to ship first, and 
 
 ## Start here
 
-- **[Sign-off checklist](CHECKLIST.md)** — a thorough go/no-go review across all five BRACE aspects for the engineer or manager approving an agent for production. If you read one thing, read this.
-- **[Self-assessment](SELF-ASSESSMENT.md)** — score an existing deployment, or use it as a question set when evaluating a vendor.
+- **[Sign-off checklist](CHECKLIST.md)** — a 53-item go/no-go review across all five BRACE aspects, with operational notes and acceptable tradeoffs for the engineer or manager approving an agent for production. If you read one thing, read this.
+- **[Self-assessment](SELF-ASSESSMENT.md)** — score the same 53 checklist items for an existing deployment or vendor evaluation.
 - **[The paper](#the-paper)** — the full framework, threat mappings, and a 35+ incident corpus.
 
 ---
@@ -64,7 +64,7 @@ BRACE specifies **nine controls** and **three observability requirements**.
 
 Every action carries: **accountable party**, **operational owner**, **tenant**, **agent-type-id**, **agent-instance-id**, and **trace context**. (Optional: region, trust domain.)
 
-The **agent-type-id** is a content hash — a fingerprint — over the container digest, harness, system prompt, model id, and config. Any change to the agent produces a new id, so a silently changed configuration is detectable. See **[otel-conventions.md](otel-conventions.md)** for the proposed OpenTelemetry attribute keys (`agent.type.id`, `agent.instance.id`, `agent.context.size`, `agent.parent.prompt`).
+The **agent-type-id** is a content hash — a fingerprint — over the container digest, harness, system prompt, model identifier/version (including checkpoint and fine-tune/adapter references where applicable), and config. Recompute it when recorded inputs change and compare running artifacts with the approved manifest to detect drift. A local hash cannot prove that undisclosed hosted-provider state is unchanged. Record model and owned-training lineage using the [model provenance fields](CHECKLIST-VERIFICATION.md#model-provenance-fields). See **[otel-conventions.md](otel-conventions.md)** for the proposed OpenTelemetry attribute keys (`agent.type.id`, `agent.instance.id`, `agent.context.size`, `agent.parent.prompt`).
 
 ---
 
@@ -72,11 +72,13 @@ The **agent-type-id** is a content hash — a fingerprint — over the container
 
 Most teams cannot build all twelve elements at once, and should not wait until they can. The priority order:
 
-- **Tier 1 — prevent damage, preserve attribution.** Harness destructive-verb interception (Control 4), capability-scoped tokens (Control 2), a tested kill switch (Control 8), an audit trail (Control 9), and the six identity fields (T1). This bounds the worst incidents and guarantees you can reconstruct what happened.
+- **Tier 1 — prevent damage, preserve attribution.** Harness destructive-verb interception (Control 4), capability-scoped tokens (Control 2), a tested kill switch (Control 8), an audit trail (Control 9), and the six identity fields (T1). These controls bound damage and support reconstruction when enforcement and audit coverage are demonstrated.
 - **Tier 2 — harden the substrate, surface invisible failures.** Architecture/egress isolation (Control 1), a signed and minimal container (Control 3), input validation (Control 5), context-size logging (T2).
 - **Tier 3 — active detection.** Behavioral monitoring with sequence-pattern baselines (Control 7), memory provenance and scoping (Control 6), sub-agent and parent-prompt provenance (T3).
 
-Adopting only part of BRACE means you are accepting the rest of the risk **on purpose**, not removing it.
+The [checklist](CHECKLIST.md) applies these priorities as **G1/G2/G3** gates to individual items: G1 gaps block release; G2 gaps need explicit, time-bounded acceptance; G3 gaps block high-stakes or high-autonomy deployments and require documented acceptance for lower-stakes deployments. Operational fallbacks may reduce functionality or introduce manual work; they do not automatically turn a gap into a pass.
+
+Use the checklist as the source of requirements, the [verification guide](CHECKLIST-VERIFICATION.md) for exercises and evidence, and the [self-assessment](SELF-ASSESSMENT.md) to score the same item IDs. The website guides explain the principles and link to those items.
 
 ---
 
@@ -128,9 +130,9 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 
 | File | What it is |
 |------|------------|
-| [CHECKLIST.md](CHECKLIST.md) | The sign-off review covering all five BRACE aspects. |
+| [CHECKLIST.md](CHECKLIST.md) | The 53-item sign-off review, with operational challenges, fallbacks, and tradeoffs. |
 | [CHECKLIST-VERIFICATION.md](CHECKLIST-VERIFICATION.md) | Practical verification recipes for every checklist item, including model and training provenance fields. |
-| [SELF-ASSESSMENT.md](SELF-ASSESSMENT.md) | Scoreable self-assessment / vendor-evaluation question set. |
+| [SELF-ASSESSMENT.md](SELF-ASSESSMENT.md) | Scoring worksheet for the same 53 checklist item IDs and gates. |
 | [otel-conventions.md](otel-conventions.md) | Proposed OpenTelemetry attributes for agent identity and provenance. |
 | [VENDOR-MATRIX.md](VENDOR-MATRIX.md) | Which cloud and open-source offerings cover each control. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose changes, report incidents, or map a vendor product. |

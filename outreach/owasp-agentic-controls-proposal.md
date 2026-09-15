@@ -55,7 +55,7 @@ Every ASI risk maps to at least two controls; most map to more. The same mapping
 ## Why this fits OWASP
 
 - **It composes with the Top 10 rather than competing.** The list stays the canonical risk catalog; the controls layer is the build-and-verify companion many adopters already ask for.
-- **It's actionable for engineers.** A two-page sign-off checklist and a tiered adoption order (ship Tier 1 first) turn the Top 10 from an awareness artifact into a deployment gate.
+- **It's actionable for engineers.** A sign-off checklist covering all five BRACE aspects, with verification recipes and operational tradeoffs, and a tiered adoption order (ship Tier 1 first) turn the Top 10 from an awareness artifact into a deployment gate.
 - **It's vendor-neutral and openly licensed.** BRACE is CC BY 4.0, maps to MITRE ATLAS as well, and names where each cloud and open-source ecosystem currently falls short.
 
 ## The ask

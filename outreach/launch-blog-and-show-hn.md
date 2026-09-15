@@ -42,7 +42,7 @@ That's twelve things. You don't ship them all at once.
 
 Two things to grab first.
 
-The **sign-off checklist** is a one-page go/no-go gate — the questions to answer before an autonomous agent ships. It fits on a page on purpose. If you take nothing else, take that.
+The **sign-off checklist** covers all five BRACE aspects with 53 checks, operational challenges, fallbacks, and acceptable tradeoffs. A companion verification guide gives procedures and evidence for each item, and the self-assessment scores the same IDs. If you take nothing else, start there.
 
 Then ship in tier order. **Tier 1** is the five controls that stop the incidents above:
 
@@ -76,7 +76,7 @@ Show HN: BRACE – a controls layer for autonomous-agent security
 
 **Body:**
 
-BRACE is a checklist of nine controls plus three observability requirements for securing autonomous AI agents — the kind that take actions without a human reviewing each one. It's for engineers shipping agents who already know the threat taxonomies (OWASP, MITRE, NIST) but need to decide what to actually build, and in what order. The core idea: an agent is a runtime configuration (container, harness, prompt, tools, memory, identity), so you secure the configuration, not the code. One-page sign-off checklist and the full paper are in the repo: [checklist](https://github.com/PLACEHOLDER/brace) · [site](https://PLACEHOLDER.example).
+BRACE is a checklist of nine controls plus three observability requirements for securing autonomous AI agents — the kind that take actions without a human reviewing each one. It's for engineers shipping agents who already know the threat taxonomies (OWASP, MITRE, NIST) but need to decide what to actually build, and in what order. The core idea: an agent is a runtime configuration (container, harness, prompt, tools, memory, identity), so you secure the configuration, not the code. Sign-off checklist, verification guide, and the full paper are in the repo: [checklist](https://github.com/PLACEHOLDER/brace) · [site](https://PLACEHOLDER.example).
 
 ---
 

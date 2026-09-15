@@ -1,251 +1,146 @@
 # BRACE Self-Assessment and Vendor-Evaluation Question Set
 
-BRACE is a vendor-neutral control framework for securing autonomous AI
-agents — software that takes actions on its own, calls tools, and runs
-without a human approving each step. The name encodes the five concerns it
-organizes: **B**uild-time, **R**un-time, **A**gent, **C**onfiguration,
-**E**cosystem. The framework defines nine controls plus a small set of
-observability (logging and tracing) requirements. This document turns those
-into questions you can score.
+Score the same **53 items** used in the [BRACE sign-off checklist](CHECKLIST.md), across **Build-time, Run-time, Agent, Configuration, and Ecosystem**. The checklist is the source of the full requirements, operational challenges, fallbacks, and acceptable tradeoffs. The [verification guide](CHECKLIST-VERIFICATION.md) supplies a procedure, expected result, and evidence for every matching item ID.
 
 Part of the BRACE Project. License: CC BY 4.0.
 
 ## How to use this
 
-There are two ways to run it. Both use the same questions.
+Assess a named release and environment, or ask a vendor to demonstrate each requirement for the configuration you would actually use. Read the full checklist item before scoring its short label below. Record the agent-team and platform/vendor responsibilities separately; score the combined evidence for the deployment.
 
-- **Score your own deployment.** Go through each question and mark how your
-  current setup answers it. You are auditing what you actually run, not what
-  you intend to build.
-- **Ask a vendor.** Reframe each question as "Does your platform do this?"
-  and put it to the team selling you an agent platform or product. Their
-  answers, and what they can show you, tell you how much of the work you
-  will inherit.
+### Scoring and checklist outcomes
 
-### Scoring
+| Score | Meaning | Checklist outcome |
+|---|---|---|
+| **2 — Yes** | The full applicable requirement is implemented and demonstrated with evidence. | Pass |
+| **1 — Partial** | Evidence demonstrates only part of the requirement or part of the deployment. | Gap |
+| **0 — No** | The requirement is absent or cannot be demonstrated. A claim alone earns no credit. | Gap |
+| **N/A** | The feature/exposure is absent, with evidence and an approved rationale. | N/A; exclude from score denominator |
 
-Score every item:
+A fallback can earn 2 only when it demonstrably meets the requirement for the assessed configuration. Accepted risk does not turn a Partial or No into a Yes. Provider-undisclosed details must be labeled as such; apply the model-provenance and pinning rules in C01/C05 rather than awarding or withholding credit on an invented version.
 
-- **Yes = 2** — the control is in place and you can show the evidence.
-- **Partial = 1** — it is partly there, or there for some agents but not all.
-- **No = 0** — it is not in place, or you cannot show it.
+### Priority gates
 
-A "yes" you cannot back up with evidence is a "no." If someone claims a
-control but cannot produce the log, config, or drill record that proves it,
-score it 0.
+The **G1/G2/G3** labels match the checklist and BRACE's adoption priorities. **Obs-T1/Obs-T2/Obs-T3** identify observability requirements, not gate levels.
 
-### Tiers
+- **G1:** Every applicable item must score 2; any Partial or No blocks sign-off.
+- **G2:** Every applicable item must score 2 or have a valid, explicit, time-bounded risk acceptance.
+- **G3:** Every applicable item must score 2 for high-stakes or high-autonomy deployments. For lower-stakes deployments, a Partial or No requires valid, explicit, time-bounded risk acceptance.
 
-Each question is tagged with an adoption tier. The tiers are the
-recommended order of adoption.
+Classify stakes and autonomy before assessing gaps. Record owners, evidence, N/A approvals, and exceptions using the [checklist records](CHECKLIST.md#evidence-and-exception-record). A vendor service does not make its responsibilities N/A.
 
-- **T1 (Tier 1)** — prevent damage and establish attribution. These are the
-  go/no-go items. **Any Tier-1 item you cannot answer Yes is a blocker.**
-- **T2 (Tier 2)** — harden the substrate the agent runs on.
-- **T3 (Tier 3)** — active detection of misbehavior.
+## Assessment worksheet
 
-Each control also has two halves: an **agent-scoped** half (specific to one
-agent type) and an **ecosystem-scoped** half (the shared substrate every
-agent runs on). Where it matters, the question says which half it asks about.
+For each row ask: **Does this deployment meet the full linked checklist requirement, and can we demonstrate it?** Add a score and an evidence or gap reference. Short labels below provide navigation; they do not narrow the linked requirement.
 
----
+### B — Build-time
 
-## Build-time controls
+[Full requirements and operational notes](CHECKLIST.md#b--build-time) · [Verification recipes](CHECKLIST-VERIFICATION.md#b--build-time)
 
-These cover the environment, credentials, container image, and harness — the
-parts fixed before an agent ever runs. (The "harness" is the wrapper that
-gives the model its tools, system prompt, and limits.)
+| Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
+|---|---|---|---|---|---|
+| B01 | G1 | C4 | Minimal tool surface | | |
+| B02 | G1 | C2 | Least-privilege access | | |
+| B03 | G2 | C2 | Credential lifetime and handling | | |
+| B04 | G1 | C2 | Independent revocation | | |
+| B05 | G1 | C4 | Destructive-action interception | | |
+| B06 | G1 | C4 | Approval integrity | | |
+| B07 | G2 | C4 | Hard execution budgets | | |
+| B08 | G2 | C1 | Environment isolation | | |
+| B09 | G2 | C1 | Egress allowlist | | |
+| B10 | G2 | C3 | Pinned, verified image | | |
+| B11 | G2 | C3 | Minimal, isolated runtime | | |
+| B12 | G1 | C4 | Reviewed harness and instructions | | |
 
-### Control 1 — Architecture (environment isolation, network egress)
+### R — Run-time
 
-- **[C1 / T2]** Is the agent's environment isolated from production at the
-  infrastructure layer (separate account, VPC, or cluster), not just
-  network-segmented inside one environment?
-- **[C1 / T2]** Does the agent have no network route to endpoints it is not
-  authorized to call — that is, is outbound traffic (egress) restricted to a
-  named allowlist with no vendor exceptions?
-- **[C1 / T2]** Is multi-tenant isolation enforced by an infrastructure
-  primitive, not by application code?
+[Full requirements and operational notes](CHECKLIST.md#r--run-time) · [Verification recipes](CHECKLIST-VERIFICATION.md#r--run-time)
 
-### Control 2 — Capability-scoped API access (least-privilege tokens)
+| Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
+|---|---|---|---|---|---|
+| R01 | G2 | C5 | Validate every input boundary, including API responses | | |
+| R02 | G2 | C5 | Separate data from instructions and test injection containment | | |
+| R03 | G2 | C5/C9 | Prevent output and log leakage | | |
+| R04 | G2 | C5/C6 | Retrieval-corpus integrity | | |
+| R05 | G3 | C6 | Memory isolation and write validation | | |
+| R06 | G3 | C6 | Memory provenance and cleanup | | |
+| R07 | G2 | Obs-T2 | Decision-time context size | | |
+| R08 | G3 | C7 | Security monitoring | | |
+| R09 | G3 | C7/Obs-T2 | Sequence and context-aware detection | | |
+| R10 | G3 | C7 | Misaligned-behavior review | | |
+| R11 | G1 | C8 | Tested kill switch | | |
+| R12 | G1 | C8 | Safe state after stopping | | |
+| R13 | G1 | C9 | Full execution audit | | |
+| R14 | G2 | C9 | Recovery integrity | | |
 
-- **[C2 / T1]** Does the agent's token grant specific capabilities (for
-  example `read:invoices`) rather than wildcard or whole-service scope (for
-  example `invoices:*`)?
-- **[C2 / T1]** Can the agent's credentials be revoked on their own, without
-  having to stop the process — a working breakglass?
-- **[C2 / T2]** Is each agent type's capability set reviewed on a set cadence,
-  with stale capabilities removed?
+### A — Agent
 
-### Control 3 — Container (signed, minimal, kernel-isolated)
+[Full requirements and operational notes](CHECKLIST.md#a--agent) · [Verification recipes](CHECKLIST-VERIFICATION.md#a--agent)
 
-- **[C3 / T2]** Is the container image signed and verified at runtime before
-  it is allowed to run?
-- **[C3 / T2]** Is the image minimal — unused binaries such as `curl`,
-  `bash`, `dig`, and `nc` are absent?
-- **[C3 / T2]** Does the runtime use kernel isolation (such as gVisor,
-  Firecracker, or Kata) when it processes untrusted input?
+| Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
+|---|---|---|---|---|---|
+| A01 | G1 | C2/Obs-T1 | Distinct agent identity | | |
+| A02 | G1 | Obs-T1 | All six identity fields | | |
+| A03 | G1 | Obs-T1 | Content-derived type identity | | |
+| A04 | G1 | C9/Obs-T1 | Trustworthy attribution | | |
+| A05 | G1 | C8/C9/Obs-T1 | Operational lookup | | |
+| A06 | G3 | Obs-T3 | Parent and prompt provenance | | |
+| A07 | G3 | C7/Obs-T1 | Every model in the loop | | |
 
-### Control 4 — Harness (tool/argument/limit scoping, destructive-verb interception)
+### C — Configuration
 
-- **[C4 / T1]** Are destructive actions (delete, drop, force-push, payment
-  changes, external sends) intercepted by default — denied unless explicitly
-  pre-authorized (default-deny)?
-- **[C4 / T1]** Does the harness expose only the tools this agent type needs
-  (a role-scoped allowlist), rather than every tool by default?
-- **[C4 / T1]** Is the system prompt versioned in source control and not
-  editable from a web UI?
-- **[C4 / T2]** Does the harness enforce hard limits on iterations,
-  wall-clock time, tokens, and per-run dollar cost, with a record when a
-  limit is hit?
+[Full requirements and operational notes](CHECKLIST.md#c--configuration) · [Verification recipes](CHECKLIST-VERIFICATION.md#c--configuration)
 
----
+| Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
+|---|---|---|---|---|---|
+| C01 | G2 | C1–C6/Obs-T1 | Complete release manifest | | |
+| C02 | G2 | C1–C7 | Review security-relevant changes | | |
+| C03 | G1 | Obs-T1 | Match release identity to running state | | |
+| C04 | G2 | C1/C3/C4/Obs-T1 | Detect drift per agent | | |
+| C05 | G2 | C3/C4/C7 | Control dependency, model, and training changes | | |
+| C06 | G2 | C4–C9 | Re-test changed behavior | | |
+| C07 | G2 | C8/C9 | Rollback and restart | | |
+| C08 | G2 | Obs-T1/Obs-T2/Obs-T3 | Connect configuration to execution | | |
 
-## Run-time controls
+### E — Ecosystem
 
-These cover what happens while the agent is running: the data it ingests,
-the memory it carries, and how its behavior is watched.
+[Full requirements and operational notes](CHECKLIST.md#e--ecosystem) · [Verification recipes](CHECKLIST-VERIFICATION.md#e--ecosystem)
 
-### Control 5 — Data (untrusted-input validation at the boundary)
-
-- **[C5 / T2]** Is external data validated at the infrastructure boundary,
-  before it reaches the model — not left to the model to judge?
-- **[C5 / T2]** Are untrusted-data channels kept structurally separate from
-  instruction channels, so retrieved content cannot pose as a command?
-
-### Control 6 — Memory (per-instance/per-type scoping, per-entry provenance)
-
-- **[C6 / T3]** Is memory scoped per agent instance and per agent type, with
-  cross-type reads denied by default?
-- **[C6 / T3]** For any memory entry, can you query its provenance — which
-  agent wrote it, when, at what context size, and under what task?
-
-### Control 7 — Behavioral (security-anomaly monitoring)
-
-- **[C7 / T3]** Is security monitoring run separately from quality
-  monitoring — different baselines, thresholds, and on-call — so a security
-  anomaly is not buried in quality noise?
-- **[C7 / T3]** Do alerts cover evasion and abuse patterns (for example
-  base64 obfuscation, self-replication, or data-exfiltration attempts),
-  with baselines stratified by context-size bin rather than one flat
-  threshold?
-
----
-
-## Closure controls
-
-These let you stop an agent and reconstruct what it did.
-
-### Control 8 — Kill switch (tested, recursive, safe-state)
-
-- **[C8 / T1]** Has the kill switch been tested recently (within the last 90
-  days), with a drill record to show for it?
-- **[C8 / T1]** Does killing a parent agent propagate recursively to its
-  running sub-agents?
-- **[C8 / T1]** Does a kill leave in-progress work in a safe state — no
-  half-written transactions, no orphaned external side effects?
-
-### Control 9 — Audit trail (full execution graph)
-
-- **[C9 / T1]** Does the audit log capture every action — identity fields,
-  context size, tool calls, decisions, and outcomes — not just the final
-  output?
-- **[C9 / T2]** Is audit retention defined per agent risk class, with the
-  retention decision itself logged?
-
----
-
-## Observability requirements
-
-Three logging and tracing requirements that make every other control
-auditable.
-
-### T1 — Required identity fields
-
-- **[Obs-T1 / T1]** Does every action emit all six required identity fields:
-  accountable party, operational owner, tenant, agent-type-id,
-  agent-instance-id, and trace context?
-- **[Obs-T1 / T1]** Is the **agent-type-id** a content hash computed over the
-  container image digest, harness, system prompt, model id, and config — so
-  any change to what the agent is produces a new id?
-
-### T2 — Context-size logging
-
-- **[Obs-T2 / T2]** Does every action log the context size at the moment the
-  action fired? (Context size correlates with degraded behavior, so it
-  belongs on every record.)
-
-### T3 — Sub-agent and parent-prompt provenance
-
-- **[Obs-T3 / T3]** Is the parent-child relationship propagated in the trace
-  context, so a sub-agent's lineage back to its parent is queryable?
-- **[Obs-T3 / T3]** Is the parent-generated system prompt captured as audit
-  data on the sub-agent's record?
-
----
+| Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
+|---|---|---|---|---|---|
+| E01 | G2 | C1–C9 | Map shared responsibilities | | |
+| E02 | G2 | C3/C5 | Vet and pin dependencies | | |
+| E03 | G2 | C5 | Re-check tools on load | | |
+| E04 | G2 | C5 | Inspect tool metadata | | |
+| E05 | G2 | C2/C5 | Verified, namespaced tools | | |
+| E06 | G2 | C1/C2/C4/C5/C9 | Enforced gateway boundary | | |
+| E07 | G2 | C2/C5 | Untrusted peer messages | | |
+| E08 | G1 | C2/C4 | Bounded delegated authority | | |
+| E09 | G1 | C8 | Recursive shutdown | | |
+| E10 | G1 | C9/Obs-T1 | Audit across service boundaries | | |
+| E11 | G2 | C9 | Protect shared evidence | | |
+| E12 | G3 | C7/C8 | Fleet incident response | | |
 
 ## Reading your score
 
-There are 24 items above, for a maximum of 48 points. Two readings matter:
-the total, and the Tier-1 gate.
+With all 53 items applicable, the maximum is **106 points**. If some items have approved N/A outcomes, use:
 
-**The Tier-1 gate comes first.** Find every item tagged **T1** and check
-that each scored **2 (Yes)**. The Tier-1 items are:
+**Coverage score = points earned / (2 × number of applicable items).**
 
-- C2 — capability-scoped tokens (and independent revocation)
-- C4 — destructive-verb interception, tool allowlist, versioned prompt
-- C8 — tested, recursive, safe-state kill switch
-- C9 — full audit trail
-- Obs-T1 — six required identity fields, content-hash agent-type-id
+Report the applicable item count, N/A count, points earned, and denominator together. If no items are applicable, the score is undefined; revisit the assessment scope rather than reporting readiness. Compare scores only for comparable scopes and applicability decisions.
 
-**Any unmet Tier-1 item is a blocker, regardless of your total score.** A
-deployment that scores well overall but cannot stop a runaway agent (C8) or
-cannot attribute its actions (Obs-T1) is not ready. Fix Tier-1 gaps before
-anything else.
+The score tracks demonstrated implementation; it is not a security rating or release authorization. Report the count of unresolved G1 gaps and the status of G2/G3 exceptions separately. A high score cannot compensate for one blocker, and lower-stakes risk acceptance does not erase the gap from the score.
 
-Once the Tier-1 gate is clear, read the total as a rough measure of how far
-the substrate is hardened:
-
-- **40–48** — strong. Build-time and run-time substrate is largely covered.
-  Close the remaining partials.
-- **28–39** — solid foundation, real gaps. Tier-1 is likely met; Tier-2 and
-  Tier-3 hardening is incomplete. Prioritize the lowest-scored controls.
-- **14–27** — early. You have started but the substrate is thin. Confirm the
-  Tier-1 gate, then work Tier-2 in order.
-- **0–13** — high exposure. Treat any autonomous deployment as provisional
-  until at least the Tier-1 items are in place.
-
-The total is a guide, not a grade. A high total with one unmet Tier-1 item
-is still a no-go.
-
----
+Finish with the [checklist's final sign-off](CHECKLIST.md#final-sign-off), including its next-review and re-review triggers. Reassess capabilities on that cadence and remove stale access; re-test after meaningful changes.
 
 ## Using this to evaluate a vendor
 
-Ask the vendor the same questions, phrased as "Does your platform do this,
-and can you show me?" Score their answers the same way: Yes = 2, Partial =
-1, No = 0, and a claim with no evidence is a 0.
-
-What a good answer looks like:
-
-- **It points to a concrete artifact, not a slogan.** For C4, a good answer
-  shows the destructive-verb list and a sample denied-action record, not
-  "our platform is secure by design."
-- **It says what you own versus what they own.** A vendor who answers
-  "Partial" and explains which half you have to build is being honest about
-  the work you inherit.
-- **It distinguishes the two halves.** Many platforms cover the
-  ecosystem-scoped half (shared isolation, egress, audit plumbing) but leave
-  the agent-scoped half (per-agent-type tool allowlists, capability tokens,
-  prompt review) to you. Ask which half each "Yes" refers to.
-- **It cannot answer Tier-1 with a maybe.** If a vendor cannot demonstrate a
-  tested kill switch (C8), capability-scoped tokens (C2), or the six identity
-  fields on every action (Obs-T1), treat that as a coverage gap, not a
-  detail to settle later.
-
-A vendor who answers "Partial" across many items is signaling work the buyer
-will inherit. A vendor who cannot answer at all is signaling a coverage gap.
+- Request concrete artifacts: scoped-token metadata, denial records, release/model manifests, drill results, and attributable traces.
+- Ask which controls the platform supplies and which your team must configure or implement. A platform feature that is disabled in your deployment does not pass.
+- For hosted models, request disclosed version metadata and distinguish it from undisclosed pretraining lineage. For your own fine-tuning, retain your job and dataset records even if the base provider withholds theirs.
+- Discuss the operational notes beneath difficult checklist items. Name the limitations and acceptable costs, then record any permitted risk acceptance with an owner and expiry.
+- Treat missing required evidence as a gap. If it blocks sign-off, reduce the deployment's actual capabilities or select an integration that can meet the requirement, then re-test.
 
 ---
 
-*Part of BRACE, a security framework for autonomous AI agents. CC BY 4.0.*
+*Part of [BRACE](README.md), a security framework for autonomous AI agents. CC BY 4.0.*
