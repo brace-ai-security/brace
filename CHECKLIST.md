@@ -21,6 +21,8 @@ The goal is to implement the strongest controls you can demonstrate for the depl
 
 For each fallback, record **the bounded claim, where it applies, evidence, remaining uncertainty, the failure response, an owner, and a next review date**. A fallback is not automatically a Pass: evaluate whether it meets the original requirement. Where it does not, retain the Gap and apply the priority rules below. If a gap blocks release, reduce the agent's capabilities or autonomy, or remove the affected integration, then re-test that actual configuration. Reassess risk based on the changed behavior; do not merely relabel the deployment to avoid a gate. Improve coverage over time without claiming guarantees the evidence cannot establish.
 
+**Start with the top three in each aspect.** The bold **IF YOU DO NOTHING ELSE** items are the first implementation priorities within that aspect. They are existing checklist items, counted once. They are a starting point, not sufficient production sign-off: all applicable G1 requirements and the G2/G3 rules still apply.
+
 ### Priority gates
 
 | Label | Sign-off rule |
@@ -39,20 +41,27 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 [Read the Build-time guide](guides/build-time/index.html). [Verification recipes for this section](CHECKLIST-VERIFICATION.md#b--build-time).
 
-### Capabilities and credentials
+### **IF YOU DO NOTHING ELSE — TOP 3**
 
-- [ ] **B01 · G1 · C4 — Minimal tool surface.** List every built-in tool, MCP server, API, executable, and filesystem capability exposed to this agent type, with a task-specific justification. Enforce a role-scoped allowlist; verify an unlisted tool cannot be invoked.
-- [ ] **B02 · G1 · C2 — Least-privilege access.** Scope credentials to named operations and resources, including tenant boundaries. Test that an allowed read succeeds while an out-of-scope write, admin operation, and cross-tenant request are denied. Remove wildcard and inherited human permissions.
+- [ ] **B05 · G1 · C4 — Destructive-action interception.** **Define high-impact operations, including deletion, destructive database updates, force-pushes, infrastructure teardown, payment changes, and external sends. Deny them by default in the execution path unless an authorized higher-tier approval permits the specific action. Test alternate tools and raw API or shell paths that could perform the same operation.**
+
+- [ ] **B02 · G1 · C2 — Least-privilege access.** **Scope credentials to named operations and resources, including tenant boundaries. Test that an allowed read succeeds while an out-of-scope write, admin operation, and cross-tenant request are denied. Remove wildcard and inherited human permissions.**
+
+- [ ] **B01 · G1 · C4 — Minimal tool surface.** **List every built-in tool, MCP server, API, executable, and filesystem capability exposed to this agent type, with a task-specific justification. Enforce a role-scoped allowlist; verify an unlisted tool cannot be invoked.**
+
+### Remaining checks
+
+#### Capabilities and credentials
+
 - [ ] **B03 · G2 · C2 — Credential lifetime and handling.** Issue short-lived credentials through a controlled identity or secrets service. Keep standing secrets out of prompts, images, and checked-in configuration. Demonstrate expiration and rotation, and justify the chosen lifetime.
 - [ ] **B04 · G1 · C2 — Independent revocation.** Demonstrate that an operator can revoke this agent's access independently of the launching user and without relying on the agent to cooperate. Verify that subsequent requests fail, including from an already-open session.
 
-### Harness enforcement
+#### Harness enforcement
 
-- [ ] **B05 · G1 · C4 — Destructive-action interception.** Define high-impact operations, including deletion, destructive database updates, force-pushes, infrastructure teardown, payment changes, and external sends. Deny them by default in the execution path unless an authorized higher-tier approval permits the specific action. Test alternate tools and raw API or shell paths that could perform the same operation.
 - [ ] **B06 · G1 · C4 — Approval integrity.** Bind approval to the actual operation, target, arguments, and permitted scope. Show the reviewer the intended effect. Test that changed arguments, an expired approval, or an unauthorized approver cannot release the action, and that approval-service failure does not silently permit it.
 - [ ] **B07 · G2 · C4 — Hard execution budgets.** Enforce limits outside the model for iterations, elapsed time, tokens, cost, tool-call rate, and sub-agent fan-out. Exercise each applicable limit and record how execution stops or escalates when it is reached.
 
-### Environment and build artifacts
+#### Environment and build artifacts
 
 - [ ] **B08 · G2 · C1 — Environment isolation.** Document the agent's reachable systems and data. Test that it has no route to unauthorized production resources, the admin plane, host services, or other tenants. Enforce isolation through the infrastructure, not solely through prompt instructions. For every allowed connection, also verify inbound and response validation under **R01–R02**, including API responses and messages from connected services; network access does not make their content trusted.
 - [ ] **B09 · G2 · C1 — Egress allowlist.** Allow only task-required outbound destinations. Test a prohibited destination and attempted bypass paths, including direct access around a proxy or gateway. Record the denial and confirm it reaches the responsible operator.
@@ -68,15 +77,29 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 [Read the Run-time guide](guides/run-time/index.html). [Verification recipes for this section](CHECKLIST-VERIFICATION.md#r--run-time).
 
-### Input, output, retrieval, and memory
+### **IF YOU DO NOTHING ELSE — TOP 3**
 
-- [ ] **R01 · G2 · C5 — Validate every input boundary, including API responses.** Inventory API responses (including errors and streamed content), tool and connector outputs, incoming webhooks/callbacks, peer messages, user input, fetched pages, files, and retrieved chunks. Authenticate senders and verify signatures where applicable; treat content from authenticated or internal services as untrusted too. Before content reaches model context or downstream execution, enforce expected types, schemas, size limits, and content validation, including checks for attack payloads and embedded prompt-injection instructions. Reject or quarantine invalid payloads; required validation failures must not silently admit unchecked content. Test malformed, oversized, spoofed, and adversarial responses from each integration.
+- [ ] **R11 · G1 · C8 — Tested kill switch.** **Name the authorized operator, stop mechanism, and risk-matched halt-time budget. Run a dated drill against the current deployment that stops new actions, running work, and tool sessions. Include descendants in the ecosystem drill (E09).**
+
+- [ ] **R13 · G1 · C9 — Full execution audit.** **Capture proposed actions, tool calls and relevant arguments, authorization decisions, denials, approvals, results, errors, and timestamps as an execution graph. Reconstruct a representative run from the record, including failed actions, rather than relying on its final answer.**
+
+  **Operational challenge:** Agent logs usually show attempted calls, while destination systems know whether side effects actually committed. A timeout can mean either failure or success with a lost response, so a complete-looking local trace may still have an unknown outcome.
+
+  **Practical fallback:** Assign operation IDs before dispatch and retain destination receipts or status queries where available. Reconcile attempts with destination records and represent unresolved outcomes explicitly; stop dependent actions and retries pending resolution. If an integration cannot provide evidence adequate for attribution and recovery, restrict or remove that execution path. Sampling and agent self-reports cannot substitute for the required action record.
+
+  **Acceptable tradeoffs:** Accept pausing dependent work while an ambiguous result is resolved. Keep the attempt, uncertainty, and eventual resolution in the graph. Limited automation is an acceptable cost; missing or fabricated action evidence is not a passing G1 result.
+
+- [ ] **R01 · G2 · C5 — Validate every input boundary, including API responses.** **Inventory API responses (including errors and streamed content), tool and connector outputs, incoming webhooks/callbacks, peer messages, user input, fetched pages, files, and retrieved chunks. Authenticate senders and verify signatures where applicable; treat content from authenticated or internal services as untrusted too. Before content reaches model context or downstream execution, enforce expected types, schemas, size limits, and content validation, including checks for attack payloads and embedded prompt-injection instructions. Reject or quarantine invalid payloads; required validation failures must not silently admit unchecked content. Test malformed, oversized, spoofed, and adversarial responses from each integration.**
 
   **Operational challenge:** An API response can be well-formed, correctly signed, and still contain malicious instructions. Free text and streamed responses are especially difficult to inspect completely; a passing schema check establishes structure, not safety.
 
   **Practical fallback:** Enforce types, size limits, sender checks, and rejection of malformed content first. Add content checks for demonstrated attack patterns, and buffer or restrict streams where required checks cannot run before use. Keep privileges narrow and use R02 to contain instructions that pass inspection. Record which integrations and payload types were exercised and which remain unverified.
 
   **Acceptable tradeoffs:** Accept buffering latency, rejection of some legitimate responses, or a smaller supported payload set. Incomplete semantic attack detection can receive G2 risk acceptance with tested containment and explicit coverage limits; schema validation is not complete injection protection.
+
+### Remaining checks
+
+#### Input, output, retrieval, and memory
 
 - [ ] **R02 · G2 · C5 — Separate data from instructions and test injection containment.** Keep API responses, connector messages, and other external content out of trusted system and policy channels; label their source and trust level. Test prompt injection in otherwise schema-valid responses, including free-text fields, error messages, documents, and tool output. Validation and channel separation cannot guarantee prevention of prompt injection: demonstrate that credential scopes, tool authorization, and destructive-action gates still block harmful actions if the model follows an injected instruction.
 
@@ -111,8 +134,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
   **Acceptable tradeoffs:** Accept loss of useful memories and the cost of resetting a wider namespace when precise cleanup is impossible. Missing provenance remains a G3 gap; record what was discarded and how trusted memory will be rebuilt.
 
-
-### Detection and operational limits
+#### Detection and operational limits
 
 - [ ] **R07 · G2 · Obs-T2 — Decision-time context size.** Log context size for each action at decision time, using a documented unit. Verify it survives tool handoffs and is queryable alongside the action's identity and outcome; see the [telemetry conventions](otel-conventions.md).
 - [ ] **R08 · G3 · C7 — Security monitoring.** Maintain security rules and baselines distinct from answer-quality monitoring. Exercise encoded payloads, unexpected egress, out-of-scope writes, privilege escalation, and repeated denied calls; verify that alerts reach a named responder.
@@ -132,10 +154,8 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
   **Acceptable tradeoffs:** Accept uncertainty about hidden intent while limiting claims to measured behavioral signals; this checklist does not certify alignment. Accept reduced autonomy and additional review. Missing required behavioral detection remains subject to G3.
 
+#### Stop, explain, and recover
 
-### Stop, explain, and recover
-
-- [ ] **R11 · G1 · C8 — Tested kill switch.** Name the authorized operator, stop mechanism, and risk-matched halt-time budget. Run a dated drill against the current deployment that stops new actions, running work, and tool sessions. Include descendants in the ecosystem drill (E09).
 - [ ] **R12 · G1 · C8 — Safe state after stopping.** Define what happens to in-flight writes, queued actions, and external side effects. Demonstrate reconciliation or compensation where cancellation is impossible, with no unattended restart or orphaned work left able to act.
 
   **Operational challenge:** An external action may already be committed when the stop signal arrives. Emails cannot be unsent reliably, and payments, writes, and queued jobs have different cancellation and reconciliation behavior.
@@ -143,14 +163,6 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
   **Practical fallback:** Keep a per-operation record of what can be blocked, cancelled, or only reconciled. Stop new dispatch, disable retries, inspect destination state, and route ambiguous outcomes to a named operator. For operations without a workable recovery path, remove autonomous execution or use an approved draft/commit workflow. Measure stopping new work separately from resolving committed effects; stopping the process alone does not pass this check.
 
   **Acceptable tradeoffs:** Accept slower manual reconciliation and restricted autonomous actions. Identified committed effects may require reconciliation rather than reversal under the documented safe-state procedure. Untracked effects or work retaining authority beyond the stop budget remain blocking.
-
-- [ ] **R13 · G1 · C9 — Full execution audit.** Capture proposed actions, tool calls and relevant arguments, authorization decisions, denials, approvals, results, errors, and timestamps as an execution graph. Reconstruct a representative run from the record, including failed actions, rather than relying on its final answer.
-
-  **Operational challenge:** Agent logs usually show attempted calls, while destination systems know whether side effects actually committed. A timeout can mean either failure or success with a lost response, so a complete-looking local trace may still have an unknown outcome.
-
-  **Practical fallback:** Assign operation IDs before dispatch and retain destination receipts or status queries where available. Reconcile attempts with destination records and represent unresolved outcomes explicitly; stop dependent actions and retries pending resolution. If an integration cannot provide evidence adequate for attribution and recovery, restrict or remove that execution path. Sampling and agent self-reports cannot substitute for the required action record.
-
-  **Acceptable tradeoffs:** Accept pausing dependent work while an ambiguous result is resolved. Keep the attempt, uncertainty, and eventual resolution in the graph. Limited automation is an acceptable cost; missing or fabricated action evidence is not a passing G1 result.
 
 - [ ] **R14 · G2 · C9 — Recovery integrity.** Where logs or checkpoints drive recovery, make them tamper-evident and verify them before use. Reject a modified checkpoint in a test. Replay an interrupted run with idempotency protections and confirm that irreversible sends, writes, or payments are not executed twice.
 
@@ -160,7 +172,6 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
   **Acceptable tradeoffs:** Accept manual recovery, delayed completion, and disabling automatic replay for unsupported integrations. Do not describe blind retries of ambiguous irreversible actions as safe replay. Remaining recovery-control gaps require permitted G2 acceptance.
 
-
 **Evidence to attach:** boundary and leakage tests; retrieval and memory provenance samples; context-size traces; triggered alerts; kill-switch timing; a reconstructed run; tamper and replay tests.
 
 ## A — Agent
@@ -169,15 +180,22 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 [Read the Agent guide](guides/agent/index.html). [Verification recipes for this section](CHECKLIST-VERIFICATION.md#a--agent).
 
-- [ ] **A01 · G1 · C2/Obs-T1 — Distinct agent identity.** Give the agent its own non-human identity, separate from the launching user and unrelated agents. Demonstrate that permissions and revocation attach to that identity, even when a user initiates the run.
-- [ ] **A02 · G1 · Obs-T1 — All six identity fields.** Verify that every action records **accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context**. Inspect successful, denied, failed, and background actions, not only the main request path.
-- [ ] **A03 · G1 · Obs-T1 — Content-derived type identity.** Compute the agent-type-id from the container digest, harness, system prompt, model identifier/version (including checkpoint and fine-tune/adapter references where applicable), and configuration. Retain the input manifest and hash procedure. Verify that changing any included artifact changes the ID and that the same manifest reproduces it.
+### **IF YOU DO NOTHING ELSE — TOP 3**
+
+- [ ] **A01 · G1 · C2/Obs-T1 — Distinct agent identity.** **Give the agent its own non-human identity, separate from the launching user and unrelated agents. Demonstrate that permissions and revocation attach to that identity, even when a user initiates the run.**
+
+- [ ] **A02 · G1 · Obs-T1 — All six identity fields.** **Verify that every action records accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context. Inspect successful, denied, failed, and background actions, not only the main request path.**
+
+- [ ] **A03 · G1 · Obs-T1 — Content-derived type identity.** **Compute the agent-type-id from the container digest, harness, system prompt, model identifier/version (including checkpoint and fine-tune/adapter references where applicable), and configuration. Retain the input manifest and hash procedure. Verify that changing any included artifact changes the ID and that the same manifest reproduces it.**
 
   **Operational challenge:** A hash identifies the configuration inputs you can observe. It cannot prove that a hosted model's undisclosed weights or training history stayed unchanged behind the same alias.
 
   **Practical fallback:** Hash the exact local artifacts and available model/checkpoint/adapter references using a reproducible manifest. Record requested aliases separately from observed served versions and explicitly mark undisclosed information. State that the ID fingerprints this recorded configuration; manage remote mutability under C05. Never substitute the agent application release number for model identity or present a local hash as proof of hidden provider state.
 
   **Acceptable tradeoffs:** Accept a fingerprint limited to recorded configuration, with undisclosed provider internals explicitly outside that claim. Track remote mutability under C05. Missing hashes or model references for artifacts you control still fail this G1 requirement.
+
+### Remaining checks
+
 
 - [ ] **A04 · G1 · C9/Obs-T1 — Trustworthy attribution.** Assign instance and tenant identity through the trusted execution layer rather than accepting model-supplied labels. Test that the agent cannot impersonate another instance or tenant in requests or audit records, and that trace context survives asynchronous handoffs.
 - [ ] **A05 · G1 · C8/C9/Obs-T1 — Operational lookup.** Starting from a suspicious action, find the responsible team, current operator, deployment manifest, and live instance. Demonstrate targeting the correct instance or affected agent type for containment without revoking the launching user's unrelated access.
@@ -192,7 +210,9 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 [Read the Configuration guide](guides/configuration/index.html). [Verification recipes for this section](CHECKLIST-VERIFICATION.md#c--configuration).
 
-- [ ] **C01 · G2 · C1–C6/Obs-T1 — Complete release manifest.** Inventory the container, harness, system prompt, rules files, model, built-in tools, MCP servers, capability scopes, memory/retrieval settings, identity bindings, network rules, and execution budgets. Include security-policy versions and a separate **model provenance record for every primary agent model, sub-agent model, and auxiliary model**, including embeddings and rerankers. Record provider, model ID, exact version/checkpoint, and any adapter or fine-tune version. For training or fine-tuning you control, also record the training run/job ID, base-model version, training code/configuration version, dataset snapshot/version, and output artifact digest. The agent application release number alone is insufficient. Use the [model provenance fields](CHECKLIST-VERIFICATION.md#model-provenance-fields) to distinguish recorded versions from information a provider does not expose. Identify each artifact's owner and immutable reference where available.
+### **IF YOU DO NOTHING ELSE — TOP 3**
+
+- [ ] **C01 · G2 · C1–C6/Obs-T1 — Complete release manifest.** **Inventory the container, harness, system prompt, rules files, model, built-in tools, MCP servers, capability scopes, memory/retrieval settings, identity bindings, network rules, and execution budgets. Include security-policy versions and a separate model provenance record for every primary agent model, sub-agent model, and auxiliary model, including embeddings and rerankers. Record provider, model ID, exact version/checkpoint, and any adapter or fine-tune version. For training or fine-tuning you control, also record the training run/job ID, base-model version, training code/configuration version, dataset snapshot/version, and output artifact digest. The agent application release number alone is insufficient. Use the [model provenance fields](CHECKLIST-VERIFICATION.md#model-provenance-fields) to distinguish recorded versions from information a provider does not expose. Identify each artifact's owner and immutable reference where available.**
 
   **Operational challenge:** Teams can usually retrieve their own training jobs and datasets, but a hosted provider may not disclose pretraining runs, weights, or data versions. Missing owned records and unavailable provider information require different treatment.
 
@@ -200,8 +220,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
   **Acceptable tradeoffs:** Accept explicitly undisclosed provider pretraining details when your own model-selection and training records are complete. A G2 visibility or lineage gap may receive explicit acceptance with an owner and review date; unknown records must not become claimed versions.
 
-- [ ] **C02 · G2 · C1–C7 — Review security-relevant changes.** Require attributable diffs and review for changes to the manifest and its policies. Show who may change production configuration. Record emergency changes with an owner, reason, expiry, and follow-up review.
-- [ ] **C03 · G1 · Obs-T1 — Match release identity to running state.** Freeze the identity-defining artifacts per release and verify the running configuration against the approved manifest. Emit the corresponding agent-type-id. Test that an altered prompt, model, or tool configuration cannot continue presenting the old approved identity undetected.
+- [ ] **C03 · G1 · Obs-T1 — Match release identity to running state.** **Freeze the identity-defining artifacts per release and verify the running configuration against the approved manifest. Emit the corresponding agent-type-id. Test that an altered prompt, model, or tool configuration cannot continue presenting the old approved identity undetected.**
 
   **Operational challenge:** A manifest or self-reported agent ID can remain unchanged while the running prompt, tool configuration, or hosted model changes. Remote provider internals may be impossible to inspect independently.
 
@@ -209,7 +228,13 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
   **Acceptable tradeoffs:** Accept verification limited to controlled artifacts and observable provider references, with hidden remote state handled under C05. More frequent checks may cost time and compute. Unverified local artifacts or undetected changes to declared local configuration remain blocking.
 
-- [ ] **C04 · G2 · C1/C3/C4/Obs-T1 — Detect drift per agent.** Compare running images, harness settings, prompts, MCP lists, capabilities, and network policies with their declared baseline. Simulate a prompt edit, added tool, and loosened egress rule; verify an alert and the documented block, quarantine, or rollback response within a defined interval.
+- [ ] **C04 · G2 · C1/C3/C4/Obs-T1 — Detect drift per agent.** **Compare running images, harness settings, prompts, MCP lists, capabilities, and network policies with their declared baseline. Simulate a prompt edit, added tool, and loosened egress rule; verify an alert and the documented block, quarantine, or rollback response within a defined interval.**
+
+### Remaining checks
+
+
+- [ ] **C02 · G2 · C1–C7 — Review security-relevant changes.** Require attributable diffs and review for changes to the manifest and its policies. Show who may change production configuration. Record emergency changes with an owner, reason, expiry, and follow-up review.
+
 - [ ] **C05 · G2 · C3/C4/C7 — Control dependency, model, and training changes.** Pin dependency versions and each model's base-model version, checkpoint/weights, and fine-tune or adapter version where supported. Link a changed training run, training dataset, or training code/configuration to its resulting model artifact and evaluation results before promotion. Record the model version actually served when the runtime/provider exposes it, separately from the requested model alias. Test a model/checkpoint or adapter substitution and verify it triggers review and re-evaluation. For remote services or aliases that can change behind a stable name, record unavailable training/version information explicitly, monitor available version metadata and provider notices, and define when re-evaluation or suspension is required. A local configuration hash alone cannot prove remote behavior is unchanged.
 
   **Operational challenge:** A hosted service may change behind an alias without exposing a served-version identifier or training lineage. Behavioral evaluation can reveal some regressions but cannot prove that no hidden change occurred.
@@ -230,7 +255,29 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 [Read the Ecosystem guide](guides/ecosystem/index.html) and [MCP gateway guide](guides/mcp-gateway/index.html). [Verification recipes for this section](CHECKLIST-VERIFICATION.md#e--ecosystem).
 
-### Supply chain and tool boundaries
+### **IF YOU DO NOTHING ELSE — TOP 3**
+
+- [ ] **E06 · G2 · C1/C2/C4/C5/C9 — Enforced gateway boundary.** **Route MCP traffic through a gateway that authenticates, authorizes, validates calls and responses, rate-limits, and audits decisions. Test direct-server bypass, invalid credentials, malformed responses, and policy/scanner outages. Required enforcement must fail closed.**
+
+- [ ] **E08 · G1 · C2/C4 — Bounded delegated authority.** **Give sub-agents only the capabilities authorized for their assigned task. Enforce each child's role and any explicit higher-tier authorization; a parent must not gain a denied capability simply by asking a more privileged peer to act. Exercise that escalation attempt.**
+
+  **Operational challenge:** A privileged peer may interpret a low-privilege agent's request as a legitimate task. Authenticating the immediate sender does not establish the original requester's authority, and delegation constraints can be lost across multiple hops.
+
+  **Practical fallback:** Carry verified originating identity, tenant, and authorized scope to the final execution boundary. If a peer cannot enforce those constraints, restrict delegation to peers with no greater relevant authority, use a narrowly scoped task credential, or require independent authorization for the exact privileged action. Disable that delegation path if none is enforceable; trusting a peer's prompt does not satisfy this blocking check.
+
+  **Acceptable tradeoffs:** Accept less flexible delegation, narrower child roles, or independent action approval. These can preserve the authorization boundary. Silent privilege amplification cannot pass this G1 check; disable the path if the boundary is unenforceable.
+
+- [ ] **E09 · G1 · C8 — Recursive shutdown.** **Run a drill spanning a parent, nested children, remote workers, queued tasks, and open tool sessions where present. Verify the stop reaches every descendant within the declared budget, revokes access as needed, and prevents orphaned retries or restarts. Record how already-committed external effects are reconciled.**
+
+  **Operational challenge:** Remote workers, disconnected children, queued tasks, and open tool sessions may outlive the parent. A stop message can be delayed or lost, and already-committed remote effects may not be cancellable.
+
+  **Practical fallback:** Combine recursive stop signals with revocation, bounded task lifetimes, and short-lived execution leases that require renewal. Prevent new dispatch and test that disconnected workers lose the ability to act within the stop budget; long-running calls still need explicit cancellation/reconciliation handling. Exclude remote execution paths that cannot meet that budget. Record committed effects separately and reconcile them under R12.
+
+  **Acceptable tradeoffs:** Accept fewer remote workers, lease-renewal overhead, and slower completion. A bounded stop interval is acceptable when risk-matched and tested. A worker retaining authority beyond that interval is a blocking gap.
+
+### Remaining checks
+
+#### Supply chain and tool boundaries
 
 - [ ] **E01 · G2 · C1–C9 — Map shared responsibilities.** Inventory external tools, MCP servers, peer/sub-agents, registries, identity services, gateways, stop channels, and audit services. For each relevant control, name the agent-team owner and the shared-platform or vendor owner, with evidence for both halves. An upstream service does not make its controls N/A.
 - [ ] **E02 · G2 · C3/C5 — Vet and pin dependencies.** Review tool/server source or available provenance, publisher identity, permissions, update path, and known vulnerabilities before approval. Pin versions/digests and verify signatures where available. Record remote-service or unsigned-artifact limitations and the compensating checks.
@@ -244,26 +291,10 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
   **Acceptable tradeoffs:** Accept a smaller catalog, review delays, and occasional rejection of legitimate metadata. Limited semantic scanner coverage can receive G2 acceptance with independent capability restrictions; known-pattern tests do not establish universal tool-poisoning detection.
 
 - [ ] **E05 · G2 · C2/C5 — Verified, namespaced tools.** Resolve each tool through a verified server identity plus tool name. Flag confusing lookalikes and duplicates across servers; test that a new server cannot silently substitute its tool for an approved one.
-- [ ] **E06 · G2 · C1/C2/C4/C5/C9 — Enforced gateway boundary.** Route MCP traffic through a gateway that authenticates, authorizes, validates calls and responses, rate-limits, and audits decisions. Test direct-server bypass, invalid credentials, malformed responses, and policy/scanner outages. Required enforcement must fail closed.
 
-### Delegation and shared operations
+#### Delegation and shared operations
 
 - [ ] **E07 · G2 · C2/C5 — Untrusted peer messages.** Authenticate the sending agent, validate message types and schemas, and authorize what that peer may request. Test forged identity, cross-tenant requests, and instructions passed through a compromised peer. A valid sender identity does not make message content trusted.
-- [ ] **E08 · G1 · C2/C4 — Bounded delegated authority.** Give sub-agents only the capabilities authorized for their assigned task. Enforce each child's role and any explicit higher-tier authorization; a parent must not gain a denied capability simply by asking a more privileged peer to act. Exercise that escalation attempt.
-
-  **Operational challenge:** A privileged peer may interpret a low-privilege agent's request as a legitimate task. Authenticating the immediate sender does not establish the original requester's authority, and delegation constraints can be lost across multiple hops.
-
-  **Practical fallback:** Carry verified originating identity, tenant, and authorized scope to the final execution boundary. If a peer cannot enforce those constraints, restrict delegation to peers with no greater relevant authority, use a narrowly scoped task credential, or require independent authorization for the exact privileged action. Disable that delegation path if none is enforceable; trusting a peer's prompt does not satisfy this blocking check.
-
-  **Acceptable tradeoffs:** Accept less flexible delegation, narrower child roles, or independent action approval. These can preserve the authorization boundary. Silent privilege amplification cannot pass this G1 check; disable the path if the boundary is unenforceable.
-
-- [ ] **E09 · G1 · C8 — Recursive shutdown.** Run a drill spanning a parent, nested children, remote workers, queued tasks, and open tool sessions where present. Verify the stop reaches every descendant within the declared budget, revokes access as needed, and prevents orphaned retries or restarts. Record how already-committed external effects are reconciled.
-
-  **Operational challenge:** Remote workers, disconnected children, queued tasks, and open tool sessions may outlive the parent. A stop message can be delayed or lost, and already-committed remote effects may not be cancellable.
-
-  **Practical fallback:** Combine recursive stop signals with revocation, bounded task lifetimes, and short-lived execution leases that require renewal. Prevent new dispatch and test that disconnected workers lose the ability to act within the stop budget; long-running calls still need explicit cancellation/reconciliation handling. Exclude remote execution paths that cannot meet that budget. Record committed effects separately and reconcile them under R12.
-
-  **Acceptable tradeoffs:** Accept fewer remote workers, lease-renewal overhead, and slower completion. A bounded stop interval is acceptable when risk-matched and tested. A worker retaining authority beyond that interval is a blocking gap.
 
 - [ ] **E10 · G1 · C9/Obs-T1 — Audit across service boundaries.** Reconstruct a run through the gateway, tool services, and delegated workers with all six identity fields preserved. Verify that the agent cannot erase or rewrite its audit history and that a vendor boundary does not leave actions unattributable.
 

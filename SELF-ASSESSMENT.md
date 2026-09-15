@@ -35,6 +35,8 @@ For each row ask: **Does this deployment meet the full linked checklist requirem
 
 ### B — Build-time
 
+**IF YOU DO NOTHING ELSE — TOP 3:** **B05 — Destructive-action interception**; **B02 — Least-privilege access**; **B01 — Minimal tool surface**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
+
 [Full requirements and operational notes](CHECKLIST.md#b--build-time) · [Verification recipes](CHECKLIST-VERIFICATION.md#b--build-time)
 
 | Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
@@ -53,6 +55,8 @@ For each row ask: **Does this deployment meet the full linked checklist requirem
 | B12 | G1 | C4 | Reviewed harness and instructions | | |
 
 ### R — Run-time
+
+**IF YOU DO NOTHING ELSE — TOP 3:** **R11 — Tested kill switch**; **R13 — Full execution audit**; **R01 — Validate every input boundary, including API responses**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
 
 [Full requirements and operational notes](CHECKLIST.md#r--run-time) · [Verification recipes](CHECKLIST-VERIFICATION.md#r--run-time)
 
@@ -75,6 +79,8 @@ For each row ask: **Does this deployment meet the full linked checklist requirem
 
 ### A — Agent
 
+**IF YOU DO NOTHING ELSE — TOP 3:** **A01 — Distinct agent identity**; **A02 — All six identity fields**; **A03 — Content-derived type identity**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
+
 [Full requirements and operational notes](CHECKLIST.md#a--agent) · [Verification recipes](CHECKLIST-VERIFICATION.md#a--agent)
 
 | Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
@@ -88,6 +94,8 @@ For each row ask: **Does this deployment meet the full linked checklist requirem
 | A07 | G3 | C7/Obs-T1 | Every model in the loop | | |
 
 ### C — Configuration
+
+**IF YOU DO NOTHING ELSE — TOP 3:** **C01 — Complete release manifest**; **C03 — Match release identity to running state**; **C04 — Detect drift per agent**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
 
 [Full requirements and operational notes](CHECKLIST.md#c--configuration) · [Verification recipes](CHECKLIST-VERIFICATION.md#c--configuration)
 
@@ -103,6 +111,8 @@ For each row ask: **Does this deployment meet the full linked checklist requirem
 | C08 | G2 | Obs-T1/Obs-T2/Obs-T3 | Connect configuration to execution | | |
 
 ### E — Ecosystem
+
+**IF YOU DO NOTHING ELSE — TOP 3:** **E06 — Enforced gateway boundary**; **E08 — Bounded delegated authority**; **E09 — Recursive shutdown**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
 
 [Full requirements and operational notes](CHECKLIST.md#e--ecosystem) · [Verification recipes](CHECKLIST-VERIFICATION.md#e--ecosystem)
 

@@ -40,6 +40,8 @@ Provider-undisclosed information can satisfy the requirement to document that li
 
 ## B — Build-time
 
+**IF YOU DO NOTHING ELSE — TOP 3:** **B05 — Destructive-action interception**; **B02 — Least-privilege access**; **B01 — Minimal tool surface**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
+
 | Item | Procedure and expected result | Save as evidence |
 |---|---|---|
 | B01 | Export tools and executable/file permissions visible to the running agent. Compare with the approved inventory. Attempt an unlisted tool through the harness and an alternate callable path; both must be denied, while an allowed tool works. | Inventory diff, allowlist, allowed/denied call traces. |
@@ -56,6 +58,8 @@ Provider-undisclosed information can satisfy the requirement to document that li
 | B12 | Compare running harness/prompt/rules digests with reviewed source artifacts. Attempt a production-style edit with an unprivileged test role; it must fail. Verify an authorized change leaves a review and release record. | Review link, artifact digests, access-control test. |
 
 ## R — Run-time
+
+**IF YOU DO NOTHING ELSE — TOP 3:** **R11 — Tested kill switch**; **R13 — Full execution audit**; **R01 — Validate every input boundary, including API responses**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
 
 | Item | Procedure and expected result | Save as evidence |
 |---|---|---|
@@ -78,6 +82,8 @@ For **R04**, a “chunk” is a stored passage retrieved from a document; “ing
 
 ## A — Agent
 
+**IF YOU DO NOTHING ELSE — TOP 3:** **A01 — Distinct agent identity**; **A02 — All six identity fields**; **A03 — Content-derived type identity**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
+
 | Item | Procedure and expected result | Save as evidence |
 |---|---|---|
 | A01 | Launch from a user account, inspect the agent's issued principal, and compare user versus agent permissions. Revoke only the agent and retry. Its identity and access must be separate from the user and unrelated agents. | Principal bindings, permission comparison, revocation results. |
@@ -89,6 +95,8 @@ For **R04**, a “chunk” is a stored passage retrieved from a document; “ing
 | A07 | Enumerate all model calls in a representative workflow and reconcile them with model records. Swap a checker version and simulate timeout or an invalid checker decision. The configured control-failure response must occur and identify the affected model. | Call inventory, model provenance records, failure/substitution results. |
 
 ## C — Configuration
+
+**IF YOU DO NOTHING ELSE — TOP 3:** **C01 — Complete release manifest**; **C03 — Match release identity to running state**; **C04 — Detect drift per agent**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
 
 | Item | Procedure and expected result | Save as evidence |
 |---|---|---|
@@ -102,6 +110,8 @@ For **R04**, a “chunk” is a stored passage retrieved from a document; “ing
 | C08 | Select a historical trace and retrieve its manifest, model records, context-size observations, and applicable parent prompts using the incident-response role. Verify references remain accessible for the required retention period under the storage policy. | Lookup results, retention/access settings, missing-reference check. |
 
 ## E — Ecosystem
+
+**IF YOU DO NOTHING ELSE — TOP 3:** **E06 — Enforced gateway boundary**; **E08 — Bounded delegated authority**; **E09 — Recursive shutdown**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
 
 | Item | Procedure and expected result | Save as evidence |
 |---|---|---|
