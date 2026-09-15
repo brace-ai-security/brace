@@ -10,7 +10,8 @@ The checklist applies to both an agent that is **hijacked or misused** and a **m
 2. **Walk through all five aspects.** Assign an owner to every item. Check an item only when the deployed configuration meets it and you can link to evidence: a reviewed artifact, an enforced policy, a trace, or a dated test result. A plan or vendor claim alone does not pass.
 3. **Record every outcome.** Use **Pass**, **Gap**, or **N/A** in the evidence record below. Partial implementation is a Gap. N/A requires an explanation and reviewer approval; an absent control is not N/A. For example, memory checks can be N/A only if the agent has no persistent memory.
 4. **Apply the priority gates across all five sections.** The section letters describe *where to review*; the gate labels describe *what blocks release*. Do not stop after Build-time or after the first passing section.
-5. **Complete the sign-off record.** Resolve blockers, document permitted deferrals, and set the next review date.
+5. **Use the verification recipes.** The [verification guide](CHECKLIST-VERIFICATION.md) gives a concrete procedure, expected result, and evidence to retain for every item. Run applicable tests against the release candidate, using isolated test resources and synthetic data; record differences from production.
+6. **Complete the sign-off record.** Resolve blockers, document permitted deferrals, and set the next review date.
 
 ### Priority gates
 
@@ -28,7 +29,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 **Question:** Have we bounded what this agent can do before it ever runs?
 
-[Read the Build-time guide](guides/build-time/index.html).
+[Read the Build-time guide](guides/build-time/index.html). [Verification recipes for this section](CHECKLIST-VERIFICATION.md#b--build-time).
 
 ### Capabilities and credentials
 
@@ -57,14 +58,14 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 **Question:** When hostile input reaches a running agent, do containment, detection, and recovery still work?
 
-[Read the Run-time guide](guides/run-time/index.html).
+[Read the Run-time guide](guides/run-time/index.html). [Verification recipes for this section](CHECKLIST-VERIFICATION.md#r--run-time).
 
 ### Input, output, retrieval, and memory
 
 - [ ] **R01 · G2 · C5 — Validate every input boundary, including API responses.** Inventory API responses (including errors and streamed content), tool and connector outputs, incoming webhooks/callbacks, peer messages, user input, fetched pages, files, and retrieved chunks. Authenticate senders and verify signatures where applicable; treat content from authenticated or internal services as untrusted too. Before content reaches model context or downstream execution, enforce expected types, schemas, size limits, and content validation, including checks for attack payloads and embedded prompt-injection instructions. Reject or quarantine invalid payloads; required validation failures must not silently admit unchecked content. Test malformed, oversized, spoofed, and adversarial responses from each integration.
 - [ ] **R02 · G2 · C5 — Separate data from instructions and test injection containment.** Keep API responses, connector messages, and other external content out of trusted system and policy channels; label their source and trust level. Test prompt injection in otherwise schema-valid responses, including free-text fields, error messages, documents, and tool output. Validation and channel separation cannot guarantee prevention of prompt injection: demonstrate that credential scopes, tool authorization, and destructive-action gates still block harmful actions if the model follows an injected instruction.
 - [ ] **R03 · G2 · C5/C9 — Prevent output and log leakage.** Remove secrets and restrict sensitive data before tool stdout, debug output, or responses reach model context, external recipients, or ordinary logs. Use synthetic secrets in tests and verify both the blocked disclosure and the retained, redacted audit evidence.
-- [ ] **R04 · G2 · C5/C6 — Retrieval-corpus integrity.** Restrict who and what can ingest into the index. Preserve source, ingestion time, trust tier, and access permissions per chunk; enforce the requesting tenant's access at retrieval. Demonstrate detection or removal of poisoned, stale, and revoked content.
+- [ ] **R04 · G2 · C5/C6 — Retrieval-corpus integrity.** The retrieval corpus is the collection of documents the agent searches for context; its **index** is the searchable store of those documents or smaller passages (chunks), such as a search engine or vector database. Restrict which identities and sources can add or update content in that store. Preserve source, ingestion time, trust tier, and access permissions per chunk; enforce the requesting tenant's access at retrieval. Test an unauthorized ingestion, a cross-tenant search, and the quarantine, expiry, and access revocation of seeded test documents. Confirm the affected chunks are unavailable through retrieval and caches within a declared propagation time. See the [R04 recipe](CHECKLIST-VERIFICATION.md#r--run-time).
 - [ ] **R05 · G3 · C6 — Memory isolation and write validation.** Scope memory by tenant, agent type, instance, and task as appropriate; deny cross-scope access unless explicitly authorized. Validate writes and test that one poisoned run cannot silently seed instructions into another run's memory.
 - [ ] **R06 · G3 · C6 — Memory provenance and cleanup.** For an entry, retrieve its writer, timestamp, task, source input, and decision-time context size. Demonstrate finding, quarantining, and removing contaminated entries and controlling their reuse in later sessions.
 
@@ -88,11 +89,11 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 **Question:** Can we identify, scope, stop, and explain every agent and model involved in an action?
 
-[Read the Agent guide](guides/agent/index.html).
+[Read the Agent guide](guides/agent/index.html). [Verification recipes for this section](CHECKLIST-VERIFICATION.md#a--agent).
 
 - [ ] **A01 · G1 · C2/Obs-T1 — Distinct agent identity.** Give the agent its own non-human identity, separate from the launching user and unrelated agents. Demonstrate that permissions and revocation attach to that identity, even when a user initiates the run.
 - [ ] **A02 · G1 · Obs-T1 — All six identity fields.** Verify that every action records **accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context**. Inspect successful, denied, failed, and background actions, not only the main request path.
-- [ ] **A03 · G1 · Obs-T1 — Content-derived type identity.** Compute the agent-type-id from the container digest, harness, system prompt, model identifier/version, and configuration. Retain the input manifest and hash procedure. Verify that changing any included artifact changes the ID and that the same manifest reproduces it.
+- [ ] **A03 · G1 · Obs-T1 — Content-derived type identity.** Compute the agent-type-id from the container digest, harness, system prompt, model identifier/version (including checkpoint and fine-tune/adapter references where applicable), and configuration. Retain the input manifest and hash procedure. Verify that changing any included artifact changes the ID and that the same manifest reproduces it.
 - [ ] **A04 · G1 · C9/Obs-T1 — Trustworthy attribution.** Assign instance and tenant identity through the trusted execution layer rather than accepting model-supplied labels. Test that the agent cannot impersonate another instance or tenant in requests or audit records, and that trace context survives asynchronous handoffs.
 - [ ] **A05 · G1 · C8/C9/Obs-T1 — Operational lookup.** Starting from a suspicious action, find the responsible team, current operator, deployment manifest, and live instance. Demonstrate targeting the correct instance or affected agent type for containment without revoking the launching user's unrelated access.
 - [ ] **A06 · G3 · Obs-T3 — Parent and prompt provenance.** For every spawned agent, record its own type and instance IDs, parent link, trace linkage, and the prompt the parent supplied. Trace a nested action back to that prompt; protect sensitive prompt content with restricted storage and an explicit redaction policy.
@@ -104,13 +105,13 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 **Question:** Is the configuration we approved the configuration that is actually running?
 
-[Read the Configuration guide](guides/configuration/index.html).
+[Read the Configuration guide](guides/configuration/index.html). [Verification recipes for this section](CHECKLIST-VERIFICATION.md#c--configuration).
 
-- [ ] **C01 · G2 · C1–C6/Obs-T1 — Complete release manifest.** Inventory the container, harness, system prompt, rules files, model, built-in tools, MCP servers, capability scopes, memory/retrieval settings, identity bindings, network rules, and execution budgets. Include auxiliary models and security-policy versions; identify each artifact's owner and immutable reference where available.
+- [ ] **C01 · G2 · C1–C6/Obs-T1 — Complete release manifest.** Inventory the container, harness, system prompt, rules files, model, built-in tools, MCP servers, capability scopes, memory/retrieval settings, identity bindings, network rules, and execution budgets. Include security-policy versions and a separate **model provenance record for every primary agent model, sub-agent model, and auxiliary model**, including embeddings and rerankers. Record provider, model ID, exact version/checkpoint, and any adapter or fine-tune version. For training or fine-tuning you control, also record the training run/job ID, base-model version, training code/configuration version, dataset snapshot/version, and output artifact digest. The agent application release number alone is insufficient. Use the [model provenance fields](CHECKLIST-VERIFICATION.md#model-provenance-fields) to distinguish recorded versions from information a provider does not expose. Identify each artifact's owner and immutable reference where available.
 - [ ] **C02 · G2 · C1–C7 — Review security-relevant changes.** Require attributable diffs and review for changes to the manifest and its policies. Show who may change production configuration. Record emergency changes with an owner, reason, expiry, and follow-up review.
 - [ ] **C03 · G1 · Obs-T1 — Match release identity to running state.** Freeze the identity-defining artifacts per release and verify the running configuration against the approved manifest. Emit the corresponding agent-type-id. Test that an altered prompt, model, or tool configuration cannot continue presenting the old approved identity undetected.
 - [ ] **C04 · G2 · C1/C3/C4/Obs-T1 — Detect drift per agent.** Compare running images, harness settings, prompts, MCP lists, capabilities, and network policies with their declared baseline. Simulate a prompt edit, added tool, and loosened egress rule; verify an alert and the documented block, quarantine, or rollback response within a defined interval.
-- [ ] **C05 · G2 · C3/C4/C7 — Control dependency and model changes.** Pin versions where supported and record resolved versions at execution. For remote services or model aliases that can change behind a stable name, document that limitation, monitor changes, and define when re-evaluation or suspension is required. A local configuration hash alone cannot prove remote behavior is unchanged.
+- [ ] **C05 · G2 · C3/C4/C7 — Control dependency, model, and training changes.** Pin dependency versions and each model's base-model version, checkpoint/weights, and fine-tune or adapter version where supported. Link a changed training run, training dataset, or training code/configuration to its resulting model artifact and evaluation results before promotion. Record the model version actually served when the runtime/provider exposes it, separately from the requested model alias. Test a model/checkpoint or adapter substitution and verify it triggers review and re-evaluation. For remote services or aliases that can change behind a stable name, record unavailable training/version information explicitly, monitor available version metadata and provider notices, and define when re-evaluation or suspension is required. A local configuration hash alone cannot prove remote behavior is unchanged.
 - [ ] **C06 · G2 · C4–C9 — Re-test changed behavior.** Before promotion, run representative allowed tasks and adversarial cases against the release candidate. Include destructive-action denial, access boundaries, injection containment, audit attribution, and stopping behavior; include retrieval, memory, and checker tests where used. Retain results for the exact candidate manifest.
 - [ ] **C07 · G2 · C8/C9 — Rollback and restart.** Keep an approved recovery configuration and demonstrate rollback. Account for changed credentials, memory/index state, checkpoints, and queued work; do not restore revoked permissions or replay unsafe side effects merely because the old artifact is available.
 - [ ] **C08 · G2 · Obs-T1/Obs-T2/Obs-T3 — Connect configuration to execution.** From a trace, retrieve the release manifest, decision-time context sizes, and applicable parent-supplied prompts. Preserve references for the audit retention period, with access controls for sensitive artifacts.
@@ -121,7 +122,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 **Question:** Do the tools, peer agents, vendors, and shared services enforce their half of every control?
 
-[Read the Ecosystem guide](guides/ecosystem/index.html) and [MCP gateway guide](guides/mcp-gateway/index.html).
+[Read the Ecosystem guide](guides/ecosystem/index.html) and [MCP gateway guide](guides/mcp-gateway/index.html). [Verification recipes for this section](CHECKLIST-VERIFICATION.md#e--ecosystem).
 
 ### Supply chain and tool boundaries
 
@@ -191,7 +192,7 @@ For every permitted G2 or G3 deferral, also complete:
 
 ### When to repeat the review
 
-**Re-mint the agent-type-id whenever an identity-defining artifact changes:** container, harness, system prompt, model, or configuration, including the capability set. Re-run this checklist for the new release; reuse evidence only after confirming it still applies to that exact configuration.
+**Re-mint the agent-type-id whenever an identity-defining artifact changes:** container, harness, system prompt, model (including a new checkpoint or fine-tune/adapter), or configuration, including the capability set. Re-run this checklist for the new release; reuse evidence only after confirming it still applies to that exact configuration.
 
 Also reopen affected checks after tool/server or checker changes, changes to memory or retrieval trust boundaries, shared-platform policy changes, incidents, failed drills, detected drift, or expired exceptions. Keep the scheduled review even if no release occurs, because credentials, dependencies, owners, and external services can change independently.
 

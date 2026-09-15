@@ -129,6 +129,7 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 | File | What it is |
 |------|------------|
 | [CHECKLIST.md](CHECKLIST.md) | The sign-off review covering all five BRACE aspects. |
+| [CHECKLIST-VERIFICATION.md](CHECKLIST-VERIFICATION.md) | Practical verification recipes for every checklist item, including model and training provenance fields. |
 | [SELF-ASSESSMENT.md](SELF-ASSESSMENT.md) | Scoreable self-assessment / vendor-evaluation question set. |
 | [otel-conventions.md](otel-conventions.md) | Proposed OpenTelemetry attributes for agent identity and provenance. |
 | [VENDOR-MATRIX.md](VENDOR-MATRIX.md) | Which cloud and open-source offerings cover each control. |
