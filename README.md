@@ -16,7 +16,7 @@ BRACE names the controls over that configuration, says which to ship first, and 
 
 ## Start here
 
-- **[Sign-off checklist](CHECKLIST.md)** — a one-page go/no-go gate for the engineer or manager approving an agent for production. If you read one thing, read this.
+- **[Sign-off checklist](CHECKLIST.md)** — a thorough go/no-go review across all five BRACE aspects for the engineer or manager approving an agent for production. If you read one thing, read this.
 - **[Self-assessment](SELF-ASSESSMENT.md)** — score an existing deployment, or use it as a question set when evaluating a vendor.
 - **[The paper](#the-paper)** — the full framework, threat mappings, and a 35+ incident corpus.
 
@@ -128,7 +128,7 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 
 | File | What it is |
 |------|------------|
-| [CHECKLIST.md](CHECKLIST.md) | The one-page sign-off gate. |
+| [CHECKLIST.md](CHECKLIST.md) | The sign-off review covering all five BRACE aspects. |
 | [SELF-ASSESSMENT.md](SELF-ASSESSMENT.md) | Scoreable self-assessment / vendor-evaluation question set. |
 | [otel-conventions.md](otel-conventions.md) | Proposed OpenTelemetry attributes for agent identity and provenance. |
 | [VENDOR-MATRIX.md](VENDOR-MATRIX.md) | Which cloud and open-source offerings cover each control. |
