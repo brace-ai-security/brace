@@ -1,5 +1,7 @@
 # BRACE Launch Copy
 
+> **Historical outreach draft — source review 2026-09-16:** Do not use its novelty, vendor-coverage, or incident-count claims as current evidence. See [SOURCE-REVIEW.md](../SOURCE-REVIEW.md), the [current checklist](../CHECKLIST.md), and [current telemetry proposal](../otel-conventions.md) before adapting this draft.
+
 Three parts: a launch blog post, a Show HN post, and a suggested first comment.
 
 ---

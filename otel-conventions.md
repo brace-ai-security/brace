@@ -2,17 +2,9 @@
 
 This doc defines four proposed OpenTelemetry attributes for autonomous AI agents.
 
-The OpenTelemetry GenAI semantic conventions already cover per-call telemetry for
-model invocations: prompt and completion content, and token counts per call
-(`gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`). They do not cover
-agent identity or provenance. Telemetry today can tell you a model call happened
-and how many tokens it cost. It cannot tell you which agent *type* took the action,
-how full the context was at the moment of the decision, or which parent spawned a
-given sub-agent.
+Current [OpenTelemetry GenAI agent conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md) already define agent identity/version attributes, model references, and agent/tool spans. They are in **Development**. BRACE's content-hashed type identity and execution-instance identity have different semantics from a provider-assigned `gen_ai.agent.id`; do not overwrite that standard field with a transient run ID.
 
-The four attributes below fill that gap. They are additive. They extend the GenAI
-conventions; they do not change any existing attribute. Each maps to a BRACE
-observability requirement (T1, T2, or T3).
+The four `agent.*` attributes below are **BRACE-proposed custom attributes**, not adopted OpenTelemetry semantic conventions. They express BRACE's deployment-specific observability requirements alongside standard attributes. Neither an SDK nor a backend automatically supplies all six identity fields, parent relationships, or a complete audit trail; verify instrumentation and retention end to end.
 
 ## The four attributes
 
@@ -26,12 +18,11 @@ observability requirement (T1, T2, or T3).
 Notes on the values:
 
 - `agent.type.id` and `agent.instance.id` carry the `sha256:` and ULID-style forms
-  shown above only by convention. Any stable, collision-resistant string is valid.
+  shown above only by convention. The type ID must remain content-derived; an arbitrary stable label does not satisfy it. Use a documented canonical manifest and collision-resistant hash. Instance IDs need uniqueness rather than content hashing.
   What matters is that `agent.type.id` changes when and only when one of its defining
   inputs changes, and that `agent.instance.id` is unique per running instance.
 - `agent.context.size` is the context occupancy at decision time. A long-running
-  agent emits a different value on each action as its context fills. This is distinct
-  from the existing GenAI per-call token counts, which measure one model call.
+  agent emits a different value on each action as its context fills. Record the tokenizer/counting method, timing, cached-input treatment, and compaction behavior alongside the value. Label estimates and their limitations in the audit record. If occupancy is unavailable, omit the integer and record an explicit unknown; never emit zero as a substitute. GenAI usage counts may help estimate occupancy but do not necessarily expose hidden provider context.
 - `agent.parent.prompt` is sensitive. Parent-passed prompts routinely contain
   customer data, tool outputs, and business logic. The reference form
   (a hash on the span, body in a separate, stricter-access tier) is the recommended
@@ -56,11 +47,10 @@ on. The four attributes map as follows:
 | `agent.context.size` | T2 — context size per action | "How full was the context when the agent decided?" Near-limit degraded behavior becomes visible; anomaly baselines can be conditioned on context occupancy. |
 | `agent.parent.prompt` | T3 — sub-agent and parent-prompt provenance | "Which parent spawned this sub-agent, and what did it tell the sub-agent to do?" Separates "the sub-agent type misbehaved" from "the parent told it to." |
 
-`agent.type.id` and `agent.instance.id` are the two T1 fields that are net-new at
-the agent layer (see "The six BRACE identity fields" below). `agent.context.size`
+`agent.type.id` and `agent.instance.id` are the two custom T1 fields in this BRACE proposal (see "The six BRACE identity fields" below). `agent.context.size`
 covers T2 in full. `agent.parent.prompt` covers the prompt-provenance half of T3;
 the parent-child call graph itself rides on W3C Trace Context, which OpenTelemetry
-already propagates.
+can propagate when correctly instrumented; verify async handoffs and use span links where a parent-child tree does not represent the relationship.
 
 ## The six BRACE identity fields
 
@@ -81,9 +71,9 @@ Four of the six already map to existing identity and trace primitives:
   path components). They are emission discipline on fields most identity providers
   already carry.
 - Trace context maps directly to W3C Trace Context (`traceparent`, `tracestate`),
-  which OpenTelemetry already propagates.
+  which OpenTelemetry can propagate when correctly instrumented; verify async handoffs and use span links where a parent-child tree does not represent the relationship.
 
-The two net-new fields are agent-type-id and agent-instance-id. An identity provider
+BRACE distinguishes agent-type-id from agent-instance-id. An identity provider
 sees the *workload* that authenticated, not the agent *type* (its content) or the
 specific *instance*. Two deployments sharing one service-account credential look
 identical in IdP logs even if one runs prompt v1.2 on one model and the other runs
@@ -96,7 +86,7 @@ attributes rather than mapped onto existing ones.
 A sub-agent action, emitted as span attributes. The four proposed attributes are
 marked. The six BRACE identity fields are present: four ride existing primitives
 (accountable party, operational owner, tenant, trace context), and two are the
-net-new agent attributes (`agent.type.id`, `agent.instance.id`).
+BRACE-proposed agent attributes (`agent.type.id`, `agent.instance.id`).
 
 ```json
 {
@@ -129,10 +119,10 @@ Reading the record:
 
 - The **six BRACE identity fields** are all present. Accountable party, operational
   owner, and tenant come from identity primitives. `agent.type.id` and
-  `agent.instance.id` are the two net-new agent attributes. Trace context is the
+  `agent.instance.id` are the two BRACE-proposed agent attributes. Trace context is the
   `trace_context` block (W3C Trace Context).
 - **T1** is satisfied: every required identity field is on the action, including the
-  two net-new ones.
+  two proposed ones.
 - **T2** is satisfied by `agent.context.size`: 42,137 tokens of context at decision
   time. The existing `gen_ai.usage.*` counts measure the single model call; they are
   shown alongside to make the distinction concrete.

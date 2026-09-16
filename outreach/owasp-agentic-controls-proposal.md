@@ -1,5 +1,7 @@
 # Proposal: a controls layer for the OWASP Top 10 for Agentic Applications
 
+> **Historical outreach draft — source review 2026-09-16:** Do not use its novelty, vendor-coverage, or incident-count claims as current evidence. See [SOURCE-REVIEW.md](../SOURCE-REVIEW.md), the [current checklist](../CHECKLIST.md), and [current telemetry proposal](../otel-conventions.md) before adapting this draft.
+
 **To:** OWASP GenAI Security Project — Agentic Security Initiative
 **From:** The BRACE Project
 **Re:** Adopting a concrete, testable controls layer that maps to the Agentic Top 10

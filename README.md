@@ -4,7 +4,7 @@
 
 It is built around one idea:
 
-> An autonomous agent is not the code that shipped. It is a **runtime configuration** of infrastructure — a container, a harness (the loop that runs the model and hands it tools), a system prompt, a set of tools, a memory store, an identity, and a network path. Two agents built from the same model can behave completely differently depending on how those parts are configured. So you secure the **configuration**, not the code — there is no code to review.
+> An autonomous agent is not the code that shipped. It is a **runtime configuration** of infrastructure — a container, a harness (the loop that runs the model and hands it tools), a system prompt, a set of tools, a memory store, an identity, and a network path. Two agents built from the same model can behave completely differently depending on how those parts are configured. Review the **configuration together with the harness, tools, and generated code**. Code review remains necessary; it does not capture the complete running agent by itself.
 
 BRACE names the controls over that configuration, says which to ship first, and specifies the data you need to log to operate them.
 
@@ -18,7 +18,7 @@ BRACE names the controls over that configuration, says which to ship first, and 
 
 - **[Sign-off checklist](CHECKLIST.md)** — a 53-item go/no-go review across all five BRACE aspects, with operational notes and acceptable tradeoffs for the engineer or manager approving an agent for production. If you read one thing, read this.
 - **[Self-assessment](SELF-ASSESSMENT.md)** — score the same 53 checklist items for an existing deployment or vendor evaluation.
-- **[The paper](#the-paper)** — the full framework, threat mappings, and a 35+ incident corpus.
+- **[Source review](SOURCE-REVIEW.md)** — supporting references, practical corrections, and limits of the evidence.
 
 ---
 
@@ -84,17 +84,18 @@ Use the checklist as the source of requirements, the [verification guide](CHECKL
 
 ## How BRACE relates to OWASP, NIST, and MITRE
 
-BRACE is **not** a replacement for the frameworks you already use. The field's own consensus in 2026 is that no single framework is complete, and the missing piece is concrete, agent-granular controls. That is the gap BRACE fills, and it is designed to **compose** with the rest:
+BRACE organizes deployment checks alongside existing security guidance. Its grouping and adoption gates are project design choices, not claims that other frameworks lack practical controls:
 
 - **OWASP Top 10 for Agentic Applications** — a threat catalog. BRACE maps each of its ten risks (ASI01–ASI10) to the controls that mitigate them.
+- **[OWASP Agent Control Standard (ACS)](https://genai.owasp.org/resource/agent-control-standard-acs/)** — runtime policy hooks and enforcement; complements BRACE's deployment review.
 - **MITRE ATLAS** — an attacker-technique catalog. BRACE maps the agentic techniques to controls.
 - **NIST AI RMF / ISO 42001** — governance and compliance. BRACE is the technical control layer underneath the governance.
 
 Use OWASP and MITRE to know *what can go wrong*. Use BRACE to know *what to build and in what order*.
 
-### What BRACE adds that the others don't specify
+### What BRACE emphasizes
 
-Five concrete requirements that existing frameworks leave abstract:
+Five concrete requirements this project brings together:
 
 1. Treat the **harness, system prompt, and built-in tools** as hardening artifacts — versioned, diff-reviewed, distinct from the external tool surface. This is where destructive-verb interception lives.
 2. **Six required identity fields** on every action, including the content-hashed agent-type-id.
@@ -120,9 +121,7 @@ BRACE is a **synthesis of agent-security practice already in production** across
 
 ## The paper
 
-The full framework — threat mappings, the agent/ecosystem decomposition, worked examples, a public incident corpus of 35+ documented failures, and a compliance-audit mapping — is in:
-
-> The BRACE Project (2026). *BRACE: A Unified Security Framework for Autonomous AI Agents.*
+The repository is the reviewable framework artifact. A standalone paper and the previously claimed 35+ incident corpus were not available in this checkout for the 2026-09-16 source audit; neither is treated as verified evidence for checklist requirements. See the [source review](SOURCE-REVIEW.md) for primary references and limits.
 
 To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository and the project site directly.
 
@@ -131,6 +130,7 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 | File | What it is |
 |------|------------|
 | [CHECKLIST.md](CHECKLIST.md) | The 53-item sign-off review, with operational challenges, fallbacks, and tradeoffs. |
+| [SOURCE-REVIEW.md](SOURCE-REVIEW.md) | Dated primary-source review, all-item coverage, source inventory, and verification limits. |
 | [CHECKLIST-VERIFICATION.md](CHECKLIST-VERIFICATION.md) | Practical verification recipes for every checklist item, including model and training provenance fields. |
 | [SELF-ASSESSMENT.md](SELF-ASSESSMENT.md) | Scoring worksheet for the same 53 checklist item IDs and gates. |
 | [otel-conventions.md](otel-conventions.md) | Proposed OpenTelemetry attributes for agent identity and provenance. |

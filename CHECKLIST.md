@@ -23,6 +23,8 @@ For each fallback, record **the bounded claim, where it applies, evidence, remai
 
 **Start with the top three in each aspect.** The bold **IF YOU DO NOTHING ELSE** items are the first implementation priorities within that aspect. They are existing checklist items, counted once. They are a starting point, not sufficient production sign-off: all applicable G1 requirements and the G2/G3 rules still apply.
 
+**Basis and limits:** The nine-control organization, six identity fields, top-three selections, and G1/G2/G3 sign-off rules are BRACE design choices, not requirements prescribed verbatim by OWASP, NIST, MCP, or OpenTelemetry. The [dated source review](SOURCE-REVIEW.md) maps the checklist to supporting guidance and records corrections and verification limits. This is a review of control design and evidence, not a guarantee that a deployment is secure.
+
 ### Priority gates
 
 | Label | Sign-off rule |
@@ -43,7 +45,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 ### **IF YOU DO NOTHING ELSE — TOP 3**
 
-- [ ] **B05 · G1 · C4 — Destructive-action interception.** **Define high-impact operations, including deletion, destructive database updates, force-pushes, infrastructure teardown, payment changes, and external sends. Deny them by default in the execution path unless an authorized higher-tier approval permits the specific action. Test alternate tools and raw API or shell paths that could perform the same operation.**
+- [ ] **B05 · G1 · C4 — Destructive-action interception.** **Define high-impact operations, including deletion, destructive database updates, force-pushes, infrastructure teardown, payment changes, and external sends. Deny them by default in the execution path unless an authorized higher-tier approval permits the specific action. Authorize the operation, target, and arguments at execution time; a string or destructive-verb denylist alone is insufficient. Test alternate tools and raw API or shell paths that could perform the same operation.**
 
 - [ ] **B02 · G1 · C2 — Least-privilege access.** **Scope credentials to named operations and resources, including tenant boundaries. Test that an allowed read succeeds while an out-of-scope write, admin operation, and cross-tenant request are denied. Remove wildcard and inherited human permissions.**
 
@@ -54,19 +56,19 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 #### Capabilities and credentials
 
 - [ ] **B03 · G2 · C2 — Credential lifetime and handling.** Issue short-lived credentials through a controlled identity or secrets service. Keep standing secrets out of prompts, images, and checked-in configuration. Demonstrate expiration and rotation, and justify the chosen lifetime.
-- [ ] **B04 · G1 · C2 — Independent revocation.** Demonstrate that an operator can revoke this agent's access independently of the launching user and without relying on the agent to cooperate. Verify that subsequent requests fail, including from an already-open session.
+- [ ] **B04 · G1 · C2 — Independent revocation.** Demonstrate that an operator can revoke this agent's access independently of the launching user and without relying on the agent to cooperate. Declare and measure the maximum time until enforcement takes effect, including cached/self-contained tokens and already-open sessions. Block subsequent calls at a trusted enforcement point within that risk-matched budget; revoking a refresh token alone is insufficient.
 
 #### Harness enforcement
 
-- [ ] **B06 · G1 · C4 — Approval integrity.** Bind approval to the actual operation, target, arguments, and permitted scope. Show the reviewer the intended effect. Test that changed arguments, an expired approval, or an unauthorized approver cannot release the action, and that approval-service failure does not silently permit it.
+- [ ] **B06 · G1 · C4 — Approval integrity.** Bind approval to the actual operation, target, arguments, and permitted scope. Show the reviewer the intended effect. Use single-use approvals or an explicitly bounded authorization grant. Re-check permissions and relevant resource state at execution, and atomically consume or account for approval use. Test changed arguments, expired approvals, replay/concurrent reuse, and unauthorized approvers; approval-service failure must not silently permit execution.
 - [ ] **B07 · G2 · C4 — Hard execution budgets.** Enforce limits outside the model for iterations, elapsed time, tokens, cost, tool-call rate, and sub-agent fan-out. Exercise each applicable limit and record how execution stops or escalates when it is reached.
 
 #### Environment and build artifacts
 
 - [ ] **B08 · G2 · C1 — Environment isolation.** Document the agent's reachable systems and data. Test that it has no route to unauthorized production resources, the admin plane, host services, or other tenants. Enforce isolation through the infrastructure, not solely through prompt instructions. For every allowed connection, also verify inbound and response validation under **R01–R02**, including API responses and messages from connected services; network access does not make their content trusted.
-- [ ] **B09 · G2 · C1 — Egress allowlist.** Allow only task-required outbound destinations. Test a prohibited destination and attempted bypass paths, including direct access around a proxy or gateway. Record the denial and confirm it reaches the responsible operator.
-- [ ] **B10 · G2 · C3 — Pinned, verified image.** Pin the container by digest, verify its signature before execution, and retain its build provenance and dependency inventory. Demonstrate rejection of an unapproved or modified image.
-- [ ] **B11 · G2 · C3 — Minimal, isolated runtime.** Remove unused shells, downloaders, package managers, mounts, and privileges. Use a kernel-isolated runtime appropriate to untrusted execution, and test that the agent cannot access host resources outside its approved boundary.
+- [ ] **B09 · G2 · C1 — Egress allowlist.** Allow only task-required outbound destinations. Test a prohibited destination and attempted bypass paths, including direct access around a proxy or gateway. Cover redirects, DNS changes/rebinding, IPv4/IPv6, and cloud metadata or loopback destinations where relevant. An allowed domain may still host attacker-controlled tenants or receive leaked data: constrain resource/tenant access and payloads too. Record the denial and confirm it reaches the responsible operator.
+- [ ] **B10 · G2 · C3 — Pinned, verified image.** Pin the container by digest, verify its digest and signature against an approved signing key or certificate identity/issuer before execution, and retain its build provenance and dependency inventory. Demonstrate rejection of an unapproved or modified image.
+- [ ] **B11 · G2 · C3 — Minimal, isolated runtime.** Remove unused shells, downloaders, package managers, mounts, and privileges. For untrusted code execution, use a sandbox boundary appropriate to the threat model, such as a microVM or user-space kernel; ordinary containers share the host kernel. For managed runtimes, record provider isolation evidence and visibility limits. Test forbidden host access, while recognizing that a failed access probe does not prove resistance to every sandbox escape.
 - [ ] **B12 · G1 · C4 — Reviewed harness and instructions.** Version and review the harness, system prompt, and rules files before release. Restrict production changes to an attributable release process. Link the deployed versions to the approved review; complete the full configuration checks in section C.
 
 **Evidence to attach:** capability inventory; permission and denial tests; approval records; budget tests; network policy; image digest and signature verification; harness and prompt review.
@@ -109,7 +111,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
   **Acceptable tradeoffs:** Accept reduced task completion, fewer tools, and more action-specific approvals. Remaining detection uncertainty can receive G2 acceptance with explicit exposure and independent containment evidence; required access and destructive-action gates still apply.
 
-- [ ] **R03 · G2 · C5/C9 — Prevent output and log leakage.** Remove secrets and restrict sensitive data before tool stdout, debug output, or responses reach model context, external recipients, or ordinary logs. Use synthetic secrets in tests and verify both the blocked disclosure and the retained, redacted audit evidence.
+- [ ] **R03 · G2 · C5/C9 — Prevent output and log leakage.** Remove secrets and restrict sensitive data before tool stdout, debug output, or responses reach model context, external recipients, or ordinary logs. Validate generated output before downstream SQL, shell, HTML rendering, or other execution; use parameterized operations and context-appropriate escaping. Use synthetic secrets and injection payloads in tests and verify blocked disclosure/execution and retained, redacted audit evidence.
 - [ ] **R04 · G2 · C5/C6 — Retrieval-corpus integrity.** The retrieval corpus is the collection of documents the agent searches for context; its **index** is the searchable store of those documents or smaller passages (chunks), such as a search engine or vector database. Restrict which identities and sources can add or update content in that store. Preserve source, ingestion time, trust tier, and access permissions per chunk; enforce the requesting tenant's access at retrieval. Test an unauthorized ingestion, a cross-tenant search, and the quarantine, expiry, and access revocation of seeded test documents. Confirm the affected chunks are unavailable through retrieval and caches within a declared propagation time. See the [R04 recipe](CHECKLIST-VERIFICATION.md#r--run-time).
 
   **Operational challenge:** Removing a document from the index does not remove copies in caches, active contexts, summaries, or downstream memory. Permission changes may take time to propagate, and a model omitting a document from its answer does not prove that retrieval excluded it.
@@ -136,7 +138,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 #### Detection and operational limits
 
-- [ ] **R07 · G2 · Obs-T2 — Decision-time context size.** Log context size for each action at decision time, using a documented unit. Verify it survives tool handoffs and is queryable alongside the action's identity and outcome; see the [telemetry conventions](otel-conventions.md).
+- [ ] **R07 · G2 · Obs-T2 — Decision-time context size.** Log context size for each action at decision time, using tokens and a documented counting method. State whether the value is measured, estimated, or unavailable, including cached input, compaction, and provider-hidden context limits; per-call billing totals are not automatically context occupancy. An unavailable value remains an explicit gap, not zero. Verify it survives tool handoffs and is queryable alongside the action's identity and outcome; see the [telemetry conventions](otel-conventions.md).
 - [ ] **R08 · G3 · C7 — Security monitoring.** Maintain security rules and baselines distinct from answer-quality monitoring. Exercise encoded payloads, unexpected egress, out-of-scope writes, privilege escalation, and repeated denied calls; verify that alerts reach a named responder.
 - [ ] **R09 · G3 · C7/Obs-T2 — Sequence and context-aware detection.** Test suspicious sequences of individually allowed actions, unusual fan-out, and resource consumption. Compare behavior across context-size ranges so a long-context failure is not hidden by one fleet-wide baseline.
 
@@ -164,7 +166,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
   **Acceptable tradeoffs:** Accept slower manual reconciliation and restricted autonomous actions. Identified committed effects may require reconciliation rather than reversal under the documented safe-state procedure. Untracked effects or work retaining authority beyond the stop budget remain blocking.
 
-- [ ] **R14 · G2 · C9 — Recovery integrity.** Where logs or checkpoints drive recovery, make them tamper-evident and verify them before use. Reject a modified checkpoint in a test. Replay an interrupted run with idempotency protections and confirm that irreversible sends, writes, or payments are not executed twice.
+- [ ] **R14 · G2 · C9 — Recovery integrity.** Where logs or checkpoints drive recovery, make them tamper-evident and verify them before use against a separately protected trust anchor or signing key. Test truncation, rollback to an older valid checkpoint, and replacement of an entire hash chain, not just a modified record. Reject a modified checkpoint in a test. For supported automatic recovery, replay within the destination's documented idempotency scope and retention window and confirm that irreversible effects are not duplicated. For unsupported or ambiguous effects, verify replay pauses for reconciliation instead of reissuing them.
 
   **Operational challenge:** Not every external API supports idempotency keys or a reliable status query. A crash between a successful remote action and the local checkpoint can cause replay to repeat the action; a local deduplication table alone does not close that gap.
 
@@ -197,7 +199,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 ### Remaining checks
 
 
-- [ ] **A04 · G1 · C9/Obs-T1 — Trustworthy attribution.** Assign instance and tenant identity through the trusted execution layer rather than accepting model-supplied labels. Test that the agent cannot impersonate another instance or tenant in requests or audit records, and that trace context survives asynchronous handoffs.
+- [ ] **A04 · G1 · C9/Obs-T1 — Trustworthy attribution.** Assign instance and tenant identity through the trusted execution layer rather than accepting model-supplied labels. Test that the agent cannot impersonate another instance or tenant in requests or audit records, and that trace context survives asynchronous handoffs. Treat trace IDs and caller-supplied labels as correlation data, never as authentication or authorization evidence.
 - [ ] **A05 · G1 · C8/C9/Obs-T1 — Operational lookup.** Starting from a suspicious action, find the responsible team, current operator, deployment manifest, and live instance. Demonstrate targeting the correct instance or affected agent type for containment without revoking the launching user's unrelated access.
 - [ ] **A06 · G3 · Obs-T3 — Parent and prompt provenance.** For every spawned agent, record its own type and instance IDs, parent link, trace linkage, and the prompt the parent supplied. Trace a nested action back to that prompt; protect sensitive prompt content with restricted storage and an explicit redaction policy.
 - [ ] **A07 · G3 · C7/Obs-T1 — Every model in the loop.** Inventory verifiers, judges, rerankers, and world models. Give each an identity derived from its available model version or digest, prompt, and configuration, and attribute its decisions. Demonstrate that a swapped, drifted, or failing checker is treated as failure of the control that depends on it.
@@ -257,7 +259,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 ### **IF YOU DO NOTHING ELSE — TOP 3**
 
-- [ ] **E06 · G2 · C1/C2/C4/C5/C9 — Enforced gateway boundary.** **Route MCP traffic through a gateway that authenticates, authorizes, validates calls and responses, rate-limits, and audits decisions. Test direct-server bypass, invalid credentials, malformed responses, and policy/scanner outages. Required enforcement must fail closed.**
+- [ ] **E06 · G2 · C1/C2/C4/C5/C9 — Enforced gateway boundary.** **Enforce MCP calls through a gateway or equivalent non-bypassable execution boundary that authenticates, authorizes, validates calls and responses, rate-limits, and audits decisions. For HTTP/OAuth, validate token issuer, intended audience, expiry, and scopes; use appropriately authorized downstream credentials, not unvalidated token passthrough. For local stdio tools, enforce process launch, filesystem, credentials, and network restrictions in the host/sandbox; an HTTP gateway alone does not cover them. Test direct-server bypass, invalid credentials, malformed responses, and policy/scanner outages. Required enforcement must fail closed.**
 
 - [ ] **E08 · G1 · C2/C4 — Bounded delegated authority.** **Give sub-agents only the capabilities authorized for their assigned task. Enforce each child's role and any explicit higher-tier authorization; a parent must not gain a denied capability simply by asking a more privileged peer to act. Exercise that escalation attempt.**
 
@@ -281,7 +283,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 - [ ] **E01 · G2 · C1–C9 — Map shared responsibilities.** Inventory external tools, MCP servers, peer/sub-agents, registries, identity services, gateways, stop channels, and audit services. For each relevant control, name the agent-team owner and the shared-platform or vendor owner, with evidence for both halves. An upstream service does not make its controls N/A.
 - [ ] **E02 · G2 · C3/C5 — Vet and pin dependencies.** Review tool/server source or available provenance, publisher identity, permissions, update path, and known vulnerabilities before approval. Pin versions/digests and verify signatures where available. Record remote-service or unsigned-artifact limitations and the compensating checks.
-- [ ] **E03 · G2 · C5 — Re-check tools on load.** Fingerprint the approved tool description and schema, then compare on every load or refresh. Exercise a changed description, schema, or implementation version; block unexpected changes pending review. Track vulnerability notices and identify which deployments use an affected dependency.
+- [ ] **E03 · G2 · C5 — Re-check tools on load.** Fingerprint the approved tool description and schema, then compare on every load or refresh. Exercise a changed description, schema, or implementation version; block unexpected changes pending review. A description/schema fingerprint detects metadata changes, not hidden remote code changes. Pin or attest implementation artifacts where observable; record opaque remote implementations as a visibility limitation with re-review triggers. Track vulnerability notices and identify which deployments use an affected dependency.
 - [ ] **E04 · G2 · C5 — Inspect tool metadata.** Scan descriptions and schemas before exposing them to the model for hidden instructions, invisible/control characters, role overrides, encoded payloads, and exfiltration destinations. Bound lengths and sanitize or reject suspicious content. Verify that scanning errors do not silently admit unchecked metadata.
 
   **Operational challenge:** Hidden instructions can be written in ordinary language with no suspicious encoding or control characters. Metadata scanners may also flag legitimate descriptions, so clean scan results do not establish that a tool is trustworthy.
@@ -294,7 +296,7 @@ Classify the deployment's stakes and autonomy before evaluating gaps, with a nam
 
 #### Delegation and shared operations
 
-- [ ] **E07 · G2 · C2/C5 — Untrusted peer messages.** Authenticate the sending agent, validate message types and schemas, and authorize what that peer may request. Test forged identity, cross-tenant requests, and instructions passed through a compromised peer. A valid sender identity does not make message content trusted.
+- [ ] **E07 · G2 · C2/C5 — Untrusted peer messages.** Authenticate the sending agent, validate message types and schemas, and authorize what that peer may request. Use freshness checks and nonce/request-ID tracking where replay could repeat an action; authentication alone does not prevent replay. Test forged identity, replayed requests, cross-tenant requests, and instructions passed through a compromised peer. A valid sender identity does not make message content trusted.
 
 - [ ] **E10 · G1 · C9/Obs-T1 — Audit across service boundaries.** Reconstruct a run through the gateway, tool services, and delegated workers with all six identity fields preserved. Verify that the agent cannot erase or rewrite its audit history and that a vendor boundary does not leave actions unattributable.
 

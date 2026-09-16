@@ -151,6 +151,8 @@
   <script async data-uid="74efbec42c" src="https://aiacceleration.kit.com/74efbec42c/index.js"></script>
 </section>
 
+<section><div class="wrap"><p><b>Scope and practical limits.</b> This guide describes a gateway pattern for remote HTTP tools. Local stdio MCP servers need equivalent host/sandbox enforcement; an HTTP gateway does not automatically mediate their processes or filesystem. Downstream tokens must be issued or exchanged by an authority the destination trusts, with the correct audience and scope; a gateway cannot invent a token that an arbitrary API will accept. Where only static downstream keys exist, keep them behind the enforcement boundary, restrict their grants, and document the lifetime/revocation gap. See <a href="https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization">MCP authorization</a> and checklist E06.</p></div></section>
+
 <section id="only">
   <div class="wrap">
     <div class="principle">
@@ -215,7 +217,7 @@
       <ol class="lifecycle">
         <li><b>Network isolation on the agent side.</b> The agent's runtime can open connections to the gateway and nothing else. Its egress policy blocks every other route — no direct path to tool servers, no arbitrary internet. (This is the same per-agent egress allowlist from <a href="/guides/build-time/">Build-time</a>, pointed at the tool plane.)</li>
         <li><b>Private, gateway-only servers.</b> MCP servers bind to a private network segment with no public route, and they accept connections <em>only</em> from the gateway — enforced with mutual TLS, not just an IP allowlist. A server that answers anyone is a back door.</li>
-        <li><b>The agent holds no tool credentials — and the ones the gateway injects are short-lived.</b> The gateway owns each tool's credential and mints a <strong>short-lived, capability-scoped token</strong> per call, scoped to what that agent is allowed. An agent with no key cannot authenticate to a server even if it found a route; and a token that does leak expires in minutes and grants only that one capability, never standing access.</li>
+        <li><b>The agent holds no tool credentials — and the ones the gateway injects are short-lived.</b> The gateway obtains a <strong>short-lived, capability-scoped token</strong> from the destination's trusted issuer or a supported token-exchange flow, scoped to what that agent is allowed. An agent with no key cannot authenticate to a server even if it found a route; set and test its lifetime and grants rather than assuming every issuer supports per-call capabilities. Where only static credentials exist, apply the restrictions and document the gap described above.</li>
       </ol>
 
       <div class="eg">
@@ -266,10 +268,11 @@
     <ol class="lifecycle">
       <li><b>Authenticate the caller.</b> Identify <em>which</em> agent is calling — its own identity, not a shared service account. An unauthenticated call is denied. (This is the agent identity from the <a href="/guides/agent/">Agent</a> concern; the gateway is where it's checked.)</li>
       <li><b>Authorize against the agent's role and identity.</b> Check a least-privilege allowlist keyed to <em>this</em> agent's identity and role: may it call <em>this</em> tool with <em>these</em> argument shapes? Default deny — and the set of <em>available</em> tools is itself filtered by role, so an agent can't even discover, let alone call, the tools outside its remit. The allowlist and the role-to-tool map are read from the registry, not hard-coded per agent.</li>
-      <li><b>Pre-flight scan the call and the tool.</b> Verify the tool's fingerprint (a hash of its description and schema) against the vetted value to catch a <a href="/guides/ecosystem/">rug pull</a>; scan the tool metadata for hidden instructions; validate the arguments against the schema and for obvious exfiltration (a <code class="inl">url</code> field pointing off-allowlist).</li>
-      <li><b>Forward with a short-lived injected credential.</b> Only now does the call leave the gateway, over mTLS, carrying a short-lived, scoped token the gateway mints for that tool. The agent never saw a key, and the token expires fast.</li>
-      <li><b>Post-flight scan the response.</b> Treat the tool's output as untrusted input on the way back: redact secret-shaped strings before they reach the model's context or your logs, and block or sanitize responses carrying injected instructions. <a href="/guides/run-time/">Data hygiene runs both ways.</a></li>
-      <li><b>Meter, then audit.</b> Record the call against the agent's quota and cost budget, then write an audit record — agent identity, tool, argument hash, verdict, latency — to an append-only trail.</li>
+      <li><b>Pre-flight scan the call and the tool.</b> Verify the tool's fingerprint (a hash of its description and schema) against the vetted value to detect metadata changes associated with a <a href="/guides/ecosystem/">rug pull</a>; this cannot reveal hidden remote implementation changes; scan the tool metadata for hidden instructions; validate the arguments against the schema and for obvious exfiltration (a <code class="inl">url</code> field pointing off-allowlist).</li>
+      <li><b>Reserve budget before forwarding.</b> Atomically check and reserve call/cost allowance before dispatch, including concurrent calls and children. Record the authorized attempt before any side effect; define a bounded tolerance for costs known only after execution.</li>
+      <li><b>Forward with a short-lived injected credential.</b> Only now does the call leave the gateway, over mTLS, carrying a short-lived, scoped token from an issuer trusted by that tool. The agent never saw a key, and the token expires fast.</li>
+      <li><b>Post-flight scan the response.</b> Treat the tool's output as untrusted input on the way back: redact secret-shaped strings before they reach the model's context or your logs, and reject or quarantine suspicious content according to policy. Detection can miss schema-valid injection, so retain data/instruction separation and independently enforced action permissions. <a href="/guides/run-time/">Data hygiene runs both ways.</a></li>
+      <li><b>Meter, then audit.</b> Reconcile actual usage against the reserved budget, then append the outcome to the audit record — agent identity, tool, argument hash, verdict, latency — to an append-only trail.</li>
       <li><b>Fail closed.</b> If any step errors — the scanner is down, the fingerprint store is unreachable, the policy engine times out — deny. A check that can't run is a denial, never a silent pass. A scanner that errors open is worse than none, because it sells false confidence.</li>
     </ol>
   </div>
@@ -288,7 +291,7 @@
       <li><b>Per-agent, per-tool quotas and rate limits.</b> A cap on calls and on cost per window, scoped to the agent and the tool. Exceeding it throttles or denies, and alerts.</li>
       <li><b>Cost attribution.</b> Every call is priced and attributed to an agent, a tenant, and an owner — so spend is answerable to "which agent did this?" the same way actions are.</li>
       <li><b>Anomaly signals.</b> A baseline per agent and tool; flag a sudden change in call rate, argument entropy, or off-pattern tool combinations as a security event, separate from quality monitoring.</li>
-      <li><b>A central cut-off.</b> The gateway is the one place that can revoke an agent's access to one tool, or quarantine a tool across all agents, instantly — the ecosystem half of the <a href="/guides/ecosystem/">kill switch</a>.</li>
+      <li><b>A central cut-off.</b> The gateway can deny new calls by an agent or quarantine a tool across agents within a measured enforcement budget; in-flight and already-committed operations need separate handling — the ecosystem half of the <a href="/guides/ecosystem/">kill switch</a>.</li>
     </ul>
   </div>
 </section>
@@ -306,10 +309,10 @@
       <li><b>A meter</b> recording calls and cost per agent and tool, enforcing quotas, emitting anomaly signals.</li>
       <li><b>An append-only audit sink</b> capturing every decision for attribution and forensics.</li>
     </ol>
-    <p>Wrap all six so that any internal failure returns a denial to the agent. Then enforce the three non-bypass properties around it — isolated agents, private gateway-only servers, no agent-held credentials — and you have a real gateway rather than a hint.</p>
+    <p>Wrap all seven so that any internal failure returns a denial to the agent. Then enforce the three non-bypass properties around it — isolated agents, private gateway-only servers, no agent-held credentials — and you have a real gateway rather than a hint.</p>
 
     <div class="refbox">
-      <p style="margin:0"><b>Reference implementation.</b> You don't have to invent the spec. Microsoft's open <a href="https://github.com/microsoft/agent-governance-toolkit/blob/main/docs/specs/MCP-SECURITY-GATEWAY-1.0.md">MCP Security Gateway 1.0</a> (part of the MIT-licensed <a href="https://github.com/microsoft/agent-governance-toolkit">Agent Governance Toolkit</a>) is a conformance-tested spec for the interception, scanning, schema-drift detection, and fail-closed semantics described here. BRACE defines <em>what</em> to enforce at the MCP boundary and why it must be the only door; that spec is one concrete way to <em>build</em> the box.</p>
+      <p style="margin:0"><b>Reference specification.</b> You don't have to invent the spec. Microsoft's open <a href="https://github.com/microsoft/agent-governance-toolkit/blob/013c7fb44ae589c21488b2746fef9ee44c4f1416/docs/specs/MCP-SECURITY-GATEWAY-1.0.md">MCP Security Gateway 1.0</a> (part of the MIT-licensed <a href="https://github.com/microsoft/agent-governance-toolkit">Agent Governance Toolkit</a>) is a draft specification with conformance requirements for interception, scanning, schema-drift detection, and fail-closed semantics. BRACE defines <em>what</em> to enforce at the MCP boundary and why it must be the only door; that spec is one concrete way to <em>build</em> the box.</p>
     </div>
   </div>
 </section>

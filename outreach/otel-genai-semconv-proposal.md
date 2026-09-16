@@ -1,5 +1,7 @@
 # Proposal: agent identity and provenance attributes for GenAI semantic conventions
 
+> **Historical outreach draft — source review 2026-09-16:** Do not use its novelty, vendor-coverage, or incident-count claims as current evidence. See [SOURCE-REVIEW.md](../SOURCE-REVIEW.md), the [current checklist](../CHECKLIST.md), and [current telemetry proposal](../otel-conventions.md) before adapting this draft.
+
 **To:** OpenTelemetry GenAI semantic-conventions working group / SIG
 **From:** The BRACE Project
 **Status:** Proposal — adopt as experimental attributes
