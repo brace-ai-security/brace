@@ -1,6 +1,6 @@
 # BRACE Resources
 
-The agent-security ecosystem, mapped to BRACE. BRACE **composes with — it does not replace** the work below: use the standards to know what can go wrong, the reference implementations to see one way to build a control, and the open-source building blocks to actually build it.
+Resources for implementing BRACE’s controls. Use the standards and threat models to understand risks, reference designs to explore implementation approaches, and software components to build and test your controls.
 
 Each entry notes the BRACE concern it most relates to: **Build-time · Run-time · Agent · Config · Ecosystem · Observability · Governance**.
 
@@ -10,7 +10,7 @@ Each entry notes the BRACE concern it most relates to: **Build-time · Run-time 
 
 ## Standards & threat models
 
-Know what can go wrong, and the governance you must answer to. BRACE is the technical control layer beneath these.
+Use these references to understand threats and governance requirements alongside BRACE’s deployment checks.
 
 ### Agentic threat catalogs
 

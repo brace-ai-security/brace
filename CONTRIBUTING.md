@@ -31,9 +31,9 @@ BRACE is grounded in things that have actually happened to deployed agents. If y
 
 Keep it factual. We are building a corpus, not a blog.
 
-## Submit a vendor-product to control mapping
+## Map a vendor product to controls
 
-The vendor matrix maps real products to the BRACE controls they help implement. To add or correct an entry, open a PR (or an issue, if you'd rather discuss first) with:
+The vendor worksheet describes the evidence needed to assess support for BRACE controls. To add or correct an entry, open a PR (or an issue, if you'd rather discuss first) with:
 
 - The vendor and product name.
 - The control(s) (C1–C9) it addresses.
@@ -59,7 +59,7 @@ By contributing, you agree that your contribution is accepted under **Creative C
 
 For context: BRACE is a synthesis of agent-security practice already in production. It has not yet been validated against a control group. Contributions that move it toward validation — real incidents, real mappings, real-world deployment experience — are the most valuable kind.
 
-The framework is described in full in the BRACE paper, *A Unified Security Framework for Autonomous AI Agents* (2026); see https://github.com/brace-ai-security/brace.
+The current requirements are in the [sign-off checklist](CHECKLIST.md). See the [source review](SOURCE-REVIEW.md) for supporting evidence and its limits.
 
 ## Code of conduct
 

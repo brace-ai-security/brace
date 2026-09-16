@@ -2,7 +2,7 @@
 
 **Reviewed:** 2026-09-16. See the [source review](SOURCE-REVIEW.md).
 
-This matrix identifies evidence to request for each BRACE control. Product availability is not evidence that the control is enabled, correctly configured, or complete in your deployment. The previous blanket vendor checkmarks and claims that no vendor implements particular capabilities were not supported by a current, reproducible comparison and have been removed.
+Use this worksheet to request and record evidence for each BRACE control. Product availability is not evidence that the control is enabled, correctly configured, or complete in your deployment. The previous blanket vendor checkmarks and claims that no vendor implements particular capabilities were not supported by a current, reproducible comparison and have been removed.
 
 Use the [53-item checklist](CHECKLIST.md), its [verification recipes](CHECKLIST-VERIFICATION.md), and the [self-assessment](SELF-ASSESSMENT.md) to evaluate the exact product version, plan, region, and configuration. Record **demonstrated**, **partial**, **not demonstrated**, or **not applicable with rationale** for each deployment; these are evidence outcomes, not vendor rankings.
 
@@ -27,7 +27,7 @@ Configuration items C01–C08 apply across this matrix, including model and owne
 
 ## Candidate platforms and components
 
-These are discovery links, not conformance awards. The resource catalog provides a broader [component list](RESOURCES.md).
+These are discovery links, not verified ratings of control coverage. The resource catalog provides a broader [component list](RESOURCES.md).
 
 | Source | What to investigate |
 |---|---|

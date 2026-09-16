@@ -1,6 +1,6 @@
 # Governing BRACE
 
-BRACE is an open, vendor-neutral technical control framework for autonomous AI agents, released under CC BY 4.0. It is run in the open and built to be shared. This document explains how decisions get made and how to take on a bigger role.
+BRACE is an open, vendor-neutral technical control framework for autonomous AI agents, released under CC BY 4.0. It is run in the open and built to be shared. This document explains how decisions are made and how to become more involved.
 
 ## Principles
 
@@ -16,7 +16,7 @@ BRACE is an open, vendor-neutral technical control framework for autonomous AI a
 
 ## How decisions get made
 
-- Most changes: open an issue, discuss, then a pull request. Lazy consensus — with no objections in a reasonable window, a maintainer merges.
+- Most changes: open an issue, discuss, then a pull request. A maintainer merges after allowing a reasonable time for discussion, provided there are no unresolved objections.
 - Changes to a control (C1–C9) or observability requirement (T1–T3): open an issue first (see `CONTRIBUTING.md`). These are the core of the framework, so changes are deliberate.
 - Unresolved disagreements: maintainers decide in the open, with the reasoning recorded on the issue.
 

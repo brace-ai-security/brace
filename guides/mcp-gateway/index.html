@@ -120,7 +120,7 @@
 <header class="hero">
   <div class="wrap">
     <p class="eyebrow">BRACE Guide · Ecosystem deep dive</p>
-    <h1>Build an MCP gateway, and make it the only door</h1>
+    <h1>Build an MCP gateway that agents cannot bypass</h1>
     <p class="lede">A gateway in front of your MCP servers is the single place you can authenticate, authorize, scan, meter, and audit every tool call. But a gateway only works if it is the <strong>only</strong> path to your tools. If an agent can reach an MCP server directly, the gateway is optional, and a hijacked or misaligned agent will route around it. This is how to build the gateway, and how to make it impossible to bypass.</p>
     <p style="margin:16px 0 0; font-size:14px; opacity:.9">By <a href="https://www.linkedin.com/in/brennhill/" style="color:#cfe2f1; font-weight:600">Brenn Hill</a></p>
   </div>
@@ -242,7 +242,7 @@
       <p class="statement">An allow-control has to allow against something. Behind the gateway sits an MCP inventory: a registry of which servers and tools exist, who approved each, its vetted fingerprint, its trust tier, and which agent roles may use it. The gateway enforces; the registry is <em>what</em> it enforces.</p>
 
       <div class="why">
-        <p style="margin:0"><b class="k">Why it matters.</b> You cannot allowlist, fingerprint-check, or role-scope a tool you have not catalogued. Most "shadow MCP" risk is exactly that: a server someone wired up that no inventory knows about, so no control references it. The registry closes the gap. It is also where rug-pull detection lives — the fingerprint the gateway re-checks on load is the one the registry recorded at approval — and where the role-to-tool map lives, so the gateway can filter the very <em>list</em> of available tools per agent, not just individual calls.</p>
+        <p style="margin:0"><b class="k">Why it matters.</b> To approve a tool, verify its fingerprint, or restrict its use by role, first record it in the inventory. Most "shadow MCP" risk is exactly that: a server someone wired up that no inventory knows about, so no control references it. The registry closes the gap. It is also where rug-pull detection lives — the fingerprint the gateway re-checks on load is the one the registry recorded at approval — and where the role-to-tool map lives, so the gateway can filter the very <em>list</em> of available tools per agent, not just individual calls.</p>
       </div>
 
       <p>A workable registry entry carries, per tool: a stable identity namespaced to a verified server, the vetted fingerprint (a hash of description and schema), an owner and approval date, a trust tier, the agent roles permitted to call it, and a reference to its credential in the vault. The gateway reads it on every call. Nothing reaches an agent that the registry has not admitted.</p>
@@ -268,12 +268,12 @@
     <ol class="lifecycle">
       <li><b>Authenticate the caller.</b> Identify <em>which</em> agent is calling — its own identity, not a shared service account. An unauthenticated call is denied. (This is the agent identity from the <a href="/guides/agent/">Agent</a> concern; the gateway is where it's checked.)</li>
       <li><b>Authorize against the agent's role and identity.</b> Check a least-privilege allowlist keyed to <em>this</em> agent's identity and role: may it call <em>this</em> tool with <em>these</em> argument shapes? Default deny — and the set of <em>available</em> tools is itself filtered by role, so an agent can't even discover, let alone call, the tools outside its remit. The allowlist and the role-to-tool map are read from the registry, not hard-coded per agent.</li>
-      <li><b>Pre-flight scan the call and the tool.</b> Verify the tool's fingerprint (a hash of its description and schema) against the vetted value to detect metadata changes associated with a <a href="/guides/ecosystem/">rug pull</a>; this cannot reveal hidden remote implementation changes; scan the tool metadata for hidden instructions; validate the arguments against the schema and for obvious exfiltration (a <code class="inl">url</code> field pointing off-allowlist).</li>
+      <li><b>Validate the call and inspect the tool.</b> Compare the tool’s description and schema hash with the approved fingerprint to detect metadata changes associated with a <a href="/guides/ecosystem/">rug pull</a>. This check cannot reveal hidden changes to remote code. Scan metadata for hidden instructions, validate argument schemas, and check for obvious exfiltration attempts, such as a <code class="inl">url</code> pointing outside the allowlist.</li>
       <li><b>Reserve budget before forwarding.</b> Atomically check and reserve call/cost allowance before dispatch, including concurrent calls and children. Record the authorized attempt before any side effect; define a bounded tolerance for costs known only after execution.</li>
-      <li><b>Forward with a short-lived injected credential.</b> Only now does the call leave the gateway, over mTLS, carrying a short-lived, scoped token from an issuer trusted by that tool. The agent never saw a key, and the token expires fast.</li>
-      <li><b>Post-flight scan the response.</b> Treat the tool's output as untrusted input on the way back: redact secret-shaped strings before they reach the model's context or your logs, and reject or quarantine suspicious content according to policy. Detection can miss schema-valid injection, so retain data/instruction separation and independently enforced action permissions. <a href="/guides/run-time/">Data hygiene runs both ways.</a></li>
-      <li><b>Meter, then audit.</b> Reconcile actual usage against the reserved budget, then append the outcome to the audit record — agent identity, tool, argument hash, verdict, latency — to an append-only trail.</li>
-      <li><b>Fail closed.</b> If any step errors — the scanner is down, the fingerprint store is unreachable, the policy engine times out — deny. A check that can't run is a denial, never a silent pass. A scanner that errors open is worse than none, because it sells false confidence.</li>
+      <li><b>Forward with a short-lived injected credential.</b> Only now does the call leave the gateway, over mTLS, carrying a short-lived, scoped token from an issuer trusted by that tool. The agent does not receive the downstream credential. Enforce the token’s configured expiry.</li>
+      <li><b>Validate and scan the response.</b> Treat the tool's output as untrusted input on the way back: redact secret-shaped strings before they reach the model's context or your logs, and reject or quarantine suspicious content according to policy. Detection can miss schema-valid injection, so retain separation between data and instructions and independently enforced action permissions. <a href="/guides/run-time/">Data hygiene runs both ways.</a></li>
+      <li><b>Reconcile usage and record the outcome.</b> Reconcile actual usage against the reserved budget. Add the outcome, agent identity, tool, argument hash, verdict, and latency to the append-only audit trail.</li>
+      <li><b>Fail closed.</b> If any step errors — the scanner is down, the fingerprint store is unreachable, the policy engine times out — deny. A check that can't run is a denial, never a silent pass. A scanner that silently admits unchecked content creates false confidence.</li>
     </ol>
   </div>
 </section>
@@ -299,7 +299,7 @@
 <section id="build">
   <div class="wrap">
     <h2>A minimal build</h2>
-    <p>You do not need a platform to start. A gateway is a reverse proxy for MCP with a few responsibilities bolted on. The smallest honest version has seven parts:</p>
+    <p>You do not need a platform to start. This gateway design combines an MCP reverse proxy with seven security components:</p>
     <ol class="lifecycle">
       <li><b>A proxy front end</b> speaking MCP to agents and to servers — the single endpoint every agent is configured (and network-restricted) to use.</li>
       <li><b>A registry / inventory</b> — the source of truth above: approved servers and tools, each with a fingerprint, owner, trust tier, permitted roles, and a credential reference.</li>
@@ -324,7 +324,7 @@
     <div class="eg">
       <div class="col bad">
         <div class="tag">✗ The bypassable gateway</div>
-        Agents can still reach servers directly or hold the credentials. The gateway protects only the well-behaved calls — which are not the ones you were worried about.
+        Agents can still reach servers directly or hold the credentials. Calls that bypass the gateway also bypass its controls.
       </div>
       <div class="col bad">
         <div class="tag">✗ The fail-open gateway</div>
@@ -338,7 +338,7 @@
       </div>
       <div class="col good">
         <div class="tag">✓ The real gateway</div>
-        Only door, default deny, fails closed, meters and can cut off — so a hijacked agent's tool calls are bounded, scanned, capped, and attributable, whether or not the agent cooperates.
+        The gateway mediates every tool call, denies access by default, fails closed, enforces budgets, and can stop further calls. These controls must work even when the agent does not cooperate.
       </div>
     </div>
   </div>
@@ -347,7 +347,7 @@
 <section id="checklist">
   <div class="wrap">
     <h2>Gateway go / no-go</h2>
-    <p style="color:var(--muted)">An implementation pattern for the MCP boundary, extending Principle 5 of the <a href="/guides/ecosystem/">Ecosystem guide</a>. The full checklist sets release gates and acceptable tradeoffs; the specific mTLS and credential-broker design below is one way to implement the boundary. See <a href="https://github.com/brace-ai-security/brace/blob/main/CHECKLIST.md#e--ecosystem">E02–E06 and E10–E11</a> and <a href="https://github.com/brace-ai-security/brace/blob/main/CHECKLIST-VERIFICATION.md#e--ecosystem">their verification recipes</a>. A clean content scan cannot prove every prompt injection was detected; enforce scoped authority independently.</p>
+    <p style="color:var(--muted)">An implementation pattern for the MCP boundary, extending Principle 5 of the <a href="/guides/ecosystem/">Ecosystem guide</a>. The full checklist sets release gates and acceptable tradeoffs; the specific mTLS and credential-broker design in this guide is one way to implement the boundary. See <a href="https://github.com/brace-ai-security/brace/blob/main/CHECKLIST.md#e--ecosystem">E02–E06 and E10–E11</a> and <a href="https://github.com/brace-ai-security/brace/blob/main/CHECKLIST-VERIFICATION.md#e--ecosystem">their verification recipes</a>. A clean content scan cannot prove every prompt injection was detected; enforce scoped authority independently.</p>
     <ul class="check">
       <li>Agents are network-restricted so the gateway is their only route to any tool server.</li>
       <li>MCP servers are on a private segment and accept connections only from the gateway, over mutual TLS.</li>

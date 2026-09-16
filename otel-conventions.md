@@ -1,6 +1,6 @@
 # OpenTelemetry attributes for agent identity and provenance
 
-This doc defines four proposed OpenTelemetry attributes for autonomous AI agents.
+This document proposes four custom OpenTelemetry attributes for autonomous AI agents.
 
 Current [OpenTelemetry GenAI agent conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md) already define agent identity/version attributes, model references, and agent/tool spans. They are in **Development**. BRACE's content-hashed type identity and execution-instance identity have different semantics from a provider-assigned `gen_ai.agent.id`; do not overwrite that standard field with a transient run ID.
 
@@ -10,8 +10,8 @@ The four `agent.*` attributes below are **BRACE-proposed custom attributes**, no
 
 | Attribute key | Type | Requirement level | Description | Example value |
 | --- | --- | --- | --- | --- |
-| `agent.type.id` | string | Required | Content hash over the agent's defining inputs: container digest, harness version, system prompt, model identifier/version (including applicable checkpoint and fine-tune/adapter references), and configuration. A fingerprint of the agent *type*. Two deployments with any of those inputs different have different `agent.type.id` values. | `sha256:9f1c...e3a` |
-| `agent.instance.id` | string | Required | Id of a specific running agent instance. Each invocation gets one. Sub-agents are regular instances and get their own `agent.instance.id`. | `01HXYZ...K7` |
+| `agent.type.id` | string | Required | Content hash over the agent's defining inputs: container digest, harness version, system prompt, model identifier/version (including applicable checkpoint and fine-tune/adapter references), and configuration. A fingerprint of the agent *type*. Deployments with different defining inputs have different `agent.type.id` values. | `sha256:9f1c...e3a` |
+| `agent.instance.id` | string | Required | ID of a specific running agent instance. Each invocation gets one. Sub-agents are regular instances and get their own `agent.instance.id`. | `01HXYZ...K7` |
 | `agent.context.size` | int | Recommended | Number of tokens in the model's context at the moment of the action or decision. This is the live context occupancy, not a per-call token count. | `42137` |
 | `agent.parent.prompt` | string or reference | Conditionally required | The prompt the parent agent gave this sub-agent. Required when the agent was spawned by a parent. May be the full prompt body or a reference (for example a hash, with the body stored in a separate tier). | `sha256:a1b2...` or the prompt text |
 
@@ -26,8 +26,7 @@ Notes on the values:
 - `agent.parent.prompt` is sensitive. Parent-passed prompts routinely contain
   customer data, tool outputs, and business logic. The reference form
   (a hash on the span, body in a separate, stricter-access tier) is the recommended
-  default for shared-tenant deployments. The full-body form is for deployments that
-  retain their audit data locally and have a policy reason to capture it inline.
+  default for shared-tenant deployments. Capture the full prompt inline only when the deployment’s local audit storage and data-handling policy allow it.
 
 ### Scope of identity and checklist priorities
 
@@ -68,8 +67,7 @@ Four of the six already map to existing identity and trace primitives:
 
 - Accountable party, operational owner, and tenant map to existing identity
   primitives (OIDC claims, IdP tenant/org ids, IAM tags, SPIFFE trust-domain and
-  path components). They are emission discipline on fields most identity providers
-  already carry.
+  path components). Record these values consistently on every action, using the verified identity data available in your deployment.
 - Trace context maps directly to W3C Trace Context (`traceparent`, `tracestate`),
   which OpenTelemetry can propagate when correctly instrumented; verify async handoffs and use span links where a parent-child tree does not represent the relationship.
 
@@ -84,7 +82,7 @@ attributes rather than mapped onto existing ones.
 ## Worked example: a span/log record with all four attributes plus the six identity fields
 
 A sub-agent action, emitted as span attributes. The four proposed attributes are
-marked. The six BRACE identity fields are present: four ride existing primitives
+marked. The six BRACE identity fields are present: four use existing identity and trace fields
 (accountable party, operational owner, tenant, trace context), and two are the
 BRACE-proposed agent attributes (`agent.type.id`, `agent.instance.id`).
 

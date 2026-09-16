@@ -1,4 +1,4 @@
-# BRACE Self-Assessment and Vendor-Evaluation Question Set
+# BRACE self-assessment and vendor evaluation
 
 Score the same **53 items** used in the [BRACE sign-off checklist](CHECKLIST.md), across **Build-time, Run-time, Agent, Configuration, and Ecosystem**. The checklist is the source of the full requirements, operational challenges, fallbacks, and acceptable tradeoffs. The [verification guide](CHECKLIST-VERIFICATION.md) supplies a procedure, expected result, and evidence for every matching item ID.
 
@@ -17,7 +17,7 @@ Assess a named release and environment, or ask a vendor to demonstrate each requ
 | **0 — No** | The requirement is absent or cannot be demonstrated. A claim alone earns no credit. | Gap |
 | **N/A** | The feature/exposure is absent, with evidence and an approved rationale. | N/A; exclude from score denominator |
 
-A fallback can earn 2 only when it demonstrably meets the requirement for the assessed configuration. Accepted risk does not turn a Partial or No into a Yes. Provider-undisclosed details must be labeled as such; apply the model-provenance and pinning rules in C01/C05 rather than awarding or withholding credit on an invented version.
+A fallback can earn 2 only when it demonstrably meets the requirement for the assessed configuration. Accepted risk does not turn a Partial or No into a Yes. Provider-undisclosed details must be labeled as such; apply the model-provenance and pinning rules in C01/C05 and assess the available evidence without inventing missing version information.
 
 ### Priority gates
 
@@ -31,7 +31,7 @@ Classify stakes and autonomy before assessing gaps. Record owners, evidence, N/A
 
 ## Assessment worksheet
 
-For each row ask: **Does this deployment meet the full linked checklist requirement, and can we demonstrate it?** Add a score and an evidence or gap reference. Short labels below provide navigation; they do not narrow the linked requirement.
+For each row, ask: **Does this deployment meet the full linked checklist requirement, and can we demonstrate it?** Add a score and an evidence or gap reference. The short labels help you find each item; score against its full requirement.
 
 ### B — Build-time
 

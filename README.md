@@ -4,9 +4,9 @@
 
 It is built around one idea:
 
-> An autonomous agent is not the code that shipped. It is a **runtime configuration** of infrastructure — a container, a harness (the loop that runs the model and hands it tools), a system prompt, a set of tools, a memory store, an identity, and a network path. Two agents built from the same model can behave completely differently depending on how those parts are configured. Review the **configuration together with the harness, tools, and generated code**. Code review remains necessary; it does not capture the complete running agent by itself.
+> An autonomous agent combines code with a **runtime configuration** — a container, a harness (the loop that runs the model and hands it tools), a system prompt, a set of tools, a memory store, an identity, and a network path. Two agents built from the same model can behave completely differently depending on how those parts are configured. Review the **configuration together with the harness, tools, and generated code**. Code review remains necessary; it does not capture the complete running agent by itself.
 
-BRACE names the controls over that configuration, says which to ship first, and specifies the data you need to log to operate them.
+BRACE defines controls for that configuration, sets implementation priorities, and specifies the records needed to operate and verify those controls.
 
 **BRACE stands for** the five concerns it organizes: **B**uild-time, **R**un-time, **A**gent, **C**onfiguration, **E**cosystem.
 
@@ -33,7 +33,7 @@ BRACE specifies **nine controls** and **three observability requirements**.
 | 1 | Architecture | Environment and network isolation; bound the blast radius by topology, not good behavior. |
 | 2 | Capability-scoped API access | Tokens grant specific capabilities (`read:tickets`, not `*`); least privilege. |
 | 3 | Container | Signed, minimal, kernel-isolated image; the image hash is part of the agent's identity. |
-| 4 | Harness | The highest-leverage control: which tools, which arguments, which limits — and **destructive-verb interception** (delete, drop, wipe blocked by default). |
+| 4 | Harness | Enforces permitted tools, arguments, and limits, including **destructive-action interception**: high-impact operations are blocked unless specifically authorized. |
 
 **Run-time controls** (active on every execution):
 
@@ -58,7 +58,7 @@ BRACE specifies **nine controls** and **three observability requirements**.
 | T2 | Context-size logging | The context size at decision time, so baselines can be split by context-size range. |
 | T3 | Sub-agent & parent-prompt provenance | Which sub-agent ran, and the prompt the parent gave it. |
 
-**Every control and observable has two halves.** An *agent-scoped* half (configured per agent type) and an *ecosystem-scoped* half (a property of the shared substrate every agent runs on). You cannot secure one half alone: an agent cannot present a narrowly scoped token unless the identity system can issue one.
+**Every control and observability requirement has two halves:** the settings for each agent type and the support provided by shared infrastructure and services. You cannot secure one half alone: an agent cannot present a narrowly scoped token unless the identity system can issue one.
 
 ### The six required identity fields (T1)
 
@@ -70,9 +70,9 @@ The **agent-type-id** is a content hash — a fingerprint — over the container
 
 ## What to ship first
 
-Most teams cannot build all twelve elements at once, and should not wait until they can. The priority order:
+Build the twelve elements in stages, applying the checklist’s release gates at each stage. Start in this order:
 
-- **Tier 1 — prevent damage, preserve attribution.** Harness destructive-verb interception (Control 4), capability-scoped tokens (Control 2), a tested kill switch (Control 8), an audit trail (Control 9), and the six identity fields (T1). These controls bound damage and support reconstruction when enforcement and audit coverage are demonstrated.
+- **Tier 1 — prevent damage, preserve attribution.** Harness enforcement of destructive-action permissions (Control 4), capability-scoped tokens (Control 2), a tested kill switch (Control 8), an audit trail (Control 9), and the six identity fields (T1). These controls bound damage and support reconstruction when enforcement and audit coverage are demonstrated.
 - **Tier 2 — harden the substrate, surface invisible failures.** Architecture/egress isolation (Control 1), a signed and minimal container (Control 3), input validation (Control 5), context-size logging (T2).
 - **Tier 3 — active detection.** Behavioral monitoring with sequence-pattern baselines (Control 7), memory provenance and scoping (Control 6), sub-agent and parent-prompt provenance (T3).
 
@@ -97,7 +97,7 @@ Use OWASP and MITRE to know *what can go wrong*. Use BRACE to know *what to buil
 
 Five concrete requirements this project brings together:
 
-1. Treat the **harness, system prompt, and built-in tools** as hardening artifacts — versioned, diff-reviewed, distinct from the external tool surface. This is where destructive-verb interception lives.
+1. Treat the **harness, system prompt, and built-in tools** as hardening artifacts — versioned, diff-reviewed, distinct from the external tool surface. This is where destructive-action permissions are enforced.
 2. **Six required identity fields** on every action, including the content-hashed agent-type-id.
 3. **Context-size logging** at decision time, with baselines split by context-size range.
 4. **Sub-agent and parent-prompt provenance** as a first-class field — separating "the sub-agent misbehaved" from "the parent prompted it badly."
@@ -130,11 +130,11 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 | File | What it is |
 |------|------------|
 | [CHECKLIST.md](CHECKLIST.md) | The 53-item sign-off review, with operational challenges, fallbacks, and tradeoffs. |
-| [SOURCE-REVIEW.md](SOURCE-REVIEW.md) | Dated primary-source review, all-item coverage, source inventory, and verification limits. |
+| [SOURCE-REVIEW.md](SOURCE-REVIEW.md) | Dated source review covering all 53 items, with references and verification limits. |
 | [CHECKLIST-VERIFICATION.md](CHECKLIST-VERIFICATION.md) | Practical verification recipes for every checklist item, including model and training provenance fields. |
 | [SELF-ASSESSMENT.md](SELF-ASSESSMENT.md) | Scoring worksheet for the same 53 checklist item IDs and gates. |
 | [otel-conventions.md](otel-conventions.md) | Proposed OpenTelemetry attributes for agent identity and provenance. |
-| [VENDOR-MATRIX.md](VENDOR-MATRIX.md) | Which cloud and open-source offerings cover each control. |
+| [VENDOR-MATRIX.md](VENDOR-MATRIX.md) | Evidence to request when evaluating vendor and platform support for each control. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose changes, report incidents, or map a vendor product. |
 | [GOVERNANCE.md](GOVERNANCE.md) | How the project is run, and how to become a co-maintainer. |
 | [ROADMAP.md](ROADMAP.md) | What's planned, and how priorities are set. |
