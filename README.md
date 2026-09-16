@@ -86,10 +86,10 @@ Use the checklist as the source of requirements, the [verification guide](CHECKL
 
 BRACE organizes deployment checks alongside existing security guidance. Its grouping and adoption gates are project design choices, not claims that other frameworks lack practical controls:
 
-- **OWASP Top 10 for Agentic Applications** — a threat catalog. BRACE maps each of its ten risks (ASI01–ASI10) to the controls that mitigate them.
+- **[OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)** — a threat catalog. BRACE maps each of its ten risks ([ASI01–ASI10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)) to the controls that mitigate them.
 - **[OWASP Agent Control Standard (ACS)](https://genai.owasp.org/resource/agent-control-standard-acs/)** — runtime policy hooks and enforcement; complements BRACE's deployment review.
-- **MITRE ATLAS** — an attacker-technique catalog. BRACE maps the agentic techniques to controls.
-- **NIST AI RMF / ISO 42001** — governance and compliance. BRACE is the technical control layer underneath the governance.
+- **[MITRE ATLAS](https://atlas.mitre.org/)** — an attacker-technique catalog. BRACE maps the agentic techniques to controls.
+- **[NIST AI RMF](https://www.nist.gov/itl/ai-risk-management-framework) / [ISO/IEC 42001](https://www.iso.org/standard/81230.html)** — governance and management-system references. BRACE provides deployment-focused technical checks alongside them.
 
 Use OWASP and MITRE to know *what can go wrong*. Use BRACE to know *what to build and in what order*.
 

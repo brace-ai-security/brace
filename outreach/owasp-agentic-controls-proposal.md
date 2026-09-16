@@ -11,7 +11,7 @@
 
 ## Summary
 
-The OWASP Top 10 for Agentic Applications (2026) is the field's reference list of what can go wrong with autonomous agents. By design, it is a **threat catalog**: it names the ten risks (ASI01–ASI10) and discusses mitigations at a general level. It does not specify a concrete control architecture, and the accompanying threats-and-mitigations material stops short of a testable, build-it checklist.
+The OWASP Top 10 for Agentic Applications (2026) is the field's reference list of what can go wrong with autonomous agents. By design, it is a **threat catalog**: it names the ten risks ([ASI01–ASI10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)) and discusses mitigations at a general level. It does not specify a concrete control architecture, and the accompanying threats-and-mitigations material stops short of a testable, build-it checklist.
 
 That leaves a recurring question for the engineers who adopt the list: *given these risks, what exactly do I build, and in what order?*
 
@@ -41,16 +41,16 @@ Each is specified at agent-deployment granularity and is testable (you can check
 
 | OWASP risk | Primary BRACE controls |
 |------------|------------------------|
-| ASI01 Agent Goal Hijack | Harness (system prompt as a frozen, reviewed artifact); Data (input validation) |
-| ASI02 Tool Misuse and Exploitation | Harness (tool allowlist, destructive-verb interception); Capability-scoped API access |
-| ASI03 Identity and Privilege Abuse | Required identity fields (T1); Capability-scoped API access; agent identity separate from the user |
-| ASI04 Agentic Supply Chain Vulnerabilities | Container (signed, minimal); Harness (tool allowlist); IaC drift detection |
-| ASI05 Unexpected Code Execution (RCE) | Container (minimal, kernel-isolated); Architecture (egress) |
-| ASI06 Memory and Context Poisoning | Memory (scoping, write validation, provenance); Data |
-| ASI07 Insecure Inter-Agent Communication | Required identity fields (T1); Sub-agent and parent-prompt provenance (T3) |
-| ASI08 Cascading Failures | Sub-agent provenance (T3); Kill Switch (recursive to sub-agents) |
-| ASI09 Human-Agent Trust Exploitation | Harness (system prompt); Behavioral monitoring |
-| ASI10 Rogue Agents | Behavioral monitoring; Kill Switch; Required identity fields |
+| [ASI01 Agent Goal Hijack](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Harness (system prompt as a frozen, reviewed artifact); Data (input validation) |
+| [ASI02 Tool Misuse and Exploitation](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Harness (tool allowlist, destructive-verb interception); Capability-scoped API access |
+| [ASI03 Identity and Privilege Abuse](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Required identity fields (T1); Capability-scoped API access; agent identity separate from the user |
+| [ASI04 Agentic Supply Chain Vulnerabilities](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Container (signed, minimal); Harness (tool allowlist); IaC drift detection |
+| [ASI05 Unexpected Code Execution (RCE)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Container (minimal, kernel-isolated); Architecture (egress) |
+| [ASI06 Memory and Context Poisoning](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Memory (scoping, write validation, provenance); Data |
+| [ASI07 Insecure Inter-Agent Communication](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Required identity fields (T1); Sub-agent and parent-prompt provenance (T3) |
+| [ASI08 Cascading Failures](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Sub-agent provenance (T3); Kill Switch (recursive to sub-agents) |
+| [ASI09 Human-Agent Trust Exploitation](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Harness (system prompt); Behavioral monitoring |
+| [ASI10 Rogue Agents](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Behavioral monitoring; Kill Switch; Required identity fields |
 
 Every ASI risk maps to at least two controls; most map to more. The same mapping inverts usefully: for any control a team skips, it names which ASI risks lose their primary mitigation — a ready input to a risk register.
 

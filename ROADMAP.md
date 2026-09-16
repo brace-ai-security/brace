@@ -16,7 +16,7 @@ Nothing here is fixed. Priorities are set by what the community needs — open a
 - A **controls-layer companion to the OWASP Top 10 for Agentic Applications** (proposal in `outreach/`).
 - A **scoring / aggregation model** for the self-assessment.
 - **Expanded threat mappings** — full MITRE ATLAS coverage, and the misaligned-insider (TRAIT&R) tactics.
-- **Compliance mappings** — SOC 2, ISO 27001 / 42001 — once the control set stabilizes.
+- **Compliance mappings** — SOC 2, [ISO/IEC 27001](https://www.iso.org/standard/27001), and [ISO/IEC 42001](https://www.iso.org/standard/81230.html) — once the control set stabilizes.
 
 ## How to help
 

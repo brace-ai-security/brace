@@ -30,7 +30,7 @@ The nine controls, exact six-field identity schema, decision-time context requir
 ### Evidence still unavailable
 
 - The previously described standalone BRACE paper and 35+ incident analysis corpus were not available for inspection. They are not counted as verified support; the README now makes that limitation explicit.
-- ISO 42001 and ISO 23894 public metadata was inspected, but the full paywalled standards were not. No clause-level completeness or compliance conclusion is claimed.
+- Public metadata for [ISO/IEC 42001](https://www.iso.org/standard/81230.html) and [ISO/IEC 23894](https://www.iso.org/standard/77304.html) was inspected, but the full paywalled standards were not. No clause-level completeness or compliance conclusion is claimed.
 - Vendor feature coverage, configuration defaults, deployment performance, and security effectiveness require version-specific evidence and testing. The [vendor worksheet](VENDOR-MATRIX.md) records what to request rather than assigning unsupported passes.
 - Historical outreach drafts are marked as historical; their novelty statements are not current verified claims.
 

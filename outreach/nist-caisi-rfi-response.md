@@ -110,7 +110,7 @@ The corollary: every requirement should be something an assessor can test. If a 
 
 ## Note on BRACE
 
-BRACE (Build-time, Run-time, Agent, Configuration, Ecosystem) is offered here as input and prior art, not as a proposed standard in itself. It is vendor-neutral and openly licensed (CC BY 4.0). It maps to the OWASP Top 10 for Agentic Applications (ASI01–ASI10) and to MITRE ATLAS, and it is designed to *compose with* — not replace — OWASP, NIST, and MITRE. It is a synthesis of in-production practice and has not yet been independently validated against a control group. CAISI and the community are free to take, adapt, critique, or discard any part of it.
+BRACE (Build-time, Run-time, Agent, Configuration, Ecosystem) is offered here as input and prior art, not as a proposed standard in itself. It is vendor-neutral and openly licensed (CC BY 4.0). It maps to the OWASP Top 10 for Agentic Applications ([ASI01–ASI10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)) and to MITRE ATLAS, and it is designed to *compose with* — not replace — OWASP, NIST, and MITRE. It is a synthesis of in-production practice and has not yet been independently validated against a control group. CAISI and the community are free to take, adapt, critique, or discard any part of it.
 
 The framework is described in full in:
 

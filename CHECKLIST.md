@@ -25,6 +25,19 @@ For each fallback, record **what it can demonstrate, where it applies, supportin
 
 **Basis and limits:** BRACE’s nine controls, six identity fields, top-three selections, and G1/G2/G3 sign-off rules are project design choices, not requirements prescribed verbatim by OWASP, NIST, MCP, or OpenTelemetry. The [dated source review](SOURCE-REVIEW.md) maps the checklist to supporting guidance and records corrections and verification limits. This is a review of control design and evidence, not a guarantee that a deployment is secure.
 
+### How to read the identifiers
+
+The codes in each checklist heading belong to separate namespaces. Their numbers identify entries; they do not show the item’s position or priority. Keep these identifiers stable when items are reordered.
+
+| Example | Meaning |
+|---|---|
+| **B05**, **R01**, **A03**, **C01**, **E06** | BRACE checklist item. The letter names the aspect: Build-time, Run-time, Agent, Configuration, or Ecosystem. The two-digit number is a stable item ID within that aspect. |
+| **G1**, **G2**, **G3** | BRACE [priority gate](#priority-gates). The gate determines how a gap affects release approval. |
+| **C1**–**C9** | BRACE [security control](README.md#the-framework-in-one-screen). This is a different namespace from Configuration item IDs such as **C01**. |
+| **Obs-T1**–**Obs-T3** | BRACE [observability requirement](README.md#the-framework-in-one-screen): identity fields, context-size logging, or sub-agent provenance. |
+
+Identifiers owned by another organization are external references, not BRACE IDs. Link an external identifier—such as [ASI01–ASI10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/), [RFC 7009](https://www.rfc-editor.org/info/rfc7009/), or [ISO/IEC 42001](https://www.iso.org/standard/81230.html)—to its authoritative definition when it appears.
+
 ### Priority gates
 
 | Label | Sign-off rule |

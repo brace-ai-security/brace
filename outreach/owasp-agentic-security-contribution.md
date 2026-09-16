@@ -9,7 +9,7 @@
 
 ## Why this contribution
 
-The *OWASP Top 10 for Agentic Applications (2026)* is the field's reference catalog of agentic risks (ASI01–ASI10). A risk catalog answers "what can go wrong." The question operators ask next is "what do I build, and how do I prove it works" — the concrete, testable control layer that **detects, contains, and traces** each of those risks on a running agent.
+The *OWASP Top 10 for Agentic Applications (2026)* is the field's reference catalog of agentic risks ([ASI01–ASI10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)). A risk catalog answers "what can go wrong." The question operators ask next is "what do I build, and how do I prove it works" — the concrete, testable control layer that **detects, contains, and traces** each of those risks on a running agent.
 
 BRACE is a vendor-neutral, openly-licensed synthesis of in-production agent-security practice pitched at exactly that layer. It is offered as a contribution to the Agentic Security Initiative — designed to *compose with* the Top 10, mapping controls onto ASI01–ASI10, not to restate the risks. BRACE is not yet validated against a control group; take, adapt, or critique any part.
 

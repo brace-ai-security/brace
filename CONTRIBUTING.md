@@ -17,6 +17,12 @@ The nine controls (C1 Architecture, C2 Capability-scoped API access, C3 Containe
 
 This two-step flow keeps control changes deliberate. Please do not open a PR that rewrites a control without a prior issue.
 
+## Identifier and linking style
+
+BRACE uses separate namespaces for checklist items (`B05`, `R01`, `A03`, `C01`, `E06`), release gates (`G1`–`G3`), controls (`C1`–`C9`), and observability requirements (`Obs-T1`–`Obs-T3`). Treat these as stable identifiers: do not renumber them merely because the presentation order changes. In particular, `C01` is a Configuration checklist item, while `C1` is the Architecture control.
+
+When using an identifier defined by another organization, link the identifier itself to its authoritative definition on first use in each document or self-contained section. Examples include [ASI01](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/), [RFC 7009](https://www.rfc-editor.org/info/rfc7009/), and [ISO/IEC 42001](https://www.iso.org/standard/81230.html). Prefer the standards body, publisher, or official registry over a secondary explanation. Do not format an external identifier as though it were part of a BRACE namespace.
+
 ## Report a real-world incident
 
 BRACE is grounded in things that have actually happened to deployed agents. If you know of a real incident, please add it to the corpus by opening an issue using this template:

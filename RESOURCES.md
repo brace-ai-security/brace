@@ -16,7 +16,7 @@ Use these references to understand threats and governance requirements alongside
 
 | Resource | What it is | BRACE |
 |---|---|---|
-| [OWASP Top 10 for Agentic Applications (2026)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | The flagship ranked risk list (ASI01–ASI10) for autonomous agents — the closest external analog to BRACE's scope. | Agent · Run-time · Ecosystem |
+| [OWASP Top 10 for Agentic Applications (2026)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | The flagship ranked risk list ([ASI01–ASI10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)) for autonomous agents — the closest external analog to BRACE's scope. | Agent · Run-time · Ecosystem |
 | [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/) | The ten most critical LLM-app risks; the industry baseline. | Run-time · Build-time |
 | [OWASP Multi-Agentic System Threat Modeling Guide](https://genai.owasp.org/resource/multi-agentic-system-threat-modeling-guide-v1-0/) | Applies the agentic threat taxonomy to multi-agent systems. | Ecosystem · Agent |
 | [MITRE ATLAS](https://atlas.mitre.org/) | ATT&CK-style knowledge base of real adversary techniques against AI systems, now including agentic techniques. | Run-time · Ecosystem |
