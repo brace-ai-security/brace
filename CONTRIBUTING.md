@@ -25,7 +25,7 @@ When using an identifier defined by another organization, link the identifier it
 
 ## Report a real-world incident
 
-BRACE is grounded in things that have actually happened to deployed agents. If you know of a real incident, please add it to the corpus by opening an issue using this template:
+BRACE is grounded in things that have actually happened to deployed agents. If you know of a real incident, please report it by opening an issue using this template:
 
 ```
 **What happened:** A short, factual description of the incident.
@@ -35,7 +35,7 @@ BRACE is grounded in things that have actually happened to deployed agents. If y
   or news report. First-hand reports are welcome; please say so.
 ```
 
-Keep it factual. We are building a corpus, not a blog.
+Keep it factual and link a public source.
 
 ## Map a vendor product to controls
 

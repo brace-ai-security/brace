@@ -1,6 +1,6 @@
 # Source and practical-accuracy review
 
-**Review date: 2026-09-16.** Scope: the [53-item checklist](CHECKLIST.md), [verification recipes](CHECKLIST-VERIFICATION.md), assessment, guides, resource catalog, vendor worksheet, and telemetry proposal.
+**Review dates: 2026-09-16 (full review); 2026-09-30 (update against current guidance, below).** Scope: the [53-item checklist](CHECKLIST.md), [verification recipes](CHECKLIST-VERIFICATION.md), assessment, guides, resource catalog, vendor worksheet, and telemetry proposal.
 
 ## Conclusion and limits
 
@@ -27,9 +27,33 @@ The nine controls, exact six-field identity schema, decision-time context requir
 | OpenAI lifecycle wording exceeded the source. | [Agent Builder docs](https://developers.openai.com/api/docs/guides/agent-builder) state a November 30, 2026 sunset and that ChatKit continues. Removed the unsupported Evals sunset claim and claims that vendors do not version workflows. |
 | A study result was easy to overgeneralize. | The 73.5% debugging/logging figure describes vulnerabilities identified in the [sampled skill study](https://arxiv.org/abs/2604.03070), not all agent vulnerabilities in the wild. |
 
+## Update review: 2026-09-30
+
+All 53 checklist items and their recipes were rechecked against guidance published or revised since the first review. The 2026-09-30 review changed 36 checklist items and 37 recipes, plus the model provenance table; it added no items and changed no gates. Each quote below was read from the primary source on 2026-09-30 unless marked otherwise.
+
+| Finding | Correction and practical consequence |
+|---|---|
+| MCP 2026-07-28 replaced 2025-11-25 as the current protocol version. | S3/S4 now cite 2026-07-28. E06 adds header/body mismatch rejection ("MUST reject requests where the values specified in the headers do not match"), caching keyed by authorization context, and `iss` validation. Without them, a gateway that routes on `Mcp-Name` can authorize one tool while the body calls another. E09 and R11 replace "tool sessions", which 2026-07-28 removed, with streams, subscriptions, and tasks. |
+| MCP metadata beyond descriptions reaches the model; annotations and `serverInfo` are self-reported. | E04 scans server instructions, annotations, and templates. B01 no longer lets annotations drive allow/approval decisions ("untrusted unless they come from trusted servers"). E05 stops deriving identity from `serverInfo.name` ("not guaranteed to be unique"). E03 stops serving cached definitions after a failed re-check. See S19 and S20. |
+| Current guidance recommends a design-level rule on capability combinations. | B05, a G1 item, now treats every consequential action as high-impact when one context combines untrusted input, sensitive access, and external action (S21), unless an isolation pattern from S22 applies. An agent could previously pass every item while holding all three with no approval. |
+| Single-attempt injection tests overstate robustness. | The R02 recipe now repeats fixtures and adds adaptive variants. S23 reports hijack success rising from 57% to 80% at 25 attempts. |
+| Rendered output and memory self-promotion were uncovered exfiltration and persistence paths. | R03 covers auto-fetched URLs in rendered Markdown. R05 blocks unreviewed promotion of agent output, expires unverified entries, and tests query-only poisoning (S24). |
+| Bearer tokens, audience, push revocation, and delegation chains were underspecified. | B02 adds audience restriction; B03 sender-constrained tokens (S25); B04 push revocation (S26). B06 binds approval to the requesting instance and records approver and expiry (S1: "Include the actor … and expiry"). E08 adds per-hop downscoping and ignores prior actors (S27: "informational only"). A04 records the delegated subject. |
+| The IETF agent-auth draft moved to a working group. | draft-klrc-aiagent-auth-03 is "Replaced by draft-ietf-wimse-aims" (S28, revision -00, 15 September 2026). Catalog links updated. It is an Internet-Draft, not an RFC. |
+| Signature checks could pass without provenance, enforcement scope, or a patched verifier. | B10 verifies builder, source, and parameters (S9), and requires enforcing mode on production namespaces. It also requires a cosign release fixed for GHSA-whqx-f9j3-ch6m (patched in 2.6.2 and 3.0.4; S29). B11 names a container baseline (S30). B12 protects source history. |
+| Model files lacked signer and serialization checks; hosted IDs were classified by naming alone. | C05, C03, C04, and the new provenance row require signed weights and adapters, verified before load (S31, S32). C01 classifies IDs from provider documentation. Anthropic IDs from the 4.6 generation on are dateless pinned snapshots, while earlier dateless IDs are aliases, and "serving infrastructure … can change over time" (S33). C07 checks that hosted recovery models are still served. |
+| The stop path and audit capture could depend on the agent. | R11 requires a stop path outside the agent's credentials and tests an attempt to disable it. E10 covers log deletion requested through tools (S34: "Quarantine requests to delete logs or audit records"). E11 fails closed ("Fail closed when … audit logging fails", S1) and sets retention by law (S35). R13 records policy version and approval ID. |
+| OpenTelemetry GenAI conventions changed after the first review. | S14 is pinned to commit b9ecbae (30 September 2026); status remains Development. R07 references `gen_ai.conversation.compacted`. A02 rejects identity from baggage, which has "no built-in integrity checks". A06 notes that prompt capture is opt-in. |
+| An AI-specific incident-response source was missing. | E12 adds a named reporting decision. See S36 and S37. |
+
+**Not verified in the 2026-09-30 review:**
+- The ISO/IEC 42001, 23894, and 27001 pages block scripted retrieval; each was confirmed in a browser on 2026-09-30 (42001:2023 and 23894:2023, both Edition 1; 27001:2022). The full paywalled texts were not reviewed.
+- The OWASP ASI01–ASI10 identifiers appear only in the downloadable document, not on the landing page.
+
+These limits do not change any requirement.
+
 ### Evidence still unavailable
 
-- The previously described standalone BRACE paper and 35+ incident analysis corpus were not available for inspection. They are not counted as verified support; the README now makes that limitation explicit.
 - Public metadata for [ISO/IEC 42001](https://www.iso.org/standard/81230.html) and [ISO/IEC 23894](https://www.iso.org/standard/77304.html) was inspected, but the full paywalled standards were not. No clause-level completeness or compliance conclusion is claimed.
 - Vendor feature coverage, configuration defaults, deployment performance, and security effectiveness require version-specific evidence and testing. The [vendor worksheet](VENDOR-MATRIX.md) records what to request rather than assigning unsupported passes.
 - Historical outreach drafts are marked as historical; their novelty statements are not current verified claims.
@@ -40,8 +64,8 @@ References below support the related principle, not every BRACE-specific impleme
 
 - **S1:** [OWASP AI Agent Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html).
 - **S2:** [OWASP Prompt Injection Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html).
-- **S3:** [MCP authorization, 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization).
-- **S4:** [MCP draft security best practices](https://modelcontextprotocol.io/docs/draft/tutorials/security/security_best_practices).
+- **S3:** [MCP authorization, 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization) (current version per [MCP versioning](https://modelcontextprotocol.io/specification/versioning); supersedes 2025-11-25).
+- **S4:** [MCP security best practices, 2026-07-28](https://modelcontextprotocol.io/docs/2026-07-28/tutorials/security/security_best_practices).
 - **S5:** [RFC 7009: OAuth token revocation](https://www.rfc-editor.org/info/rfc7009/).
 - **S6:** [OWASP Transaction Authorization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Transaction_Authorization_Cheat_Sheet.html).
 - **S7:** [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html).
@@ -50,12 +74,31 @@ References below support the related principle, not every BRACE-specific impleme
 - **S10:** [gVisor security model](https://gvisor.dev/docs/architecture_guide/security/).
 - **S11:** [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html).
 - **S12:** [Stripe idempotent requests](https://docs.stripe.com/api/idempotent_requests).
-- **S13:** [W3C Trace Context](https://www.w3.org/TR/trace-context/).
-- **S14:** [OpenTelemetry GenAI agent spans, Development](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md).
+- **S13:** [W3C Trace Context Level 1, Recommendation](https://www.w3.org/TR/trace-context/).
+- **S14:** [OpenTelemetry GenAI agent spans, Development, pinned revision b9ecbae (2026-09-30)](https://github.com/open-telemetry/semantic-conventions-genai/blob/b9ecbaef4ac462cc2b6f7f7763b2cff1d15d5400/docs/gen-ai/gen-ai-agent-spans.md).
 - **S15:** [OWASP Agent Control Standard](https://genai.owasp.org/resource/agent-control-standard-acs/).
-- **S16:** [Microsoft MCP Security Gateway draft, pinned revision](https://github.com/microsoft/agent-governance-toolkit/blob/013c7fb44ae589c21488b2746fef9ee44c4f1416/docs/specs/MCP-SECURITY-GATEWAY-1.0.md).
+- **S16:** [Microsoft MCP Security Gateway draft, pinned revision 580344a (2026-09-25)](https://github.com/microsoft/agent-governance-toolkit/blob/580344a624530b6e9611e67544519bca3107cd31/docs/specs/MCP-SECURITY-GATEWAY-1.0.md). Still marked Draft.
 - **S17:** [OpenAI Agent Builder documentation](https://developers.openai.com/api/docs/guides/agent-builder).
 - **S18:** [Agent skill vulnerability study](https://arxiv.org/abs/2604.03070).
+- **S19:** [MCP tools, 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/server/tools) and [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http).
+- **S20:** [OWASP MCP Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/MCP_Security_Cheat_Sheet.html) and [OWASP MCP Top 10, Beta](https://owasp.org/www-project-mcp-top-10/).
+- **S21:** [Meta, Agents Rule of Two](https://ai.meta.com/blog/practical-ai-agent-security/).
+- **S22:** [Design Patterns for Securing LLM Agents against Prompt Injections](https://arxiv.org/abs/2506.08837) and [CaMeL](https://arxiv.org/abs/2503.18813).
+- **S23:** [NIST CAISI, strengthening AI agent hijacking evaluations](https://www.nist.gov/news-events/news/2025/01/technical-blog-strengthening-ai-agent-hijacking-evaluations) and [adaptive attacks on defenses](https://arxiv.org/abs/2510.09023).
+- **S24:** [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) (ASI01, ASI06, ASI08, ASI10) and [OWASP LLM Top 10 2025](https://genai.owasp.org/llm-top-10/) (LLM05, LLM08, LLM10).
+- **S25:** [RFC 9449: DPoP](https://www.rfc-editor.org/info/rfc9449).
+- **S26:** [OpenID CAEP 1.0, Final](https://openid.net/specs/openid-caep-1_0-final.html).
+- **S27:** [RFC 8693: OAuth token exchange](https://www.rfc-editor.org/info/rfc8693) and [OAuth Transaction Tokens draft](https://datatracker.ietf.org/doc/draft-ietf-oauth-transaction-tokens/).
+- **S28:** [draft-ietf-wimse-aims: AI Identity Management System, Internet-Draft](https://datatracker.ietf.org/doc/draft-ietf-wimse-aims/).
+- **S29:** [Cosign advisory GHSA-whqx-f9j3-ch6m](https://github.com/advisories/GHSA-whqx-f9j3-ch6m).
+- **S30:** [Kubernetes Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/).
+- **S31:** [NIST SP 800-218A](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-218A.pdf) (PW.4.4: verify acquired models before use).
+- **S32:** [OpenSSF Model Signing / sigstore model-transparency](https://github.com/sigstore/model-transparency).
+- **S33:** [Anthropic model IDs and versions](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions), an example of provider-specific snapshot and alias semantics.
+- **S34:** [CISA and partners, Careful Adoption of Agentic AI Services](https://www.cisa.gov/resources-tools/resources/careful-adoption-agentic-ai-services) ([PDF](https://www.ncsc.govt.nz/assets/guidance/Documents/Careful-adoption-of-agentic-AI-services_FINAL.pdf)).
+- **S35:** [EU AI Act Article 19](https://artificialintelligenceact.eu/article/19/) and [Article 26](https://artificialintelligenceact.eu/article/26/) (log retention of at least six months for high-risk systems).
+- **S36:** [CoSAI AI Incident Response Framework](https://www.coalitionforsecureai.org/wp-content/uploads/2026/03/AI-Incident-Response-1.pdf).
+- **S37:** [NIST SP 800-61r3](https://csrc.nist.gov/pubs/sp/800/61/r3/final).
 
 ## Review coverage: all 53 items
 
@@ -63,59 +106,59 @@ Each row records the practical issue checked or clarified. An unchanged item mea
 
 | Item | Related guidance | Practical review conclusion |
 |---|---|---|
-| B05 | S1 S6 | Authorize operation, target, and arguments at execution; command-name filtering is insufficient. |
-| B02 | S1 S3 | Check destination permissions and tenant isolation with actual issued credentials. |
-| B01 | S1 | Inventory every callable path; a model refusing a tool is not enforcement. |
-| B03 | S3 S5 | Measure expiry and rotation overlap; do not demand invalidation before an explicitly permitted overlap ends. |
-| B04 | S5 | Measure the revocation budget, including cached tokens and existing sessions; refresh-token revocation alone is insufficient. |
-| B06 | S6 | Bind approval to the action, check current state, and exercise concurrent replay. |
-| B07 | S1 | Include children and in-flight overshoot in a declared budget; no universal safe numerical limit. |
+| B05 | S1 S6 S34 S21 S22 | Authorize operation, target, and arguments at execution; command-name filtering is insufficient. |
+| B02 | S1 S3 S27 | Check destination permissions and tenant isolation with actual issued credentials. |
+| B01 | S1 S19 | Inventory every callable path; a model refusing a tool is not enforcement. |
+| B03 | S3 S5 S25 S28 | Measure expiry and rotation overlap; do not demand invalidation before an explicitly permitted overlap ends. |
+| B04 | S5 S26 | Measure the revocation budget, including cached tokens and existing sessions; refresh-token revocation alone is insufficient. |
+| B06 | S6 S27 | Bind approval to the action, check current state, and exercise concurrent replay. |
+| B07 | S1 S24 | Include children and in-flight overshoot in a declared budget; no universal safe numerical limit. |
 | B08 | S1 S10 | Inspect effective isolation policy as well as probe results; an unavailable endpoint proves little. |
 | B09 | S7 | Cover redirects, DNS, IPv6, and unauthorized resources on otherwise allowed services. |
-| B10 | S8 S9 | Verify an approved signer and digest; a valid signature is not evidence the artifact is safe. |
-| B11 | S10 | Choose isolation for the threat model; ordinary containers and a few access probes do not establish escape resistance. |
-| B12 | S1 S9 | Version and review harness/instruction artifacts alongside code and runtime permissions. |
-| R11 | S1 | Measure stop time with work in flight; committed external effects require reconciliation. |
-| R13 | S11 S13 | Compare audit reconstruction to independent destination state; make unknown outcomes explicit. |
+| B10 | S8 S9 S29 | Verify an approved signer and digest; a valid signature is not evidence the artifact is safe. |
+| B11 | S10 S30 | Choose isolation for the threat model; ordinary containers and a few access probes do not establish escape resistance. |
+| B12 | S1 S9 S31 | Version and review harness/instruction artifacts alongside code and runtime permissions. |
+| R11 | S1 S34 | Measure stop time with work in flight; committed external effects require reconciliation. |
+| R13 | S11 S13 S34 | Compare audit reconstruction to independent destination state; make unknown outcomes explicit. |
 | R01 | S1 S2 | Exercise malformed, oversized, streamed, error, and callback responses at each integration. |
-| R02 | S2 | Schema-valid text can still inject instructions; enforce prohibited actions outside the model. |
-| R03 | S1 S11 | Test secrets through all output paths and generated content through its downstream interpreter. |
+| R02 | S2 S23 | Schema-valid text can still inject instructions; enforce prohibited actions outside the model. |
+| R03 | S1 S11 S24 | Test secrets through all output paths and generated content through its downstream interpreter. |
 | R04 | S1 S2 | Test ingestion rights, tenant filtering, revocation, derived chunks, and cache propagation. |
-| R05 | S1 S2 | Memory is an input boundary; validate writes and scope access across later sessions. |
+| R05 | S1 S2 S24 | Memory is an input boundary; validate writes and scope access across later sessions. |
 | R06 | S1 | Retain lineage and test cleanup of derived memory; incomplete lineage limits the cleanup claim. |
-| R07 | S14 | BRACE-specific decision-time measurement: report method and uncertainty; usage billing is not necessarily context occupancy. |
+| R07 | S14 S14 | BRACE-specific decision-time measurement: report method and uncertainty; usage billing is not necessarily context occupancy. |
 | R08 | S1 S11 | Deliver a real test alert to its owner and include a benign control. |
-| R09 | S1 | Labeled sequence tests show bounded performance, not detection of every harmful sequence. |
-| R10 | S1 | Review observable behavior; test results cannot establish hidden intent or alignment. |
+| R09 | S1 S24 | Labeled sequence tests show bounded performance, not detection of every harmful sequence. |
+| R10 | S1 S34 | Review observable behavior; test results cannot establish hidden intent or alignment. |
 | R12 | S1 S12 | Exercise before/during/after commit; hold ambiguous outcomes with an owner and prevent blind retries. |
 | R14 | S8 S11 S12 | Use protected trust state for integrity; replay only within destination idempotency guarantees, otherwise reconcile manually. |
 | A01 | S1 S3 | Demonstrate independent agent identity and revocation, not just a label in a user session. |
-| A02 | S11 S14 | The exact six fields are a BRACE schema choice; verify completeness on asynchronous and failed actions too. |
+| A02 | S11 S14 S13 | The exact six fields are a BRACE schema choice; verify completeness on asynchronous and failed actions too. |
 | A03 | S9 | Canonical manifest hashing is a BRACE design; opaque model references identify recorded provenance, not invisible weights. |
-| A04 | S3 S13 | Trace labels are correlation data, not authentication; derive authoritative identity in a trusted layer. |
+| A04 | S3 S13 S27 S28 | Trace labels are correlation data, not authentication; derive authoritative identity in a trusted layer. |
 | A05 | S1 S11 | Exercise the operator lookup and targeted containment procedure. |
-| A06 | S1 S14 | Check nested lineage and authorized retrieval of protected prompts; account for retention and privacy. |
+| A06 | S1 S14 S14 | Check nested lineage and authorized retrieval of protected prompts; account for retention and privacy. |
 | A07 | S1 S14 | Inventory auxiliary and routing models too; declare provider-hidden details as unknown. |
-| C01 | S9 S17 | Manifest must explicitly name model/checkpoint/adapter and training provenance where available; do not invent unavailable provider internals. |
-| C03 | S9 | Compare deployment evidence to the manifest; managed aliases limit proof of immutable model identity. |
-| C04 | S1 S9 | Exercise drift detection and its response; versioned storage alone does not prove the running state. |
+| C01 | S9 S17 S33 | Manifest must explicitly name model/checkpoint/adapter and training provenance where available; do not invent unavailable provider internals. |
+| C03 | S9 S32 | Compare deployment evidence to the manifest; managed aliases limit proof of immutable model identity. |
+| C04 | S1 S9 S32 | Exercise drift detection and its response; versioned storage alone does not prove the running state. |
 | C02 | S1 S9 | Require review for changes that affect authority, inputs, models, or behavior. |
-| C05 | S1 S9 | Explicitly track model, adapter, training-run, and data-reference changes as well as software dependencies. |
-| C06 | S1 S2 | Use deployment-specific regression and injection cases; a passing finite suite is bounded evidence. |
-| C07 | S1 S9 S12 | Test restart and rollback with state compatibility; a code rollback cannot undo committed external effects. |
+| C05 | S1 S9 S31 S32 S33 | Explicitly track model, adapter, training-run, and data-reference changes as well as software dependencies. |
+| C06 | S1 S2 S34 | Use deployment-specific regression and injection cases; a passing finite suite is bounded evidence. |
+| C07 | S1 S9 S12 S33 | Test restart and rollback with state compatibility; a code rollback cannot undo committed external effects. |
 | C08 | S11 S14 | Verify retained trace-to-release and prompt references; the exact BRACE join is custom instrumentation. |
-| E06 | S3 S4 S16 | Apply HTTP authorization or equivalent local stdio enforcement as appropriate; cover bypass and response paths. |
-| E08 | S1 S3 | Exercise privilege escalation through a peer; delegation must not bypass the caller’s authorization. |
+| E06 | S3 S4 S16 S19 S20 | Apply HTTP authorization or equivalent local stdio enforcement as appropriate; cover bypass and response paths. |
+| E08 | S1 S3 S27 | Exercise privilege escalation through a peer; delegation must not bypass the caller’s authorization. |
 | E09 | S1 | Prove the stop reaches remote descendants, queues, credentials, and retries within the chosen budget. |
 | E01 | S1 S15 | Assign platform and team responsibilities; an upstream product claim is not implementation evidence. |
-| E02 | S1 S8 S9 | Pin observable artifacts, assess maintenance, and record remote implementation limitations. |
-| E03 | S4 S16 | Metadata fingerprints detect metadata changes; they cannot attest hidden remote code. |
-| E04 | S2 S4 | Scan metadata with a failure policy; scanners have false positives and evasion limits. |
-| E05 | S3 S4 | Bind server identity plus tool name; names alone do not establish provenance. |
-| E07 | S1 S6 | Authenticate, authorize, validate, and prevent replay of action-bearing peer messages. |
-| E10 | S11 S13 S14 | Verify cross-service propagation and protected evidence; standards do not guarantee instrumentation completeness. |
-| E11 | S11 | Test retention, access, export, loss detection, and safe behavior when audit capture fails. |
-| E12 | S1 S15 | Run a shared-dependency incident drill with affected-instance discovery and accountable responders. |
+| E02 | S1 S8 S9 S20 S31 | Pin observable artifacts, assess maintenance, and record remote implementation limitations. |
+| E03 | S4 S16 S19 S20 | Metadata fingerprints detect metadata changes; they cannot attest hidden remote code. |
+| E04 | S2 S4 S19 S20 | Scan metadata with a failure policy; scanners have false positives and evasion limits. |
+| E05 | S3 S4 S19 | Bind server identity plus tool name; names alone do not establish provenance. |
+| E07 | S1 S6 S20 | Authenticate, authorize, validate, and prevent replay of action-bearing peer messages. |
+| E10 | S11 S13 S14 S34 | Verify cross-service propagation and protected evidence; standards do not guarantee instrumentation completeness. |
+| E11 | S11 S1 S35 | Test retention, access, export, loss detection, and safe behavior when audit capture fails. |
+| E12 | S1 S15 S34 S36 S37 | Run a shared-dependency incident drill with affected-instance discovery and accountable responders. |
 
 ## Original external-source inventory
 

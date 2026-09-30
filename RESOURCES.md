@@ -73,7 +73,7 @@ The primitives you assemble BRACE-level controls from.
 | Resource | What it is |
 |---|---|
 | [SPIFFE / SPIRE](https://spiffe.io/) | CNCF-graduated workload identity — short-lived cryptographic SVIDs, no long-lived secrets. |
-| [IETF draft — AI Agent Authentication and Authorization](https://datatracker.ietf.org/doc/draft-klrc-aiagent-auth/) | An evolving Internet-Draft on agent authentication and authorization, not an adopted RFC. This link does not independently substantiate other agent-passport or identity proposals. |
+| [IETF WIMSE draft — AI Identity Management System](https://datatracker.ietf.org/doc/draft-ietf-wimse-aims/) | A working-group Internet-Draft on agent identity, authentication, and authorization, not an RFC. It replaced draft-klrc-aiagent-auth in September 2026. This link does not independently substantiate other agent-passport or identity proposals. |
 
 ### Authorization → Config / Agent / Ecosystem
 

@@ -2,7 +2,7 @@
 
 This document proposes four custom OpenTelemetry attributes for autonomous AI agents.
 
-Current [OpenTelemetry GenAI agent conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md) already define agent identity/version attributes, model references, and agent/tool spans. They are in **Development**. BRACE's content-hashed type identity and execution-instance identity have different semantics from a provider-assigned `gen_ai.agent.id`; do not overwrite that standard field with a transient run ID.
+Current [OpenTelemetry GenAI agent conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/b9ecbaef4ac462cc2b6f7f7763b2cff1d15d5400/docs/gen-ai/gen-ai-agent-spans.md) (revision of 2026-09-30) already define agent identity/version attributes, model references, and agent/tool spans. They are in **Development**. BRACE's content-hashed type identity and execution-instance identity have different semantics from a provider-assigned `gen_ai.agent.id`; do not overwrite that standard field with a transient run ID.
 
 The four `agent.*` attributes below are **BRACE-proposed custom attributes**, not adopted OpenTelemetry semantic conventions. They express BRACE's deployment-specific observability requirements alongside standard attributes. Neither an SDK nor a backend automatically supplies all six identity fields, parent relationships, or a complete audit trail; verify instrumentation and retention end to end.
 

@@ -6,10 +6,10 @@ Nothing here is fixed. Priorities are set by what the community needs — open a
 
 - **Sequence-pattern baselines for Control 7** — a portable spec for detecting multi-step attacks built from individually-allowed actions (RFC).
 - **agent-type-id hashing spec** — canonical inputs and stability under opaque model updates (RFC).
-- **OpenTelemetry `agent.*` attributes** — drive the semantic-convention proposal through the GenAI SIG (open-telemetry/semantic-conventions#3816).
+- **OpenTelemetry `agent.*` attributes** — drive the semantic-convention proposal through the GenAI SIG ([open-telemetry/semantic-conventions-genai#334](https://github.com/open-telemetry/semantic-conventions-genai/issues/334)).
 - **Vendor matrix coverage** — accurate, sourced mappings for AWS Bedrock AgentCore, Microsoft Entra Agent ID, and others (help wanted).
 - **Reference implementation** — Tier 1 controls wired onto a popular open-source agent stack, emitting the OpenTelemetry attributes.
-- **Incident corpus** — grow the set of real incidents mapped to controls.
+- **Incident mapping** — collect publicly documented incidents and map each to the controls that would have prevented or contained it.
 
 ## Next
 

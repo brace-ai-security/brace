@@ -119,9 +119,9 @@ BRACE is a **synthesis of agent-security practice already in production** across
 
 ---
 
-## The paper
+## Citing BRACE
 
-The repository is the reviewable framework artifact. A standalone paper and the previously claimed 35+ incident corpus were not available in this checkout for the 2026-09-16 source audit; neither is treated as verified evidence for checklist requirements. See the [source review](SOURCE-REVIEW.md) for primary references and limits.
+The repository is the framework artifact. See the [source review](SOURCE-REVIEW.md) for primary references and limits.
 
 To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository and the project site directly.
 

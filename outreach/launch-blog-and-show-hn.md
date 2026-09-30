@@ -62,11 +62,11 @@ BRACE does not replace OWASP, NIST, or MITRE — it composes with them. Use the 
 
 ### Honest about what this is
 
-BRACE is a synthesis of agent-security practice already in production. It pulls together the public framework landscape and a corpus of 35+ real incidents into one ordered set of controls. It is not yet a validated standard. It's published under CC BY 4.0 so you can use it, adapt it, and argue with it.
+BRACE is a synthesis of agent-security practice already in production. It pulls together the public framework landscape into one ordered set of controls. It is not yet a validated standard. It's published under CC BY 4.0 so you can use it, adapt it, and argue with it.
 
-What I want back: tell me where it's wrong. If you've shipped agents and a control here is impractical, I want to know. If you have an incident the corpus is missing, send it. If you've mapped BRACE onto a specific vendor stack, I'd like to publish that mapping. The point is to make the controls better, not to defend a brand.
+What I want back: tell me where it's wrong. If you've shipped agents and a control here is impractical, I want to know. If you have a documented incident that a control here would not have stopped, send it. If you've mapped BRACE onto a specific vendor stack, I'd like to publish that mapping. The point is to make the controls better, not to defend a brand.
 
-The BRACE paper and the repo are linked below. Start with the checklist.
+The repo is linked below. Start with the checklist.
 
 ---
 
@@ -78,10 +78,10 @@ Show HN: BRACE – a controls layer for autonomous-agent security
 
 **Body:**
 
-BRACE is a checklist of nine controls plus three observability requirements for securing autonomous AI agents — the kind that take actions without a human reviewing each one. It's for engineers shipping agents who already know the threat taxonomies (OWASP, MITRE, NIST) but need to decide what to actually build, and in what order. The core idea: an agent is a runtime configuration (container, harness, prompt, tools, memory, identity), so you secure the configuration, not the code. Sign-off checklist, verification guide, and the full paper are in the repo: [checklist](https://github.com/PLACEHOLDER/brace) · [site](https://PLACEHOLDER.example).
+BRACE is a checklist of nine controls plus three observability requirements for securing autonomous AI agents — the kind that take actions without a human reviewing each one. It's for engineers shipping agents who already know the threat taxonomies (OWASP, MITRE, NIST) but need to decide what to actually build, and in what order. The core idea: an agent is a runtime configuration (container, harness, prompt, tools, memory, identity), so you secure the configuration, not the code. The sign-off checklist and verification guide are in the repo: [checklist](https://github.com/brace-ai-security/brace/blob/main/CHECKLIST.md) · [site](https://braceframework.org).
 
 ---
 
 ## PART 3 — Suggested First Comment
 
-Maintainer here. This is a synthesis of in-production agent-security practice, not a standard — built by reading across the public framework landscape (OWASP's agentic Top 10, MITRE ATLAS, NIST AI RMF) and working through a corpus of 35+ real agent incidents, then asking what concrete controls would have stopped each one. It's meant to compose with those frameworks, not replace them: they tell you what can go wrong, BRACE tells you what to build first. The part we think is genuinely new is the agent-granularity instrumentation — six identity fields per action, a content-hashed agent-type-id so you can pin down which exact agent configuration acted, context-size logging, and sub-agent/parent-prompt provenance so a spawned agent's actions trace back to who asked. Parts of this are surely wrong or impractical in production, so we'd genuinely value being told where — especially from anyone who's shipped autonomous agents at scale.
+Maintainer here. This is a synthesis of in-production agent-security practice, not a standard — built by reading across the public framework landscape (OWASP's agentic Top 10, MITRE ATLAS, NIST AI RMF), then asking what concrete controls each threat requires. It's meant to compose with those frameworks, not replace them: they tell you what can go wrong, BRACE tells you what to build first. The part we think is genuinely new is the agent-granularity instrumentation — six identity fields per action, a content-hashed agent-type-id so you can pin down which exact agent configuration acted, context-size logging, and sub-agent/parent-prompt provenance so a spawned agent's actions trace back to who asked. Parts of this are surely wrong or impractical in production, so we'd genuinely value being told where — especially from anyone who's shipped autonomous agents at scale.
