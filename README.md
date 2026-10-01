@@ -88,8 +88,8 @@ BRACE organizes deployment checks to sit alongside existing security guidance. I
 
 - **[OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)** — a threat catalog of ten risks ([ASI01–ASI10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)). BRACE names the controls that reduce them. A risk-to-control table is in the [OWASP proposal](outreach/owasp-agentic-controls-proposal.md). It is a historical draft, so check it against the current checklist.
 - **[OWASP Agent Control Standard (ACS)](https://genai.owasp.org/resource/agent-control-standard-acs/)** — policy hooks and enforcement while the agent runs. It complements BRACE's deployment review.
-- **[MITRE ATLAS](https://atlas.mitre.org/)** — a catalog of attacker techniques against AI systems. A full BRACE mapping is planned ([roadmap](ROADMAP.md)), not yet published.
-- **[NIST AI RMF](https://www.nist.gov/itl/ai-risk-management-framework) / [ISO/IEC 42001](https://www.iso.org/standard/81230.html)** — references for governance and management systems. BRACE adds technical checks for each deployment alongside them.
+- **[MITRE ATLAS](https://atlas.mitre.org/)** — a catalog of attacker techniques against AI systems. The [ATLAS mapping](mappings/mitre-atlas.md) shows which BRACE items address each of its 208 techniques in release v2026.09.
+- **[NIST AI RMF](https://www.nist.gov/itl/ai-risk-management-framework) / [ISO/IEC 42001](https://www.iso.org/standard/81230.html)** — references for governance and management systems. BRACE adds technical checks for each deployment alongside them. See the [AI RMF mapping](mappings/nist-ai-rmf.md) and the [ISO/IEC 42001 mapping](mappings/iso-iec-42001.md). Mapping is not compliance: passing BRACE items doesn't mean an organization meets either one.
 
 Use OWASP and MITRE to know *what can go wrong*. Use BRACE to know *what to build and in what order*.
 
@@ -134,6 +134,7 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 | [CHECKLIST-VERIFICATION.md](CHECKLIST-VERIFICATION.md) | A test, expected result, and evidence for every checklist item, plus model and training provenance fields. |
 | [SELF-ASSESSMENT.md](SELF-ASSESSMENT.md) | Scoring worksheet for the same 53 checklist item IDs and gates. |
 | [otel-conventions.md](otel-conventions.md) | Proposed OpenTelemetry attributes for agent identity and provenance. |
+| [mappings/](mappings/) | How BRACE items line up with [MITRE ATLAS](mappings/mitre-atlas.md), the [NIST AI RMF](mappings/nist-ai-rmf.md), and [ISO/IEC 42001](mappings/iso-iec-42001.md). Each row is rated Direct, Partial, or Out of scope. |
 | [VENDOR-MATRIX.md](VENDOR-MATRIX.md) | Evidence to request when evaluating vendor and platform support for each control. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose changes, report a real-world incident, or map a vendor product. |
 | [GOVERNANCE.md](GOVERNANCE.md) | How the project is run, and how to become a co-maintainer. |
