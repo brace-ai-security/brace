@@ -1,14 +1,14 @@
 # BRACE Framework — security for autonomous AI agents
 
-**BRACE Framework** is a practical, vendor-neutral set of security controls for teams that build and operate autonomous AI agents — the kind that plan multiple steps, call tools and APIs, change real systems, and spawn sub-agents without a human reviewing each action.
+**BRACE Framework** is a practical, vendor-neutral set of security controls for teams that build and run autonomous AI agents. These agents plan several steps, call tools and APIs, change real systems, and start sub-agents, with no person reviewing each action.
 
-It is built around one idea:
+It is built on one idea:
 
-> An autonomous agent combines code with a **runtime configuration** — a container, a harness (the loop that runs the model and hands it tools), a system prompt, a set of tools, a memory store, an identity, and a network path. Two agents built from the same model can behave completely differently depending on how those parts are configured. Review the **configuration together with the harness, tools, and generated code**. Code review remains necessary; it does not capture the complete running agent by itself.
+> An autonomous agent combines code with a **runtime configuration** — a container, a harness (the loop that runs the model and hands it tools), a system prompt, a set of tools, a memory store, an identity, and a network path. Two agents built from the same model can behave completely differently depending on how those parts are configured. Review the **configuration together with the harness, tools, and generated code**. Code review is still needed, but on its own it doesn't show the whole running agent.
 
-BRACE defines controls for that configuration, sets implementation priorities, and specifies the records needed to operate and verify those controls.
+BRACE defines controls for that configuration, says which to build first, and lists the records you need to run and check those controls.
 
-**BRACE stands for** the five concerns it organizes: **B**uild-time, **R**un-time, **A**gent, **C**onfiguration, **E**cosystem.
+**BRACE stands for** its five aspects: **B**uild-time, **R**un-time, **A**gent, **C**onfiguration, **E**cosystem.
 
 **Website:** https://braceframework.org
 
@@ -16,112 +16,112 @@ BRACE defines controls for that configuration, sets implementation priorities, a
 
 ## Start here
 
-- **[Sign-off checklist](CHECKLIST.md)** — a 53-item go/no-go review across all five BRACE aspects, with operational notes and acceptable tradeoffs for the engineer or manager approving an agent for production. If you read one thing, read this.
-- **[Self-assessment](SELF-ASSESSMENT.md)** — score the same 53 checklist items for an existing deployment or vendor evaluation.
-- **[Source review](SOURCE-REVIEW.md)** — supporting references, practical corrections, and limits of the evidence.
+- **[Sign-off checklist](CHECKLIST.md)** — a 53-item go/no-go review across all five BRACE aspects. It is for the engineer or manager who approves an agent for production, and it notes what is hard, what to do if you can't fully comply, and which tradeoffs are acceptable. If you read one thing, read this.
+- **[Self-assessment](SELF-ASSESSMENT.md)** — score the same 53 checklist items for a running deployment or a vendor.
+- **[Source review](SOURCE-REVIEW.md)** — supporting sources, corrections, and the limits of the evidence.
 
 ---
 
 ## The framework in one screen
 
-BRACE specifies **nine controls** and **three observability requirements**.
+BRACE has **nine controls** (C1–C9) and **three observability requirements** (Obs-T1 to Obs-T3). The [checklist](CHECKLIST.md) uses these codes on every item.
 
-**Build-time controls** (fixed when the agent is built, frozen into the deployed artifact):
+**Build-time controls** are set when the agent is built and locked into what you deploy:
 
-| # | Control | What it does |
+| Code | Control | What it does |
 |---|---------|--------------|
-| 1 | Architecture | Environment and network isolation; bound the blast radius by topology, not good behavior. |
-| 2 | Capability-scoped API access | Tokens grant specific capabilities (`read:tickets`, not `*`); least privilege. |
-| 3 | Container | Signed, minimal, kernel-isolated image; the image hash is part of the agent's identity. |
-| 4 | Harness | Enforces permitted tools, arguments, and limits, including **destructive-action interception**: high-impact operations are blocked unless specifically authorized. |
+| C1 | Architecture | Isolate the agent's environment and network. Allow only the outside destinations its task needs. Limit damage by design, not by trusting good behavior. |
+| C2 | Capability-scoped API access | Give each token only the powers it needs (`read:tickets`, not `*`). Keep tokens short-lived, limited to one service, and bound to their holder where possible. Make sure you can cut off the agent without cutting off its user. |
+| C3 | Container | Run a pinned, signed, minimal image whose build record you have checked. Use a stronger sandbox, such as a microVM, when the agent runs untrusted code. The image digest is part of the agent's identity. |
+| C4 | Harness | Enforce which tools, arguments, and budgets the agent may use. **Block destructive actions** unless someone with authority approves that exact action. Treat every consequential action as destructive when one agent can read untrusted input, reach sensitive data, and act on the outside world. |
 
-**Run-time controls** (active on every execution):
+**Run-time controls** work on every run:
 
-| # | Control | What it does |
+| Code | Control | What it does |
 |---|---------|--------------|
-| 5 | Data | Treat all external input as untrusted; validate at the boundary; assume prompt injection sometimes succeeds. |
-| 6 | Memory | Scope memory per instance and per type; validate writes; keep provenance per entry. |
-| 7 | Behavioral | Security-anomaly monitoring (distinct from quality monitoring): evasion, privilege escalation, multi-step composed attacks. |
+| C5 | Data | Treat all outside input as untrusted, including API responses. Check it at the boundary. Assume some prompt injections will work, and make sure other controls still block the harm. Keep secrets out of outputs and logs. |
+| C6 | Memory | Separate memory by tenant, agent type, and instance. Check what gets written, and record where each entry came from. Apply the same care to the documents the agent searches. |
+| C7 | Behavioral | Watch for security problems, separately from answer quality. Look for evasion, privilege escalation, and attacks spread across several allowed steps. |
 
-**Closure controls** (stop and explain):
+**Closure controls** let you stop the agent and explain what it did:
 
-| # | Control | What it does |
+| Code | Control | What it does |
 |---|---------|--------------|
-| 8 | Kill Switch | A *tested* way to halt the agent and its sub-agents within a risk-matched budget, leaving a safe state. |
-| 9 | Audit Trail | The full execution graph for every action — not just the final output. |
+| C8 | Kill Switch | A *tested* way to stop the agent and all its sub-agents within a set time, leaving things in a safe state. The agent can't disable or delay it. |
+| C9 | Audit Trail | A full record of every action, decision, and result, not just the final answer. The agent can't erase or rewrite it. |
 
-**Observability requirements** (the data the controls above depend on — not separate defenses):
+**Observability requirements** are the data the controls depend on. They are not separate defenses:
 
-| # | Requirement | What it adds |
+| Code | Requirement | What it adds |
 |---|-------------|--------------|
-| T1 | Required identity fields | Six fields on every action (below). |
-| T2 | Context-size logging | The context size at decision time, so baselines can be split by context-size range. |
-| T3 | Sub-agent & parent-prompt provenance | Which sub-agent ran, and the prompt the parent gave it. |
+| Obs-T1 | Required identity fields | Six fields on every action (below). |
+| Obs-T2 | Context-size logging | How full the model's context was when it decided, so you can compare behavior at different context sizes. Mark missing values as unknown, never zero. |
+| Obs-T3 | Sub-agent and parent-prompt provenance | Which sub-agent ran, and the prompt its parent gave it. |
 
-**Every control and observability requirement has two halves:** the settings for each agent type and the support provided by shared infrastructure and services. You cannot secure one half alone: an agent cannot present a narrowly scoped token unless the identity system can issue one.
+**Every control has two halves:** the settings for each agent type, and the support from shared infrastructure and services. You can't secure one half alone. For example, an agent can't present a narrowly scoped token unless the identity system can issue one.
 
-### The six required identity fields (T1)
+### The six required identity fields (Obs-T1)
 
-Every action carries: **accountable party**, **operational owner**, **tenant**, **agent-type-id**, **agent-instance-id**, and **trace context**. (Optional: region, trust domain.)
+Every action records: **accountable party**, **operational owner**, **tenant**, **agent-type-id**, **agent-instance-id**, and **trace context**. (Optional: region, trust domain.)
 
-The **agent-type-id** is a content hash — a fingerprint — over the container digest, harness, system prompt, model identifier/version (including checkpoint and fine-tune/adapter references where applicable), and config. Recompute it when recorded inputs change and compare running artifacts with the approved manifest to detect drift. A local hash cannot prove that undisclosed hosted-provider state is unchanged. Record model and owned-training lineage using the [model provenance fields](CHECKLIST-VERIFICATION.md#model-provenance-fields). See **[otel-conventions.md](otel-conventions.md)** for the proposed OpenTelemetry attribute keys (`agent.type.id`, `agent.instance.id`, `agent.context.size`, `agent.parent.prompt`).
+The **agent-type-id** is a fingerprint (a content hash) of the container digest, harness, system prompt, model ID and version (including checkpoint and fine-tune or adapter references), and configuration. Recompute it whenever one of those inputs changes. Compare what is running with the approved manifest to catch drift. A local hash can't prove that a hosted provider's hidden state is unchanged. Record model and training history using the [model provenance fields](CHECKLIST-VERIFICATION.md#model-provenance-fields). See **[otel-conventions.md](otel-conventions.md)** for the proposed OpenTelemetry attribute names (`agent.type.id`, `agent.instance.id`, `agent.context.size`, `agent.parent.prompt`).
 
 ---
 
 ## What to ship first
 
-Build the twelve elements in stages, applying the checklist’s release gates at each stage. Start in this order:
+Build the twelve elements (nine controls and three observability requirements) in stages. Apply the checklist’s release gates at each stage. Start in this order:
 
-- **Tier 1 — prevent damage, preserve attribution.** Harness enforcement of destructive-action permissions (Control 4), capability-scoped tokens (Control 2), a tested kill switch (Control 8), an audit trail (Control 9), and the six identity fields (T1). These controls bound damage and support reconstruction when enforcement and audit coverage are demonstrated.
-- **Tier 2 — harden the substrate, surface invisible failures.** Architecture/egress isolation (Control 1), a signed and minimal container (Control 3), input validation (Control 5), context-size logging (T2).
-- **Tier 3 — active detection.** Behavioral monitoring with sequence-pattern baselines (Control 7), memory provenance and scoping (Control 6), sub-agent and parent-prompt provenance (T3).
+- **Tier 1 — prevent damage, keep track of who did what.** Harness blocking of destructive actions (C4), capability-scoped tokens (C2), a tested kill switch (C8), an audit trail (C9), and the six identity fields (Obs-T1). Once you show they are enforced and the audit covers every action, these controls limit damage and let you rebuild what happened.
+- **Tier 2 — harden the substrate (the environment the agent runs on), and expose hidden failures.** Network and egress isolation (C1), a signed, minimal container (C3), input validation (C5), and context-size logging (Obs-T2).
+- **Tier 3 — active detection.** Security monitoring with baselines of normal action sequences (C7), memory scoping and source records (C6), and sub-agent and parent-prompt provenance (Obs-T3).
 
-The [checklist](CHECKLIST.md) applies these priorities as **G1/G2/G3** gates to individual items: G1 gaps block release; G2 gaps need explicit, time-bounded acceptance; G3 gaps block high-stakes or high-autonomy deployments and require documented acceptance for lower-stakes deployments. Operational fallbacks may reduce functionality or introduce manual work; they do not automatically turn a gap into a pass.
+The [checklist](CHECKLIST.md) turns these priorities into **G1/G2/G3** gates on each item. G stands for gate. A G1 gap blocks release. A G2 gap needs a written, approved risk acceptance. A G3 gap blocks high-stakes or high-autonomy deployments, and needs a written, approved risk acceptance for lower-stakes ones. Fallbacks may cost features or add manual work. They don't turn a gap into a pass on their own.
 
-Use the checklist as the source of requirements, the [verification guide](CHECKLIST-VERIFICATION.md) for exercises and evidence, and the [self-assessment](SELF-ASSESSMENT.md) to score the same item IDs. The website guides explain the principles and link to those items.
+Use the checklist for the requirements, the [verification guide](CHECKLIST-VERIFICATION.md) for tests and evidence, and the [self-assessment](SELF-ASSESSMENT.md) to score the same item IDs. The [website guides](https://braceframework.org/guides/) explain the principles and link to those items.
 
 ---
 
 ## How BRACE relates to OWASP, NIST, and MITRE
 
-BRACE organizes deployment checks alongside existing security guidance. Its grouping and adoption gates are project design choices, not claims that other frameworks lack practical controls:
+BRACE organizes deployment checks to sit alongside existing security guidance. Its grouping and release gates are this project's design choices. They are not claims that other frameworks lack practical controls:
 
-- **[OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)** — a threat catalog. BRACE maps each of its ten risks ([ASI01–ASI10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)) to the controls that mitigate them.
-- **[OWASP Agent Control Standard (ACS)](https://genai.owasp.org/resource/agent-control-standard-acs/)** — runtime policy hooks and enforcement; complements BRACE's deployment review.
-- **[MITRE ATLAS](https://atlas.mitre.org/)** — an attacker-technique catalog. BRACE maps the agentic techniques to controls.
-- **[NIST AI RMF](https://www.nist.gov/itl/ai-risk-management-framework) / [ISO/IEC 42001](https://www.iso.org/standard/81230.html)** — governance and management-system references. BRACE provides deployment-focused technical checks alongside them.
+- **[OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)** — a threat catalog of ten risks ([ASI01–ASI10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)). BRACE names the controls that reduce them. A risk-to-control table is in the [OWASP proposal](outreach/owasp-agentic-controls-proposal.md). It is a historical draft, so check it against the current checklist.
+- **[OWASP Agent Control Standard (ACS)](https://genai.owasp.org/resource/agent-control-standard-acs/)** — policy hooks and enforcement while the agent runs. It complements BRACE's deployment review.
+- **[MITRE ATLAS](https://atlas.mitre.org/)** — a catalog of attacker techniques against AI systems. A full BRACE mapping is planned ([roadmap](ROADMAP.md)), not yet published.
+- **[NIST AI RMF](https://www.nist.gov/itl/ai-risk-management-framework) / [ISO/IEC 42001](https://www.iso.org/standard/81230.html)** — references for governance and management systems. BRACE adds technical checks for each deployment alongside them.
 
 Use OWASP and MITRE to know *what can go wrong*. Use BRACE to know *what to build and in what order*.
 
 ### What BRACE emphasizes
 
-Five concrete requirements this project brings together:
+Five concrete requirements BRACE brings together:
 
-1. Treat the **harness, system prompt, and built-in tools** as hardening artifacts — versioned, diff-reviewed, distinct from the external tool surface. This is where destructive-action permissions are enforced.
+1. Treat the **harness, system prompt, and built-in tools** as security artifacts. Version them, review their diffs, and keep them separate from outside tools. The harness is where destructive actions are blocked.
 2. **Six required identity fields** on every action, including the content-hashed agent-type-id.
-3. **Context-size logging** at decision time, with baselines split by context-size range.
-4. **Sub-agent and parent-prompt provenance** as a first-class field — separating "the sub-agent misbehaved" from "the parent prompted it badly."
-5. **Infrastructure-as-code drift detection** applied at agent granularity (container, harness, MCP server list, system prompt, network policy).
+3. **Context-size logging** at decision time, with behavior baselines split by context-size range.
+4. **Sub-agent and parent-prompt provenance** as a required field. It separates "the sub-agent misbehaved" from "the parent gave it a bad prompt."
+5. **Drift detection** for each agent, using infrastructure-as-code: compare the running container, harness, MCP server list, system prompt, and network policy with what was approved.
 
 ---
 
 ## Two threat models, one containment layer
 
-BRACE was built for the **hijacked-or-misused agent** — an agent manipulated by prompt injection, a poisoned tool, or a supply-chain compromise. It also contains the **misaligned-insider** model (the model itself acting as a deliberate adversary), because containment does not depend on *why* an agent went rogue: a scoped token, an egress allowlist, and a tested kill switch bound the damage either way.
+BRACE was built for the **hijacked or misused agent**: one manipulated by prompt injection, a poisoned tool, or a supply-chain attack. It also helps contain the **misaligned insider**, where the model itself acts as a deliberate adversary. Containment does not depend on *why* an agent went rogue. A scoped token, an egress allowlist, and a tested kill switch limit the damage either way.
 
-What BRACE does **not** do is detect misaligned *intent* inside otherwise-authorized behavior (alignment faking, sandbagging). That is a model-and-monitoring problem — the domain of AI control work such as Google DeepMind's AI Control Roadmap. BRACE is the containment layer; AI control is the detection layer; the two compose.
+BRACE does **not** detect misaligned *intent* hidden inside allowed behavior, such as a model faking alignment or deliberately underperforming. That is a problem for model research and monitoring, the field of AI control work such as Google DeepMind's [AI Control Roadmap](https://arxiv.org/abs/2607.13087). BRACE is the containment layer. AI control is the detection layer. Use both.
 
 ---
 
 ## Status and honesty
 
-BRACE is a **synthesis of agent-security practice already in production** across the industry — not yet a validated standard. The individual controls are widely deployed; what BRACE adds is the unified organization and the agent-granularity instrumentation. The integrated framework has not yet been measured against a control group. It is an open, evolving project — apply it, critique it, and contribute (see **[CONTRIBUTING.md](CONTRIBUTING.md)**).
+BRACE **brings together agent-security practices already used in production**. It is not yet a validated standard. The individual controls are widely used. BRACE adds one way to organize them, and logging for each agent. The framework as a whole has not been measured against a control group. It is an open project that keeps changing. Apply it, critique it, and contribute (see **[CONTRIBUTING.md](CONTRIBUTING.md)**).
 
 ---
 
 ## Citing BRACE
 
-The repository is the framework artifact. See the [source review](SOURCE-REVIEW.md) for primary references and limits.
+This repository is the framework. There is no separate paper. See the [source review](SOURCE-REVIEW.md) for primary sources and limits.
 
 To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository and the project site directly.
 
@@ -129,19 +129,19 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 
 | File | What it is |
 |------|------------|
-| [CHECKLIST.md](CHECKLIST.md) | The 53-item sign-off review, with operational challenges, fallbacks, and tradeoffs. |
-| [SOURCE-REVIEW.md](SOURCE-REVIEW.md) | Dated source review covering all 53 items, with references and verification limits. |
-| [CHECKLIST-VERIFICATION.md](CHECKLIST-VERIFICATION.md) | Practical verification recipes for every checklist item, including model and training provenance fields. |
+| [CHECKLIST.md](CHECKLIST.md) | The 53-item sign-off review, with what is hard, fallbacks, and tradeoffs. |
+| [SOURCE-REVIEW.md](SOURCE-REVIEW.md) | Dated source review covering all 53 items, with sources and the limits of what was checked. |
+| [CHECKLIST-VERIFICATION.md](CHECKLIST-VERIFICATION.md) | A test, expected result, and evidence for every checklist item, plus model and training provenance fields. |
 | [SELF-ASSESSMENT.md](SELF-ASSESSMENT.md) | Scoring worksheet for the same 53 checklist item IDs and gates. |
 | [otel-conventions.md](otel-conventions.md) | Proposed OpenTelemetry attributes for agent identity and provenance. |
 | [VENDOR-MATRIX.md](VENDOR-MATRIX.md) | Evidence to request when evaluating vendor and platform support for each control. |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose changes, report incidents, or map a vendor product. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose changes, report a real-world incident, or map a vendor product. |
 | [GOVERNANCE.md](GOVERNANCE.md) | How the project is run, and how to become a co-maintainer. |
 | [ROADMAP.md](ROADMAP.md) | What's planned, and how priorities are set. |
 | [ADOPTERS.md](ADOPTERS.md) | Teams, assessors, and products using BRACE — and how to get listed. |
-| [outreach/](outreach/) | Proposals to OWASP, NIST CAISI, and the OpenTelemetry GenAI SIG, plus the launch write-up. |
+| [outreach/](outreach/) | Proposals to OWASP, NIST CAISI, CoSAI, CSA, and the OpenTelemetry GenAI SIG, plus the launch write-up. Drafts marked historical are not current evidence. |
 | [CITATION.cff](CITATION.cff) | How to cite BRACE. |
 
 ## License
 
-Released under [CC BY 4.0](LICENSE). Use it, adapt it, build on it — just credit the source.
+Released under [CC BY 4.0](LICENSE). Use it, adapt it, and build on it. Just credit the source.

@@ -1,26 +1,26 @@
 # BRACE roadmap
 
-Nothing here is fixed. Priorities are set by what the community needs — open an issue to add to or reorder this list. Items track to open issues (look for the `rfc`, `help wanted`, and `vendor-mapping` labels).
+Nothing here is fixed. The community's needs set the priorities. Open an issue to add to this list or reorder it. Each item tracks an open issue. Look for the `rfc`, `help wanted`, and `vendor-mapping` labels.
 
 ## Now
 
-- **Sequence-pattern baselines for Control 7** — a portable spec for detecting multi-step attacks built from individually-allowed actions (RFC).
-- **agent-type-id hashing spec** — canonical inputs and stability under opaque model updates (RFC).
-- **OpenTelemetry `agent.*` attributes** — drive the semantic-convention proposal through the GenAI SIG ([open-telemetry/semantic-conventions-genai#334](https://github.com/open-telemetry/semantic-conventions-genai/issues/334)).
-- **Vendor matrix coverage** — accurate, sourced mappings for AWS Bedrock AgentCore, Microsoft Entra Agent ID, and others (help wanted).
-- **Reference implementation** — Tier 1 controls wired onto a popular open-source agent stack, emitting the OpenTelemetry attributes.
-- **Incident mapping** — collect publicly documented incidents and map each to the controls that would have prevented or contained it.
+- **Sequence-pattern baselines for C7 (Behavioral)** — a portable spec for detecting multi-step attacks made of actions that are each allowed on their own (RFC).
+- **agent-type-id hashing spec** — the exact inputs to hash, and how the ID behaves when a hosted model changes without notice (RFC).
+- **OpenTelemetry `agent.*` attributes** — take the proposal through the GenAI SIG ([open-telemetry/semantic-conventions-genai#334](https://github.com/open-telemetry/semantic-conventions-genai/issues/334), open). The GenAI conventions themselves are still in Development.
+- **Vendor worksheet evidence** — sourced, tested evidence for Amazon Bedrock AgentCore, Microsoft Entra Agent ID, and others (help wanted).
+- **Reference implementation** — the Tier 1 controls built on a popular open-source agent stack, emitting the OpenTelemetry attributes.
+- **Incident mapping** — collect public incident reports and map each one to the controls that would have prevented or contained it. No such collection exists yet.
 
 ## Next
 
 - A **controls-layer companion to the OWASP Top 10 for Agentic Applications** (proposal in `outreach/`).
 - A **scoring / aggregation model** for the self-assessment.
-- **Expanded threat mappings** — full MITRE ATLAS coverage, and the misaligned-insider (TRAIT&R) tactics.
-- **Compliance mappings** — SOC 2, [ISO/IEC 27001](https://www.iso.org/standard/27001), and [ISO/IEC 42001](https://www.iso.org/standard/81230.html) — once the control set stabilizes.
+- **Expanded threat mappings** — a full MITRE ATLAS mapping (not yet published), and a mapping to Google DeepMind's [TRAIT&R](https://arxiv.org/abs/2607.13087) taxonomy of tactics a misaligned agent could use.
+- **Compliance mappings** — SOC 2, [ISO/IEC 27001](https://www.iso.org/standard/27001), and [ISO/IEC 42001](https://www.iso.org/standard/81230.html), once the control set is stable.
 
 ## How to help
 
-Pick anything above, or open a new issue. The highest-value contributions right now are the **reference implementation** and the **vendor mappings** — they turn the framework from a document into something teams can adopt.
+Pick anything above, or open a new issue. The most useful contributions now are the **reference implementation** and **vendor evidence**. They turn the framework from a document into something teams can adopt.
 
 ---
 

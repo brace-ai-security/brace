@@ -27,7 +27,7 @@ Build the strongest controls you can prove in your real deployment. Some items i
 - **If you can't fully do it** gives a fallback that still contains damage or helps you recover.
 - **Tradeoffs you can accept** names costs that are fine to pay, and ones that are not.
 
-**Choose tradeoffs on purpose.** Extra delay, manual work, fewer features, and written-down uncertainty can be fair prices for safety. When you accept a risk, record the exposure, who accepts it, what reduces it, and when it expires or gets reviewed. Accepting a tradeoff never excuses a broken security boundary that the checklist requires.
+**Choose tradeoffs on purpose.** Extra delay, manual work, fewer features, and written-down uncertainty can be fair prices for safety. When you accept a risk, record the exposure, who accepts it, and what reduces it. Accepting a tradeoff never excuses a broken security boundary that the checklist requires.
 
 For each fallback, record:
 
@@ -35,7 +35,7 @@ For each fallback, record:
 - the evidence behind it;
 - what is still uncertain;
 - how failures are handled;
-- an owner and the next review date.
+- an owner.
 
 A fallback does not pass automatically. Check whether it meets the original requirement. If it doesn't, keep the Gap and apply the gate rules below. If a gap blocks release, cut the agent's powers or autonomy, or remove the integration at fault. Then re-test that actual setup. Judge the risk by how the agent now behaves. Don't just rename the deployment to dodge a gate. Improve coverage over time, and never claim more than your evidence shows.
 
@@ -45,24 +45,26 @@ A fallback does not pass automatically. Check whether it meets the original requ
 
 ### How to read the identifiers
 
-Checklist headings use several kinds of codes. The numbers name items. They do not show order or priority. Keep the codes the same when you reorder items.
+Checklist headings use several kinds of codes. The numbers name items. They do not show order or priority.
 
 | Example | Meaning |
 |---|---|
 | **B05**, **R01**, **A03**, **C01**, **E06** | A BRACE checklist item. The letter names the aspect: Build-time, Run-time, Agent, Configuration, or Ecosystem. The number is the item's fixed ID in that aspect. |
-| **G1**, **G2**, **G3** | A BRACE [priority gate](#priority-gates). The gate sets how a gap affects release. |
+| **G1**, **G2**, **G3** | A BRACE [priority gate](#priority-gates-g). G stands for gate. The gate sets how a gap affects release. |
 | **C1**–**C9** | A BRACE [security control](README.md#the-framework-in-one-screen). These are not the same as Configuration items such as **C01**. |
 | **Obs-T1**–**Obs-T3** | A BRACE [observability requirement](README.md#the-framework-in-one-screen): identity fields, context-size logging, or sub-agent provenance (where a sub-agent came from). |
 
 Codes owned by other groups are outside references, not BRACE codes. When one appears, link it to its official source. Examples include [ASI01–ASI10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/), [RFC 7009](https://www.rfc-editor.org/info/rfc7009/), and [ISO/IEC 42001](https://www.iso.org/standard/81230.html).
 
-### Priority gates
+### Priority gates (G)
+
+A **gate** is a checkpoint a release must clear before it ships. That is why the labels start with **G**. Every item has one of three gates. G1 is the strictest.
 
 | Label | Sign-off rule |
 |---|---|
 | **G1 — Blocking** | Every applicable item must pass. If a G1 item fails, **do not ship**. It cannot be waived as accepted risk. |
-| **G2 — Harden the substrate** | Every applicable item must pass, or have a written, approved risk acceptance with an end date. |
-| **G3 — Active detection** | For high-stakes or high-autonomy deployments, every applicable item must pass. For lower-stakes deployments, a gap needs a written, approved risk acceptance with an end date. |
+| **G2 — Harden the substrate** | Every applicable item must pass, or have a written, approved risk acceptance. |
+| **G3 — Active detection** | For high-stakes or high-autonomy deployments, every applicable item must pass. For lower-stakes deployments, a gap needs a written, approved risk acceptance. |
 
 Before you judge any gaps, rate the deployment's potential harm and autonomy. Write down why, and name who approved the rating. A missing rating blocks release. Passing many items does not make up for one blocking failure.
 
@@ -250,7 +252,7 @@ Before you judge any gaps, rate the deployment's potential harm and autonomy. Wr
 
   **If you can't fully do it:** Fill in model records from serving metadata, registries, and training-job output. Require full history for training your team runs. Clearly label fields the provider hides, and keep where and when you checked. Prefer a fixed provider snapshot when one exists. Record missing training history your team should have as a Gap, and rebuild it first. Never make up training versions. Never treat a provider alias as a training job ID.
 
-  **Tradeoffs you can accept:** Provider pretraining details that are clearly marked as not shared, as long as your own model-selection and training records are complete. A G2 gap in visibility or history can get written acceptance with an owner and review date. Unknown records must never be written down as real versions.
+  **Tradeoffs you can accept:** Provider pretraining details that are clearly marked as not shared, as long as your own model-selection and training records are complete. A G2 gap in visibility or history can get written acceptance with an owner. Unknown records must never be written down as real versions.
 
 - [ ] **C03 · G1 · Obs-T1 — Match release identity to running state.** **Freeze the artifacts that define identity for each release. Check the running setup against the approved manifest, and emit the matching agent-type-id. Include the digest and signature of weights and adapters you host yourself. Test that a changed prompt, model, weights file, or tool setup can't keep showing the old approved identity without being caught.**
 
@@ -358,11 +360,11 @@ Keep a completed copy with the release. Use one row per checklist item, and link
 
 For every allowed G2 or G3 deferral, also fill in:
 
-| Item ID | Exposed threat and affected systems | Compensating control and evidence | Risk accepted by / date | Remediation owner and tracking link | Expiry / review date |
-|---|---|---|---|---|---|
-| | | | | | |
+| Item ID | Exposed threat and affected systems | Compensating control and evidence | Risk accepted by / date | Remediation owner and tracking link |
+|---|---|---|---|---|
+| | | | | |
 
-**Deferral rules:** No G1 waivers. No G3 deferrals for high-stakes or high-autonomy deployments. A blank, expired, or unapproved exception counts as an open gap. Every N/A must name its reviewer and the evidence that the feature or exposure doesn't exist.
+**Deferral rules:** No G1 waivers. No G3 deferrals for high-stakes or high-autonomy deployments. A blank or unapproved exception counts as an open gap. Every N/A must name its reviewer and the evidence that the feature or exposure doesn't exist.
 
 ## Final sign-off
 
@@ -402,8 +404,7 @@ Also reopen the affected checks after any of these:
 - tool, server, or checker changes;
 - changes to trust boundaries for memory or retrieval;
 - shared-platform policy changes;
-- incidents, failed drills, or detected drift;
-- expired exceptions.
+- incidents, failed drills, or detected drift.
 
 Keep scheduled reviews even when nothing is released. Credentials, dependencies, owners, and outside services can change on their own.
 

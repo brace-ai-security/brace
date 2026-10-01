@@ -1,8 +1,8 @@
 # Adopters & assessors
 
-Teams, security firms, and products using the BRACE Framework. Using BRACE? **[Get listed](https://github.com/brace-ai-security/brace/issues/new?template=get-listed.yml)** — open a short issue and we'll add you.
+Teams, security firms, and products that use the BRACE Framework. Using BRACE? **[Get listed](https://github.com/brace-ai-security/brace/issues/new?template=get-listed.yml)**: open a short issue and we'll add you.
 
-Listings are public, under CC BY 4.0. We list what organizations *do* with BRACE; a listing is not an endorsement of either party.
+Listings are public, under CC BY 4.0. We list what organizations *do* with BRACE. A listing is not an endorsement either way.
 
 ## Deployments
 *Teams using BRACE on their own agents.*
@@ -10,12 +10,12 @@ Listings are public, under CC BY 4.0. We list what organizations *do* with BRACE
 _None yet — be the first._
 
 ## Assessors
-*Firms using BRACE as an agent-security assessment methodology in client work.*
+*Firms that use BRACE to assess agent security for clients.*
 
 _None yet — be the first._
 
 ## Product mappings
-*Vendors whose product implements BRACE controls.*
+*Vendors whose products implement BRACE controls.*
 
 _None yet — be the first._
 

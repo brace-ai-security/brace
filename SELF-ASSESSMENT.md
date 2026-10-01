@@ -1,41 +1,41 @@
 # BRACE self-assessment and vendor evaluation
 
-Score the same **53 items** used in the [BRACE sign-off checklist](CHECKLIST.md), across **Build-time, Run-time, Agent, Configuration, and Ecosystem**. The checklist is the source of the full requirements, operational challenges, fallbacks, and acceptable tradeoffs. The [verification guide](CHECKLIST-VERIFICATION.md) supplies a procedure, expected result, and evidence for every matching item ID.
+Use this worksheet to score the same **53 items** as the [BRACE sign-off checklist](CHECKLIST.md), across **Build-time, Run-time, Agent, Configuration, and Ecosystem**. The checklist holds the full requirements, the hard parts, fallbacks, and tradeoffs you can accept. The [verification guide](CHECKLIST-VERIFICATION.md) gives each item a test, the result to expect, and the evidence to keep.
 
 Part of the BRACE Project. License: CC BY 4.0.
 
 ## How to use this
 
-Assess a named release and environment, or ask a vendor to demonstrate each requirement for the configuration you would actually use. Read the full checklist item before scoring its short label below. Record the agent-team and platform/vendor responsibilities separately; score the combined evidence for the deployment.
+Assess a named release and environment. Or ask a vendor to show each requirement working in the setup you would actually use. Read the full checklist item before you score its short label below. Record what the agent team owns and what the platform or vendor owns, separately. Then score the combined evidence for the deployment.
 
 ### Scoring and checklist outcomes
 
 | Score | Meaning | Checklist outcome |
 |---|---|---|
-| **2 — Yes** | The full applicable requirement is implemented and demonstrated with evidence. | Pass |
-| **1 — Partial** | Evidence demonstrates only part of the requirement or part of the deployment. | Gap |
-| **0 — No** | The requirement is absent or cannot be demonstrated. A claim alone earns no credit. | Gap |
-| **N/A** | The feature/exposure is absent, with evidence and an approved rationale. | N/A; exclude from score denominator |
+| **2 — Yes** | The full requirement is in place and shown with evidence. | Pass |
+| **1 — Partial** | Evidence shows only part of the requirement, or only part of the deployment. | Gap |
+| **0 — No** | The requirement is missing or can't be shown. A claim alone earns no credit. | Gap |
+| **N/A** | The feature or exposure doesn't exist, with evidence and an approved reason. | N/A; leave out of the score denominator |
 
-A fallback can earn 2 only when it demonstrably meets the requirement for the assessed configuration. Accepted risk does not turn a Partial or No into a Yes. Provider-undisclosed details must be labeled as such; apply the model-provenance and pinning rules in C01/C05 and assess the available evidence without inventing missing version information.
+A fallback earns 2 only when you can show it meets the requirement for the setup you assessed. Accepted risk does not turn a Partial or No into a Yes. Label details a provider doesn't share as hidden. Apply the model record and pinning rules in C01 and C05. Score the evidence you have, and never make up missing version details.
 
 ### Priority gates
 
-The **G1/G2/G3** labels match the checklist and BRACE's adoption priorities. **Obs-T1/Obs-T2/Obs-T3** identify observability requirements, not gate levels.
+The **G1/G2/G3** labels match the checklist. G stands for gate: a checkpoint a release must clear before it ships. **Obs-T1/Obs-T2/Obs-T3** name observability requirements, not gates.
 
 - **G1:** Every applicable item must score 2; any Partial or No blocks sign-off.
-- **G2:** Every applicable item must score 2 or have a valid, explicit, time-bounded risk acceptance.
-- **G3:** Every applicable item must score 2 for high-stakes or high-autonomy deployments. For lower-stakes deployments, a Partial or No requires valid, explicit, time-bounded risk acceptance.
+- **G2:** Every applicable item must score 2, or have a written, approved risk acceptance.
+- **G3:** For high-stakes or high-autonomy deployments, every applicable item must score 2. For lower-stakes deployments, a Partial or No needs a written, approved risk acceptance.
 
-Classify stakes and autonomy before assessing gaps. Record owners, evidence, N/A approvals, and exceptions using the [checklist records](CHECKLIST.md#evidence-and-exception-record). A vendor service does not make its responsibilities N/A.
+Rate the deployment's stakes and autonomy before you judge any gaps. Record owners, evidence, N/A approvals, and exceptions in the [checklist records](CHECKLIST.md#evidence-and-exception-record). Using a vendor's service doesn't make its part of a control N/A.
 
 ## Assessment worksheet
 
-For each row, ask: **Does this deployment meet the full linked checklist requirement, and can we demonstrate it?** Add a score and an evidence or gap reference. The short labels help you find each item; score against its full requirement.
+For each row, ask: **Does this deployment meet the full checklist requirement, and can we show it?** Add a score and a link to the evidence or gap. The short labels help you find each item. Score against its full requirement.
 
 ### B — Build-time
 
-**IF YOU DO NOTHING ELSE — TOP 3:** **B05 — Destructive-action interception**; **B02 — Least-privilege access**; **B01 — Minimal tool surface**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
+**IF YOU DO NOTHING ELSE — TOP 3:** **B05 — Destructive-action interception**; **B02 — Least-privilege access**; **B01 — Minimal tool surface**. These are the same top-three items the checklist highlights. All sign-off gates still apply.
 
 [Full requirements and operational notes](CHECKLIST.md#b--build-time) · [Verification recipes](CHECKLIST-VERIFICATION.md#b--build-time)
 
@@ -56,7 +56,7 @@ For each row, ask: **Does this deployment meet the full linked checklist require
 
 ### R — Run-time
 
-**IF YOU DO NOTHING ELSE — TOP 3:** **R11 — Tested kill switch**; **R13 — Full execution audit**; **R01 — Validate every input boundary, including API responses**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
+**IF YOU DO NOTHING ELSE — TOP 3:** **R11 — Tested kill switch**; **R13 — Full execution audit**; **R01 — Validate every input boundary, including API responses**. These are the same top-three items the checklist highlights. All sign-off gates still apply.
 
 [Full requirements and operational notes](CHECKLIST.md#r--run-time) · [Verification recipes](CHECKLIST-VERIFICATION.md#r--run-time)
 
@@ -79,7 +79,7 @@ For each row, ask: **Does this deployment meet the full linked checklist require
 
 ### A — Agent
 
-**IF YOU DO NOTHING ELSE — TOP 3:** **A01 — Distinct agent identity**; **A02 — All six identity fields**; **A03 — Content-derived type identity**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
+**IF YOU DO NOTHING ELSE — TOP 3:** **A01 — Distinct agent identity**; **A02 — All six identity fields**; **A03 — Content-derived type identity**. These are the same top-three items the checklist highlights. All sign-off gates still apply.
 
 [Full requirements and operational notes](CHECKLIST.md#a--agent) · [Verification recipes](CHECKLIST-VERIFICATION.md#a--agent)
 
@@ -95,7 +95,7 @@ For each row, ask: **Does this deployment meet the full linked checklist require
 
 ### C — Configuration
 
-**IF YOU DO NOTHING ELSE — TOP 3:** **C01 — Complete release manifest**; **C03 — Match release identity to running state**; **C04 — Detect drift per agent**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
+**IF YOU DO NOTHING ELSE — TOP 3:** **C01 — Complete release manifest**; **C03 — Match release identity to running state**; **C04 — Detect drift per agent**. These are the same top-three items the checklist highlights. All sign-off gates still apply.
 
 [Full requirements and operational notes](CHECKLIST.md#c--configuration) · [Verification recipes](CHECKLIST-VERIFICATION.md#c--configuration)
 
@@ -112,7 +112,7 @@ For each row, ask: **Does this deployment meet the full linked checklist require
 
 ### E — Ecosystem
 
-**IF YOU DO NOTHING ELSE — TOP 3:** **E06 — Enforced gateway boundary**; **E08 — Bounded delegated authority**; **E09 — Recursive shutdown**. These are the same priority items highlighted in the checklist; the full sign-off gates still apply.
+**IF YOU DO NOTHING ELSE — TOP 3:** **E06 — Enforced gateway boundary**; **E08 — Bounded delegated authority**; **E09 — Recursive shutdown**. These are the same top-three items the checklist highlights. All sign-off gates still apply.
 
 [Full requirements and operational notes](CHECKLIST.md#e--ecosystem) · [Verification recipes](CHECKLIST-VERIFICATION.md#e--ecosystem)
 
@@ -133,23 +133,23 @@ For each row, ask: **Does this deployment meet the full linked checklist require
 
 ## Reading your score
 
-With all 53 items applicable, the maximum is **106 points**. If some items have approved N/A outcomes, use:
+With all 53 items applicable, the maximum is **106 points**. If some items have approved N/A results, use:
 
 **Coverage score = points earned / (2 × number of applicable items).**
 
-Report the applicable item count, N/A count, points earned, and denominator together. If no items are applicable, the score is undefined; revisit the assessment scope rather than reporting readiness. Compare scores only for comparable scopes and applicability decisions.
+Report the number of applicable items, the N/A count, the points earned, and the denominator together. If no items apply, there is no score. Recheck the assessment scope instead of reporting readiness. Compare scores only when the scope and N/A decisions match.
 
-The score tracks demonstrated implementation; it is not a security rating or release authorization. Report the count of unresolved G1 gaps and the status of G2/G3 exceptions separately. A high score cannot compensate for one blocker, and lower-stakes risk acceptance does not erase the gap from the score.
+The score tracks what you have shown is in place. It is not a security rating, and it does not approve a release. Report the number of open G1 gaps and the status of G2 and G3 exceptions separately. A high score can't make up for one blocker. A risk acceptance doesn't remove the gap from the score.
 
-Finish with the [checklist's final sign-off](CHECKLIST.md#final-sign-off), including its next-review and re-review triggers. Reassess capabilities on that cadence and remove stale access; re-test after meaningful changes.
+Finish with the [checklist's final sign-off](CHECKLIST.md#final-sign-off), including the next review date and what triggers a new review. Recheck the agent's powers on that schedule and remove access it no longer needs. Re-test after changes that matter.
 
 ## Using this to evaluate a vendor
 
-- Request concrete artifacts: scoped-token metadata, denial records, release/model manifests, drill results, and attributable traces.
-- Ask which controls the platform supplies and which your team must configure or implement. A platform feature that is disabled in your deployment does not pass.
-- For hosted models, request disclosed version metadata and distinguish it from undisclosed pretraining lineage. For your own fine-tuning, retain your job and dataset records even if the base provider withholds theirs.
-- Discuss the operational notes beneath difficult checklist items. Name the limitations and acceptable costs, then record any permitted risk acceptance with an owner and expiry.
-- Treat missing required evidence as a gap. If it blocks sign-off, reduce the deployment's actual capabilities or select an integration that can meet the requirement, then re-test.
+- Ask for concrete artifacts: scoped-token metadata, denial records, release and model manifests, drill results, and traces that show who did what.
+- Ask which controls the platform supplies and which your team must set up or build. A platform feature that is turned off in your deployment does not pass.
+- For hosted models, ask for the version details the provider shares. Keep them apart from pretraining history it doesn't share. For fine-tuning you run yourself, keep your job and dataset records, even if the base-model provider keeps theirs private.
+- Discuss the notes under the harder checklist items. Name the limits and the costs you accept. Then record any allowed risk acceptance, with an owner and approver.
+- Treat missing required evidence as a gap. If it blocks sign-off, cut the deployment's actual powers or choose an integration that can meet the requirement. Then re-test.
 
 ---
 
