@@ -1,0 +1,57 @@
+# BRACE sign-off check. Copy to .github/workflows/brace-check.yml.
+#
+# This workflow expects the BRACE checker vendored (copied) into your repository
+# at tools/brace/ (brace.py, brace_items.json, schemas/). Vendoring means the
+# checker your release is judged by is reviewed and versioned with your code,
+# instead of being downloaded at run time from a URL that could change.
+#
+# Approvals: brace.py reads pull request reviews to confirm that each risk
+# acceptance (.brace/exceptions/) and N/A (.brace/na/) was approved by someone in
+# approvals.approvers who did not open the pull request.
+# If approvers include teams (@org/team), reading team membership needs a token
+# with the read:org scope (or a fine-grained token with Members: read). The
+# default GITHUB_TOKEN can't read team membership. Store such a token as the
+# secret BRACE_GITHUB_TOKEN; without it the workflow falls back to GITHUB_TOKEN,
+# which works only when every approver is listed as a user (@login).
+
+name: BRACE check
+
+on:
+  pull_request:
+  pull_request_review:        # re-run when someone approves, so a new exception can pass before merge
+    types: [submitted, dismissed]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  brace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # full history: the check looks up the last commit that touched each file
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml jsonschema
+
+      - name: Check BRACE record
+        env:
+          GITHUB_TOKEN: ${{ secrets.BRACE_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python tools/brace/brace.py check --approvals github --strict --json brace-result.json
+
+      - name: Keep the result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: brace-result
+          path: brace-result.json
+          if-no-files-found: ignore

@@ -1,0 +1,75 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    environment: production   # requires approval from @acme/people-platform-release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      IMAGE: registry.acme.example/people/hr-helpdesk-agent
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with: {python-version: "3.12.7"}
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+        with: {cosign-release: "v2.6.2"}
+      - run: pip install --require-hashes -r requirements.txt
+      - run: python -m pytest -q tests/release
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          push: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          sbom: true
+          provenance: mode=max
+      - name: Sign image
+        run: cosign sign --yes "${IMAGE}@${{ steps.build.outputs.digest }}"
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Compute agent-type-id
+        id: typeid
+        run: |
+          python -m src.type_id "${{ steps.build.outputs.digest }}" > type-id.json
+          echo "id=$(jq -r .agent_type_id type-id.json)" >> "$GITHUB_OUTPUT"
+      - name: Stamp release manifest
+        run: |
+          yq -i '.release.agent_type_id = "${{ steps.typeid.outputs.id }}" |
+                 .release.image.digest = "${{ steps.build.outputs.digest }}" |
+                 .release.git_sha = "${{ github.sha }}"' release/manifest.yaml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-${{ github.sha }}
+          path: [type-id.json, release/manifest.yaml]
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions: {contents: read, id-token: write}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with: {name: "release-${{ github.sha }}"}
+      - name: Render and apply
+        run: |
+          export IMAGE_DIGEST=$(yq -r .release.image.digest release/manifest.yaml)
+          export AGENT_TYPE_ID=$(yq -r .release.agent_type_id release/manifest.yaml)
+          export GIT_SHA=${{ github.sha }}
+          for f in k8s/*.yaml; do envsubst '$IMAGE_DIGEST $AGENT_TYPE_ID $GIT_SHA' < "$f"; echo '---'; done \
+            | kubectl apply --server-side -f -

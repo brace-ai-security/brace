@@ -1,0 +1,304 @@
+# BRACE Agent (A) heuristics for code review.
+# Hand-written. Each entry says what code and config can and cannot show for one checklist item.
+
+A01:
+  provable_from_code: "partly"
+  look_for:
+    - "The agent runs as its own workload identity: a dedicated Kubernetes ServiceAccount, cloud IAM role (AWS IAM role, GCP service account, Azure managed identity), SPIFFE ID, or Entra Agent ID, not shared with other services."
+    - "Tool and API clients get credentials from that identity (workload identity federation, IRSA, token exchange per RFC 8693) instead of from the user session."
+    - "When a user starts a run, the user is passed as a delegated subject (for example an `act`/`sub` pair in an exchanged token), while the agent keeps its own principal."
+    - "Permissions are attached to the agent principal in IaC (Terraform IAM policies, RBAC RoleBindings) and are narrower than the launching user's."
+    - "A documented way to revoke or disable the agent principal alone (delete role binding, disable service principal, rotate its key)."
+  red_flags:
+    - "Agent calls downstream APIs with the launching user's OAuth access token or session cookie, forwarded as-is."
+    - "One service account, API key, or IAM role is shared by several unrelated agents or by the agent and the main app backend."
+    - "Long-lived static API keys for the agent in env files or code, with no per-agent principal behind them."
+    - "Agent identity is only a string label in config or a prompt (for example `agent_name: support-bot`) with no credential bound to it."
+    - "Revoking access would require disabling the user or a shared credential, because there is no agent-only principal."
+  where_to_look:
+    - "Kubernetes ServiceAccount, RoleBinding, and pod spec `serviceAccountName`"
+    - "Terraform/CloudFormation/Bicep IAM roles, policies, and identity federation"
+    - "auth and credential setup in the harness and tool clients (token exchange, OAuth client config)"
+    - ".env files, secret manager references, and Helm values"
+  needs_runtime_evidence: "Code can show how identity is wired, not that the issued principal and its live permissions differ from the user's, or that revoking only the agent works. Needs the A01 recipe: launch from a user account, compare permissions, revoke the agent alone, and retry."
+  na_when: "never"
+  must_show:
+    - id: A01.1
+      check: "The agent runs under its own workload principal (service account, IAM role, SPIFFE ID, or agent ID) that no other service or unrelated agent uses."
+      verify: "1) Find the agent's identity: pod `serviceAccountName`, IAM role, SPIFFE ID, or agent ID in IaC or deploy config. 2) Search other deployments, services, and agents in the repo for the same name or role. 3) Answer no if it is shared, `default`, the main backend's identity, or only a string label with no credential. Answer unknown if identity is assigned outside this repo."
+    - id: A01.2
+      check: "Tool and API clients get credentials from the agent's own principal, not from the launching user's forwarded token or session cookie."
+      verify: "1) Find every place tool and API clients get a token or key. 2) Trace where each comes from: workload identity or token exchange, versus the incoming request's `Authorization` header or session cookie. 3) Check every client, not just the main one. 4) Answer no if any client forwards the user's token or cookie as-is, or uses a shared static key."
+    - id: A01.3
+      check: "When a user starts a run, the user is carried as a delegated subject (for example a token exchange with separate act and sub), while the agent keeps its own principal."
+      verify: "1) Find the code that starts a run for a user. 2) Look for token exchange (RFC 8693, `subject_token`, `actor_token`, `act`/`sub` claims) or a separate delegated-subject field. 3) Check the agent's own principal is still the actor. 4) Answer no if the user's token is used directly or the user replaces the agent identity. Answer unknown if the exchange happens in an outside identity service."
+    - id: A01.4
+      check: "Permissions are bound to the agent principal in IaC or RBAC, so revoking that principal alone removes the agent's access without disabling the user."
+      verify: "1) Find IAM policies, RoleBindings, or grants in Terraform, Helm, or Kubernetes YAML. 2) Check they bind to the agent principal, not to a user, group, or shared role. 3) Check that removing that binding alone would cut the agent's access. 4) Answer no if access depends on the user's grants or a shared credential. Answer unknown if permissions are not defined in this repo."
+  not_covered:
+    - problem: "Action records missing any of the six identity fields"
+      owner: A02
+    - problem: "Instance or tenant labels taken from what the model supplies"
+      owner: A04
+    - problem: "A credential scoped to more operations, resources, or tenants than needed"
+      owner: B02
+    - problem: "Revocation delay from cached or self-contained tokens not measured"
+      owner: B04
+
+A02:
+  provable_from_code: "partly"
+  look_for:
+    - "Telemetry or audit code sets all six fields on every action: accountable party, operational owner, tenant, `agent.type.id`, `agent.instance.id`, and W3C trace context (`traceparent`)."
+    - "Fields are set in one shared place (span processor, logging middleware, audit wrapper around tool dispatch) so every tool call inherits them."
+    - "Denied, failed, retried, async, and background paths (queue workers, cron jobs, webhooks) also emit the fields, not just the main request handler."
+    - "Tenant and owner values come from verified identity (token claims, IAM tags, SPIFFE path) in the trusted layer."
+    - "A test or query that counts missing or empty identity fields per record."
+  red_flags:
+    - "Identity attributes are added only on the success path; `except`/`catch` blocks and policy-denial branches log without them."
+    - "Background jobs or queue consumers start new traces with no tenant, instance, or type ID."
+    - "Tenant or owner is read from OTel baggage or `tracestate`, which have no integrity protection."
+    - "`agent.type.id` or `agent.instance.id` never appears anywhere in the code or config."
+    - "`gen_ai.agent.id` is overwritten with a per-run ID and used as the only agent identifier."
+  where_to_look:
+    - "OpenTelemetry setup: span processors, resource attributes, instrumentation config"
+    - "tool dispatch and policy-check code, including error and deny branches"
+    - "queue workers, schedulers, webhook handlers"
+    - "audit log writer and log schema definitions"
+  needs_runtime_evidence: "Code can't prove every emitted record is complete or that values match the real run and tenant. Needs the A02 recipe: query all records from a controlled run with success, deny, failure, async, and background actions and show zero missing values."
+  na_when: "never"
+  must_show:
+    - id: A02.1
+      check: "The audit record schema has all six fields: accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context."
+      verify: "1) Find the audit record schema or the function that writes audit entries. 2) Check for each of the six: accountable party, operational owner, tenant, `agent.type.id`, `agent.instance.id`, trace context (`traceparent` or trace and span IDs). 3) Answer no if any one is missing from the schema or never set."
+    - id: A02.2
+      check: "All six fields are written on denied, failed, async, and background actions too, not only on the successful main request path."
+      verify: "1) List every path that writes an audit record, or should: success, policy deny, `except`/`catch` blocks, retries, queue workers, cron jobs, webhooks, other endpoints such as approvals, and refusals before the run starts (quota, rate limit, auth) that return an error without logging. 2) For each, check all six fields are set, ideally by one shared wrapper. 3) Answer no if any deny, error, async, or background path writes records without them, or writes no record at all."
+    - id: A02.3
+      check: "Trace context (trace and span IDs) is stored in the audit record itself, not only in separate tracing spans."
+      verify: "1) Open the audit record writer. 2) Check it stores trace and span IDs (or `traceparent`) as fields in the record itself. 3) Answer no if trace context exists only in OpenTelemetry spans, or the record's trace field is never filled."
+    - id: A02.4
+      check: "Tenant and owner values come from the trusted layer, not from baggage, tracestate, or other unprotected headers."
+      verify: "1) Find where tenant and owner values for audit records are read. 2) Trace each back to its source: token claims, verified session, IAM tags, or SPIFFE path, versus OTel baggage, `tracestate`, headers like `X-Tenant-Id`, request body, or tool arguments. 3) Answer no if any path takes them from an unprotected source."
+  not_covered:
+    - problem: "Identity labels taken from what the model supplies"
+      owner: A04
+    - problem: "Agent-type-id not computed as a hash of its identity inputs"
+      owner: A03
+    - problem: "Agent able to erase or rewrite its own audit history"
+      owner: E10
+    - problem: "Sub-agent record missing its parent link or parent prompt"
+      owner: A06
+
+A03:
+  provable_from_code: "partly"
+  look_for:
+    - "A manifest listing the hash inputs: container digest, harness version or files, system prompt, model ID and version, checkpoint/adapter references, and configuration."
+    - "Code or a CI step that computes `agent.type.id` as a hash (for example `sha256:`) over that manifest with documented, canonical serialization (sorted keys, fixed encoding)."
+    - "Container images referenced by digest (`image@sha256:...`), not only by tag, in the manifest."
+    - "A test that the same manifest gives the same ID and that changing each input changes it."
+    - "Requested model ID and provider-reported served version recorded as separate fields."
+  red_flags:
+    - "`agent.type.id` is a hand-picked label, app version string, or git tag, not a content hash."
+    - "The hash covers only some inputs (for example code but not the system prompt or model ID)."
+    - "Image referenced as `:latest` or a mutable tag, so the container input is not fixed."
+    - "Secret values (API keys, tokens) are fed into the hash input or written into the manifest."
+    - "The app release number is used as the model's identity."
+  where_to_look:
+    - ".brace/manifest.yaml or other release manifest files"
+    - "CI pipelines and build scripts that compute or stamp the type ID"
+    - "Dockerfile, k8s Deployment image fields, Helm values"
+    - "prompt files and model config (where model ID is set)"
+  needs_runtime_evidence: "Code can show the hashing method; proving it is stable and sensitive to each input needs the A03 recipe (hash a frozen manifest twice, then change each input one at a time). A hash can't prove a hosted model's hidden weights stayed the same; that belongs to C05."
+  na_when: "never"
+  must_show:
+    - id: A03.1
+      check: "The agent-type-id is a hash over a manifest that includes the container digest, harness, system prompt, model ID and version, and configuration."
+      verify: "1) Find the code or CI step that computes `agent.type.id` (search `sha256`, `hashlib`, `createHash`, `type_id`). 2) List its inputs. 3) Check each is there: container digest, harness, system prompt, model ID and version, configuration. 4) Answer no if the ID is a label, version string, or git tag, or any input is missing."
+    - id: A03.2
+      check: "The hash covers every file that defines the prompt, tools, and configuration, with no file or directory skipped or excluded."
+      verify: "1) Open the function that lists files to hash. 2) Write down every filter it applies: hidden files, names starting with '_' or '__', extensions, ignore lists, glob patterns. 3) For each filter, check whether a file that defines tools, prompts, or config would be skipped (for example `__init__.py`, `index.ts`, `.env`, `config/*.local.*`). 4) Answer no if any such file is skipped."
+    - id: A03.3
+      check: "The model input is a pinned version or snapshot (plus checkpoint and adapter references where used), not an alias and not the app's release number."
+      verify: "1) Find the model ID that goes into the manifest or hash. 2) Follow env vars and config to the final value, including defaults such as `getenv('MODEL', ...)`. 3) Answer no if it is an alias (`-latest`, no date or version), falls back to one when unset, or is the app release number. Also no if adapters or checkpoints are used but left out."
+    - id: A03.4
+      check: "The manifest is put in a fixed, documented order before hashing, so the same manifest always gives the same ID."
+      verify: "1) Open the serialization step before hashing. 2) Check for a fixed order: sorted keys (`sort_keys=True`), sorted file lists, fixed encoding and line endings. 3) Check file lists are not taken straight from directory listing or map iteration order. 4) Answer no if any unsorted dict, map, or filesystem order reaches the hash."
+      doc_ok: true
+    - id: A03.5
+      check: "Secret values are not placed in the hashed manifest in a form that exposes them."
+      verify: "1) List every value fed into the manifest or hash. 2) Check whether any are secrets: API keys, tokens, passwords, private keys, `.env` contents. 3) Answer no if a secret value is written in plain text to the stored manifest, or the whole environment is dumped into it."
+  not_covered:
+    - problem: "Changed running config still reporting the old approved ID"
+      owner: C03
+    - problem: "Hosted model changing behind a fixed name"
+      owner: C05
+    - problem: "Release manifest missing training job, dataset, or model provider records"
+      owner: C01
+    - problem: "Action records missing any of the six identity fields"
+      owner: A02
+
+A04:
+  provable_from_code: "yes"
+  look_for:
+    - "Tenant ID and instance ID are taken from verified identity in the harness or gateway (token claims, session bound at launch) and injected into tool calls server-side."
+    - "Tool handlers ignore or overwrite any tenant, user, or instance field in model-produced arguments."
+    - "The delegated subject (user or system) is recorded in its own field, separate from the agent principal."
+    - "Async job payloads carry trace context and verified identity, and workers re-check identity rather than trusting the payload."
+    - "Authorization checks use verified principals, never trace IDs or request labels."
+  red_flags:
+    - "Tenant ID taken from a model-produced tool argument (for example `tenant_id` in the tool JSON schema the model fills)."
+    - "Instance or tenant labels read from caller-controlled HTTP headers (for example `X-Tenant-Id`) without checking them against the token."
+    - "Trace IDs, span IDs, or correlation IDs used for authorization or to look up permissions."
+    - "Audit records store only the agent identity, or only the user identity, with no separate delegated subject."
+    - "Queued jobs lose trace context, or workers re-derive tenant from job data the agent wrote."
+  where_to_look:
+    - "tool JSON schemas and function signatures exposed to the model"
+    - "tool handler code and gateway/middleware auth"
+    - "queue producer/consumer code and job payload schemas"
+    - "audit record schema"
+  needs_runtime_evidence: "Code review can usually find the gap; the A04 recipe (fake tenant labels in arguments and headers, async attribution trace) confirms the trusted layer rejects or replaces them at runtime."
+  na_when: "never"
+  must_show:
+    - id: A04.1
+      check: "Tenant and instance identity are set by the harness or platform from verified context, never from model-produced text or tool arguments."
+      verify: "1) Find every place tenant and instance IDs are set for tool calls and records. 2) Check each comes from verified context (token claims, session bound at launch). 3) Check tool JSON schemas the model fills for `tenant_id`, `user_id`, `instance_id`. 4) Answer no if any function uses the model's value, even if another function uses verified context."
+    - id: A04.2
+      check: "Tenant or instance labels in tool arguments or agent-controlled headers are rejected or overwritten with the verified values before they are used or logged."
+      verify: "1) Find tool handlers and middleware that receive tool arguments and headers. 2) Check that tenant or instance fields in arguments, or headers like `X-Tenant-Id`, are rejected or overwritten with the verified value before use or logging. 3) Answer no if any handler uses or logs the supplied value, or detects a mismatch and continues."
+    - id: A04.3
+      check: "The delegated subject is recorded separately from the agent identity."
+      verify: "1) Open the audit record schema and writer. 2) Look for a delegated-subject field (the user or system whose authority is used) separate from the agent principal field. 3) Answer no if only one identity is stored, the user overwrites the agent identity, or the field is never filled."
+    - id: A04.4
+      check: "When work is handed to an async job or queue, the trusted layer attaches the verified attribution and trace context, and the job uses them."
+      verify: "1) Find queue producers and enqueue calls (Celery, SQS, Pub/Sub, Kafka, cron). 2) Check the trusted layer adds verified identity and trace context to the job. 3) Check the worker uses those values, not ones the agent wrote. 4) Answer no if workers start new traces without parent context or take tenant from agent-written job data."
+    - id: A04.5
+      check: "Authorization never treats trace IDs or caller-supplied labels as proof of identity or permission."
+      verify: "1) Find authorization and permission-lookup code. 2) Check what each decision is keyed on. 3) Answer no if any check uses a trace ID, span ID, correlation ID, request label, or caller-supplied header as identity or to look up permissions."
+  not_covered:
+    - problem: "Agent sharing the launching user's identity"
+      owner: A01
+    - problem: "Prompt a parent gave a sub-agent not recorded"
+      owner: A06
+    - problem: "Sub-agent authorized using an earlier actor's authority"
+      owner: E08
+    - problem: "Action records missing any of the six identity fields"
+      owner: A02
+
+A05:
+  provable_from_code: "partly"
+  look_for:
+    - "Telemetry links each action to type ID, instance ID, owner, and trace, so one action ID can be traced to a manifest and a live instance."
+    - "A registry or index mapping `agent.type.id` to manifest, owners, and running instances (service catalog entry, CODEOWNERS, `.brace/deployment.yaml` roles)."
+    - "A kill or quarantine control scoped to one instance or one agent type (per-instance token revocation, per-type feature flag, scaling one deployment to zero)."
+    - "A runbook that starts from a trace or action ID and lists the lookup and containment steps."
+  red_flags:
+    - "The only stop control is a global switch or revoking a shared credential, which would cut off the launching user or other agents."
+    - "No mapping from runtime identifiers back to a manifest or owner team."
+    - "Instances are not individually addressable (no instance ID, no per-run credential)."
+    - "Owner information lives only in a wiki with no link from telemetry."
+  where_to_look:
+    - "runbooks, incident docs, service catalog files (for example `catalog-info.yaml`)"
+    - "admin or ops endpoints and CLIs for stopping runs"
+    - "credential issuing code (per-instance vs shared)"
+    - "CODEOWNERS and deployment records"
+  needs_runtime_evidence: "Code can't show an operator can do the lookup in practice or that containment hits only the target. Needs the A05 drill: start from one action or trace ID, find manifest, owners, and instance, contain it, and confirm unrelated runs keep access."
+  na_when: "never"
+  must_show:
+    - id: A05.1
+      check: "Each audit record carries the agent-type-id and agent-instance-id, which resolve to a stored deployment manifest and a live instance."
+      verify: "1) Open the audit record writer. 2) Check `agent.type.id` and `agent.instance.id` are written on every record. 3) Check the type ID can be looked up to a stored manifest (registry, manifest store, file keyed by hash). 4) Answer no if either field is missing or nothing stores manifests by that ID. Answer unknown if the lookup store is outside this repo."
+    - id: A05.2
+      check: "An ownership record in code or config maps each agent type to a responsible team and a current operator or on-call rotation."
+      verify: "1) Look for CODEOWNERS, `catalog-info.yaml`, `.brace/deployment.yaml`, or another ownership file. 2) Check each agent type maps to a team and to a current operator or on-call rotation. 3) Answer no if an agent type has no owner, or owners exist only in prose with no link. Answer unknown if ownership lives in an outside catalog."
+    - id: A05.3
+      check: "A containment control can disable a single instance or a single agent type (for example revoke its principal or scale it to zero) without touching the launching user's credentials."
+      verify: "1) Find stop and revoke controls: admin endpoints, CLIs, feature flags, scale-to-zero, per-instance token revocation. 2) Check their scope is one instance or one agent type. 3) Answer no if the only control is a global switch or revoking a shared or user credential. Answer unknown if containment is run by an outside platform."
+  not_covered:
+    - problem: "Stop doesn't halt running work or open tool streams within a set time"
+      owner: R11
+    - problem: "No drill for a compromised shared tool or agent type"
+      owner: E12
+    - problem: "Action records missing any of the six identity fields"
+      owner: A02
+
+A06:
+  provable_from_code: "partly"
+  look_for:
+    - "Sub-agent spawn code assigns the child its own `agent.type.id` and `agent.instance.id` and records a parent link (for example `agent.parent.instance_id`)."
+    - "The prompt the parent passes is recorded as `agent.parent.prompt`, either in full or as a hash reference with the text in restricted storage."
+    - "Trace context is passed into the child (span parent or span link), including for remote or queued sub-agents."
+    - "GenAI prompt capture is turned on for this path (for example a content-capture env var or SDK option) and a redaction policy is defined."
+    - "Restricted storage for prompt text with access limited to an approved audit role."
+  red_flags:
+    - "Sub-agents reuse the parent's instance ID or have no IDs of their own."
+    - "Child agents start a fresh trace with no link to the parent span."
+    - "Prompt content capture is off by default and never turned on, so parent prompts are never recorded."
+    - "Full parent prompts with customer data are written to general-purpose logs anyone on the team can read."
+    - "Only top-level `gen_ai.agent.*` attributes are set, which don't identify the direct parent instance."
+  where_to_look:
+    - "sub-agent or handoff code (for example LangGraph subgraphs, OpenAI Agents SDK handoffs, Claude Agent SDK subagents, A2A task creation)"
+    - "OpenTelemetry instrumentation settings and env vars for content capture"
+    - "prompt storage and its access policy (bucket or table IAM)"
+  needs_runtime_evidence: "Needs the A06 recipe: a nested child and grandchild trace back to the root, pulling each parent prompt with the approved role, and a denied read with an unapproved role."
+  na_when: "The agent never starts sub-agents (no child agents, handoffs, or delegated agent tasks)."
+  must_show:
+    - id: A06.1
+      check: "Each sub-agent gets its own type ID and instance ID, assigned by the harness when it is started."
+      verify: "1) Find sub-agent spawn code (handoffs, subgraphs, subagents, A2A task creation). 2) Check the harness assigns the child a new `agent.instance.id` and a type ID at start. 3) Answer no if any spawn path reuses the parent's IDs, assigns none, or takes the IDs from the model's request."
+    - id: A06.2
+      check: "Each sub-agent's records include its direct parent's instance ID and a trace link to the parent."
+      verify: "1) Open sub-agent spawn code and the child's record writer. 2) Look for a parent instance field (for example `agent.parent.instance_id`) and trace propagation (span parent, span link, `traceparent` in queued payloads). 3) Answer no if any spawn path, including remote or queued, starts a fresh trace or omits the parent ID."
+    - id: A06.3
+      check: "The prompt the parent passed to the child is captured on this path, with prompt capture switched on in config rather than left at the default off."
+      verify: "1) Find where the parent's prompt to the child is recorded (for example `agent.parent.prompt`, or a hash plus stored text). 2) Check prompt content capture is turned on in config, for example a GenAI capture-content env var or SDK option. 3) Answer no if capture is left at its default off, or the setting falls back to false when unset."
+    - id: A06.4
+      check: "Captured prompt text is stored with restricted access and a redaction policy, and only an approved audit role can read it."
+      verify: "1) Find where captured prompt text is stored (bucket, table, log index). 2) Check its IAM or ACL limits reads to an approved audit role. 3) Check a redaction policy is defined and applied. 4) Answer no if prompts go to general logs the whole team can read, or no redaction exists. Answer unknown if storage access is set outside this repo."
+  not_covered:
+    - problem: "Sub-agent given powers beyond its task"
+      owner: E08
+    - problem: "Children still running after the parent is stopped"
+      owner: E09
+    - problem: "No limit on how many sub-agents a run can start"
+      owner: B07
+
+A07:
+  provable_from_code: "partly"
+  look_for:
+    - "Every model call site is listed with its role (main, judge, verifier, reranker, embedding, router, fallback) and a model record."
+    - "Helper model IDs, prompts, and config are pinned in config and covered by the manifest, not hard-coded inline with aliases."
+    - "Checker decisions are logged with the checker's model ID and version."
+    - "Code treats a checker timeout, error, or invalid output as a failure of the dependent control (block or escalate), not as a pass."
+  red_flags:
+    - "Judge or guardrail call wrapped in `try/except` that returns allow or skips the check on error or timeout."
+    - "Helper models (embedding, reranker, classifier) called with no recorded model version."
+    - "Checker model set to a moving alias (for example `-latest`) while the main model is pinned."
+    - "Unparseable checker output is defaulted to safe or approved."
+    - "Model routing or fallback silently switches to a different model with no record."
+  where_to_look:
+    - "all LLM client call sites (search for provider SDK clients and model name strings)"
+    - "guardrail, judge, moderation, and evaluator modules"
+    - "retrieval pipeline (embedding and reranker config)"
+    - "model routing and fallback config"
+  needs_runtime_evidence: "Code can list call sites and failure handling. The A07 recipe proves the list is complete in a real workflow and that a swapped, timed-out, or invalid checker triggers the set failure response."
+  na_when: "The agent uses no helper models at all (no verifiers, judges, rerankers, embedding models, or world models), and the model inventory shows that."
+  must_show:
+    - id: A07.1
+      check: "A model inventory in code or config lists every helper model the agent calls (verifiers, judges, rerankers, embedding models, world models)."
+      verify: "1) Search for every model call: provider SDK clients, model name strings, embedding, rerank, moderation, and judge calls. 2) Compare that list with the model inventory. 3) Answer no if any helper model called in code is missing from the inventory, or no inventory exists."
+    - id: A07.2
+      check: "Each helper model is identified by a pinned version or digest plus its prompt and configuration, not by an alias."
+      verify: "1) For each helper model, find its model ID and follow env vars to the final value. 2) Check it is a pinned version or digest, and that its prompt and configuration are also recorded. 3) Answer no if any is an alias (`-latest`, undated name), falls back to one by default, or is hard-coded inline outside the inventory."
+    - id: A07.3
+      check: "Each helper model's decisions are logged with that model's identity."
+      verify: "1) Open each helper or checker call site. 2) Check its decision is logged with that model's ID and version. 3) Answer no if decisions are logged without model identity, or logged only on the allow or success branch."
+    - id: A07.4
+      check: "A checker timeout, error, invalid output, or version mismatch makes the control that depends on it fail (block or escalate), not pass by default."
+      verify: "1) Open each checker call site (judge, guardrail, moderation, verifier). 2) Read every `try/except`, `catch`, timeout, and parse-error branch. 3) Check each one blocks or escalates. 4) Answer no if any branch returns allow, skips the check, treats unparseable output as safe, or logs and continues. Also no if the returned model version is never compared with the expected one."
+  not_covered:
+    - problem: "Main agent model changing behind a fixed name unnoticed"
+      owner: C05
+    - problem: "Second-model review not tested against evasive behavior"
+      owner: R10
+    - problem: "Self-hosted model weights loaded without a signature or format check"
+      owner: C05

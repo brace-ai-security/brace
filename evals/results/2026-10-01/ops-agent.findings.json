@@ -1,0 +1,1082 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "scratchpad/eval/ops-agent",
+  "commit": null,
+  "reviewed_at": "2026-10-01T15:24:44+00:00",
+  "scope": "Reviewed all 17 files: src/ harness, tools, sub-agents, checkpoint, audit; prompts/system.md; config/agent.yaml; Dockerfile; requirements.txt; k8s/ manifests; .github/CODEOWNERS; README.md. Not found: .brace/ records, CI workflows (release.yml referenced but absent), IAM/Terraform for the AWS role, S3 bucket policy, drift tooling, alert routing, tests. Not a git repo, so no commit. No .mcp.json; no MCP.",
+  "findings": [
+    {
+      "item": "B01",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/shell.py",
+          "line": 12,
+          "note": "_run uses subprocess.run(command, shell=True); kubectl args like 'get pods; <any command>' run any program in the image"
+        },
+        {
+          "file": "src/tools/shell.py",
+          "line": 23,
+          "note": "helm() has no subcommand allowlist at all"
+        },
+        {
+          "file": "config/agent.yaml",
+          "line": 13,
+          "note": "allowed_binaries is never read by any code; the comment 'Anything else is refused' is not enforced"
+        },
+        {
+          "file": "src/tools/registry.py",
+          "line": 29,
+          "note": "dispatcher does reject unknown tool names"
+        }
+      ],
+      "summary": "The tool allowlist exists by name, but shell=True and an unrestricted helm tool let the model run any program in the container.",
+      "next_step": "Replace shell=True with argument lists, enforce allowed_binaries and a helm verb list in code, write a tool inventory with task reasons, then run recipe B01.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B02",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "k8s/rbac.yaml",
+          "line": 8,
+          "note": "ClusterRoleBinding ops-agent-admin binds the agent ServiceAccount to cluster-admin"
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 15,
+          "note": "automountServiceAccountToken: true with that cluster-admin role"
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 31,
+          "note": "GitHub access uses a PAT (key github-pat), scope not visible"
+        },
+        {
+          "file": "src/main.py",
+          "line": 16,
+          "note": "/ops handler runs for any Slack user; no check of requester permissions"
+        }
+      ],
+      "summary": "The agent holds cluster-admin in its namespace's cluster and any Slack user can direct it.",
+      "next_step": "Replace cluster-admin with namespaced Roles listing verbs and resources, scope the GitHub credential to named repos, authorize requesters, then run recipe B02.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B03",
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 30,
+          "note": "GITHUB_TOKEN is a static PAT from a Kubernetes Secret"
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 32,
+          "note": "ANTHROPIC_API_KEY and SLACK_BOT_TOKEN are static secrets with no rotation or expiry shown"
+        },
+        {
+          "file": "src/tools/git.py",
+          "line": 22,
+          "note": "PAT placed in git process env for every git call, including ones the model directs"
+        }
+      ],
+      "summary": "Long-lived static tokens are used where short-lived GitHub App or federated tokens exist, and no expiry or rotation is defined.",
+      "next_step": "Move GitHub to short-lived GitHub App installation tokens, document lifetimes and rotation, add secret scanning, then run recipe B03.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B04",
+      "rating": "needs_evidence",
+      "confidence": "low",
+      "evidence": [
+        {
+          "file": "k8s/rbac.yaml",
+          "line": 1,
+          "note": "dedicated ServiceAccount ops-agent could be unbound independently of Slack users"
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 31,
+          "note": "GitHub PAT may belong to a person; revoking it could cut that person off"
+        }
+      ],
+      "summary": "A separate Kubernetes identity exists, but no revocation procedure, token lifetime, or cutoff time is defined.",
+      "next_step": "Run recipe B04 timed drill: revoke the ServiceAccount binding and the GitHub token, measure cutoff on open sessions.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B05",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "config/agent.yaml",
+          "line": 14,
+          "note": "kubectl verbs include delete, apply, scale, rollout with no approval step"
+        },
+        {
+          "file": "config/agent.yaml",
+          "line": 15,
+          "note": "git push allowed; 'push --force' passes the first-word check"
+        },
+        {
+          "file": "src/tools/registry.py",
+          "line": 28,
+          "note": "dispatch has no approval gate for any operation"
+        },
+        {
+          "file": "src/tools/shell.py",
+          "line": 23,
+          "note": "helm uninstall/upgrade allowed without any check"
+        },
+        {
+          "file": "prompts/system.md",
+          "line": 8,
+          "note": "system prompt authorizes force-push; deletion rules are prompt-only (line 7)"
+        }
+      ],
+      "summary": "No high-impact operation is gated; the agent reads untrusted logs, holds cluster-admin, and pushes to GitHub with no approval anywhere.",
+      "next_step": "Add an execution-path gate that blocks delete, apply, scale, helm uninstall/upgrade/rollback, and git push (especially --force) pending a specific human approval; cover the shell path; then run recipe B05.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B06",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/registry.py",
+          "line": 28,
+          "note": "no approval record, binding, expiry, or single-use logic exists anywhere"
+        }
+      ],
+      "summary": "There is no approval mechanism, so none of the approval integrity properties exist while B05 needs approvals.",
+      "next_step": "Build approvals bound to instance, operation, target, args hash, approver, expiry, single use, fail-closed; then run recipe B06.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B07",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 23,
+          "note": "while True loop with no turn, time, token-total, or cost cap"
+        },
+        {
+          "file": "src/subagents.py",
+          "line": 11,
+          "note": "spawn_worker starts processes with no count or depth limit; workers can spawn workers"
+        },
+        {
+          "file": "config/agent.yaml",
+          "line": 9,
+          "note": "only per-call max_output_tokens is set"
+        }
+      ],
+      "summary": "Runs and worker spawning are unbounded.",
+      "next_step": "Add max turns, wall-clock limit, cost cap, worker count and depth caps, and per-user/fleet quotas; then run recipe B07.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B08",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "k8s/networkpolicy.yaml",
+          "line": 8,
+          "note": "policyTypes [Ingress] only; egress unrestricted"
+        },
+        {
+          "file": "k8s/rbac.yaml",
+          "line": 18,
+          "note": "cluster-admin gives reach to every namespace and secret in the cluster"
+        },
+        {
+          "file": "prompts/system.md",
+          "line": 2,
+          "note": "agent works in production clusters; isolation only stated in prompt rules"
+        }
+      ],
+      "summary": "No infrastructure boundary limits which systems the agent reaches; it has admin reach into production.",
+      "next_step": "Write the list of reachable systems, add egress NetworkPolicy and namespaced RBAC, then run recipe B08.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B09",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "k8s/networkpolicy.yaml",
+          "line": 8,
+          "note": "no Egress policy type, so all egress including 169.254.169.254 is allowed"
+        },
+        {
+          "file": "src/tools/shell.py",
+          "line": 12,
+          "note": "shell injection gives curl-free but python-capable outbound paths"
+        }
+      ],
+      "summary": "There is no egress allowlist.",
+      "next_step": "Add default-deny egress with allowed peers (Anthropic, Slack, GitHub, S3, cluster API servers) and block metadata addresses; then run recipe B09.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B10",
+      "rating": "likely_pass",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 22,
+          "note": "image pinned by sha256 digest"
+        },
+        {
+          "file": "k8s/kyverno-verify-images.yaml",
+          "line": 6,
+          "note": "validationFailureAction: Enforce"
+        },
+        {
+          "file": "k8s/kyverno-verify-images.yaml",
+          "line": 23,
+          "note": "keyless subject and issuer pinned to release.yml on main"
+        },
+        {
+          "file": "k8s/kyverno-verify-images.yaml",
+          "line": 31,
+          "note": "SLSA provenance repository checked"
+        }
+      ],
+      "summary": "Digest pinning and an enforcing Kyverno signature and provenance policy exist; the signing workflow and SBOM are not in this repo.",
+      "next_step": "Run recipe B10: confirm release.yml produces SBOM and provenance, Kyverno and cosign versions, policy mode in cluster, and unsigned/wrong-repo images are rejected.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B11",
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 16,
+          "note": "pod meets restricted baseline: non-root, no escalation, drop ALL, seccomp, read-only root"
+        },
+        {
+          "file": "src/tools/shell.py",
+          "line": 12,
+          "note": "model-built commands run via shell=True in the agent's own container with all its secrets"
+        },
+        {
+          "file": "Dockerfile",
+          "line": 14,
+          "note": "pip and python remain in the final image; git from apt"
+        }
+      ],
+      "summary": "The pod baseline is good, but model-driven shell commands run in the same container as the agent's credentials with no separate sandbox.",
+      "next_step": "Run tools without a shell, in a separate sandbox without the agent's secrets; remove unneeded binaries; then run recipe B11.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B12",
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": ".github/CODEOWNERS",
+          "line": 2,
+          "note": "prompts, k8s, and config require platform-sre and security owners"
+        },
+        {
+          "file": ".github/CODEOWNERS",
+          "line": 1,
+          "note": "src/ (the harness) is owned only by platform-sre"
+        },
+        {
+          "file": "Dockerfile",
+          "line": 17,
+          "note": "prompt is baked into the image, not loaded remotely"
+        }
+      ],
+      "summary": "Prompt and config are versioned with CODEOWNERS, but no CI workflow or branch protection is in the repo to show reviewed deploys.",
+      "next_step": "Run recipe B12: compare running image digest with reviewed commit, check branch protection blocks force-push, add security owners for src/.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R01",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 42,
+          "note": "tool output passed to the model with only a 20000-char truncation; no type or content check"
+        },
+        {
+          "file": "src/main.py",
+          "line": 19,
+          "note": "Slack command text passed as the goal with no validation"
+        },
+        {
+          "file": "src/checkpoint.py",
+          "line": 26,
+          "note": "checkpoint bytes from S3 deserialized with pickle.loads"
+        }
+      ],
+      "summary": "No input boundary is validated beyond truncation, and S3 checkpoints are unpickled.",
+      "next_step": "List inputs, add size and content checks with fail-closed handling, replace pickle with a validated format; then run recipe R01.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R02",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 42,
+          "note": "untrusted kubectl logs and repo content reach a model that holds cluster-admin and git push"
+        },
+        {
+          "file": "src/tools/registry.py",
+          "line": 28,
+          "note": "no gate contains a followed injection"
+        }
+      ],
+      "summary": "Tool output is in user-role messages, but nothing contains an injection that the model follows, since credentials and actions are ungated.",
+      "next_step": "Fix B02, B05, B09 containment, then run recipe R02 with planted instructions in pod logs.",
+      "lead_role": "security"
+    },
+    {
+      "item": "R03",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/shell.py",
+          "line": 20,
+          "note": "model text interpolated into a shell=True command string"
+        },
+        {
+          "file": "src/agent.py",
+          "line": 42,
+          "note": "tool output, e.g. 'kubectl get secret -o yaml', reaches the model unredacted"
+        },
+        {
+          "file": "src/audit.py",
+          "line": 13,
+          "note": "model summary posted to Slack unredacted"
+        }
+      ],
+      "summary": "Model output runs through a shell, and secrets from tool output can flow to the model and Slack.",
+      "next_step": "Use argument lists, redact secrets in tool output and summaries, then run recipe R03 with a marker secret.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R04",
+      "rating": "na_candidate",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 24,
+          "note": "only model call; no retrieval or index code in repo"
+        }
+      ],
+      "summary": "The agent has no retrieval corpus or search index.",
+      "next_step": "Governance approves N/A.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R05",
+      "rating": "na_candidate",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/checkpoint.py",
+          "line": 13,
+          "note": "S3 state is per-run resume state, deleted after completion (line 37); no cross-run memory"
+        }
+      ],
+      "summary": "No memory lasts between runs; per-run checkpoints are reviewed under R14.",
+      "next_step": "Governance approves N/A after confirming checkpoints are never read by other runs.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R06",
+      "rating": "na_candidate",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/checkpoint.py",
+          "line": 37,
+          "note": "checkpoint deleted after the run finishes"
+        }
+      ],
+      "summary": "No memory lasts between runs.",
+      "next_step": "Governance approves N/A.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R07",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 31,
+          "note": "response.usage is discarded; no context size logged per action"
+        }
+      ],
+      "summary": "Context size is never recorded.",
+      "next_step": "Log input tokens per model call and per action with a counting method; then run recipe R07.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R08",
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/tools/registry.py",
+          "line": 30,
+          "note": "unknown-tool denial returned to the model only, never logged"
+        },
+        {
+          "file": "src/tools/shell.py",
+          "line": 19,
+          "note": "kubectl verb denial not logged"
+        },
+        {
+          "file": "src/audit.py",
+          "line": 10,
+          "note": "only the final summary is emitted; no security events"
+        }
+      ],
+      "summary": "No security events are emitted, so no detection rule can see denials, escalation, or outbound traffic.",
+      "next_step": "Emit tool calls and denials as events, add security rules routed to a named responder, then run recipe R08.",
+      "lead_role": "security"
+    },
+    {
+      "item": "R09",
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/audit.py",
+          "line": 10,
+          "note": "no per-action records exist to detect sequences or fan-out from"
+        }
+      ],
+      "summary": "No per-action telemetry exists, so sequence and fan-out detection is not possible.",
+      "next_step": "Emit per-action telemetry, add sequence rules split by context size, then run recipe R09.",
+      "lead_role": "security"
+    },
+    {
+      "item": "R10",
+      "rating": "needs_evidence",
+      "confidence": "low",
+      "evidence": [],
+      "summary": "Not provable from code; no reviewer model or threat-model statement on misalignment exists.",
+      "next_step": "Record whether misalignment is in scope; if so run recipe R10.",
+      "lead_role": "security"
+    },
+    {
+      "item": "R11",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 23,
+          "note": "no stop check in the loop and no cancellation of tool calls"
+        },
+        {
+          "file": "k8s/rbac.yaml",
+          "line": 18,
+          "note": "cluster-admin lets the agent edit its own Deployment, RBAC, and any stop control in the cluster"
+        },
+        {
+          "file": "src/subagents.py",
+          "line": 16,
+          "note": "workers started with start_new_session=True and not tracked"
+        }
+      ],
+      "summary": "No stop path exists that the agent's own credentials cannot change.",
+      "next_step": "Define an operator stop outside the agent's RBAC reach, check it before each action, cancel workers, then run recipe R11.",
+      "lead_role": "operations"
+    },
+    {
+      "item": "R12",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/main.py",
+          "line": 34,
+          "note": "resume_pending_runs() runs on every pod start with no human step"
+        },
+        {
+          "file": "src/checkpoint.py",
+          "line": 29,
+          "note": "re-runs the last tool calls (delete, push, apply) after a crash or stop"
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 7,
+          "note": "Deployment restarts the pod automatically, triggering resume"
+        }
+      ],
+      "summary": "A stopped or crashed pod restarts unattended and replays pending tool calls.",
+      "next_step": "Remove automatic resume or gate it on operator approval and reconciliation; record per-operation safe state; then run recipe R12.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R13",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/audit.py",
+          "line": 10,
+          "note": "only run_id, requester, goal, and final summary are posted"
+        },
+        {
+          "file": "src/agent.py",
+          "line": 41,
+          "note": "tool calls, args, and results are not recorded"
+        },
+        {
+          "file": "src/checkpoint.py",
+          "line": 37,
+          "note": "the only full transcript is deleted after the run"
+        }
+      ],
+      "summary": "Only the final answer is stored; runs cannot be rebuilt.",
+      "next_step": "Record each proposed action, tool call with args, decision, result, error, and timestamp in an append-only store; then run recipe R13.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R14",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/checkpoint.py",
+          "line": 26,
+          "note": "pickle.loads on S3 objects with no signature or hash check"
+        },
+        {
+          "file": "src/checkpoint.py",
+          "line": 29,
+          "note": "tool calls replayed blindly with no idempotency or reconciliation"
+        }
+      ],
+      "summary": "Checkpoints drive recovery with no integrity check, and unpickling them can run code.",
+      "next_step": "Sign checkpoints with a separately held key, use a safe format, pause replay for reconciliation; then run recipe R14.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "A01",
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/rbac.yaml",
+          "line": 1,
+          "note": "dedicated Kubernetes ServiceAccount ops-agent"
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 31,
+          "note": "GitHub identity is a static PAT, not a per-agent principal"
+        },
+        {
+          "file": "src/subagents.py",
+          "line": 10,
+          "note": "workers share the parent's full identity"
+        }
+      ],
+      "summary": "Kubernetes identity is separate from users, but GitHub access uses a static PAT with no agent-only principal shown.",
+      "next_step": "Use a GitHub App for the agent, document revocation of each identity, then run recipe A01.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "A02",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/audit.py",
+          "line": 13,
+          "note": "record has run_id and requester only; no tenant, type id, instance id, trace context, owners"
+        },
+        {
+          "file": "config/agent.yaml",
+          "line": 3,
+          "note": "accountable_party and operational_owner exist in config but are never emitted"
+        }
+      ],
+      "summary": "None of the six identity fields are recorded on actions.",
+      "next_step": "Emit all six fields on every tool call, denial, and error from one wrapper; then run recipe A02.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "A03",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "config/agent.yaml",
+          "line": 8,
+          "note": "model id set, but no agent-type-id hash computed anywhere"
+        }
+      ],
+      "summary": "No content-derived agent-type-id exists.",
+      "next_step": "Compute a hash over image digest, harness, prompt, model id, and config in CI; then run recipe A03.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "A04",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/registry.py",
+          "line": 15,
+          "note": "cluster context is a model-supplied argument"
+        },
+        {
+          "file": "src/main.py",
+          "line": 31,
+          "note": "workers run with requester='parent', losing the delegated subject"
+        },
+        {
+          "file": "src/subagents.py",
+          "line": 12,
+          "note": "worker run id is a new uuid with no parent link"
+        }
+      ],
+      "summary": "Target and attribution come from model arguments, and the delegated subject is dropped for workers.",
+      "next_step": "Bind cluster context and requester in the trusted layer and pass verified identity to workers; then run recipe A04.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "A05",
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/subagents.py",
+          "line": 11,
+          "note": "worker processes are not tracked or individually stoppable"
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 31,
+          "note": "all instances share one set of credentials; containment means revoking everything"
+        }
+      ],
+      "summary": "No per-instance lookup or containment exists.",
+      "next_step": "Add instance ids, an instance registry, and per-instance stop; then run drill A05.",
+      "lead_role": "operations"
+    },
+    {
+      "item": "A06",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/subagents.py",
+          "line": 8,
+          "note": "run_id parameter is ignored; no parent link, no recorded prompt"
+        },
+        {
+          "file": "src/subagents.py",
+          "line": 13,
+          "note": "worker stdout piped and never read"
+        }
+      ],
+      "summary": "Sub-agents carry no parent link and their prompts are not recorded.",
+      "next_step": "Record child ids, parent instance, trace link, and parent prompt; then run recipe A06.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "A07",
+      "rating": "likely_pass",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 24,
+          "note": "single model call site; no helper or checker models"
+        },
+        {
+          "file": "config/agent.yaml",
+          "line": 8,
+          "note": "dated snapshot model id"
+        }
+      ],
+      "summary": "Only one model is in the loop and it is pinned; there are no checkers whose failure must be handled.",
+      "next_step": "Run recipe A07 to confirm the call list in a real workflow; log the served model version.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "C01",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "config/agent.yaml",
+          "line": 1,
+          "note": "only config; no .brace/ or release manifest in repo"
+        }
+      ],
+      "summary": "No release manifest or model record exists.",
+      "next_step": "Write a manifest covering image digest, harness, prompt, model record, tools, scopes, network rules, budgets; then run recipe C01.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "C02",
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": ".github/CODEOWNERS",
+          "line": 2,
+          "note": "review owners on prompts, k8s, config"
+        },
+        {
+          "file": "k8s/rbac.yaml",
+          "line": 18,
+          "note": "the agent itself can kubectl apply production config with cluster-admin, bypassing review"
+        },
+        {
+          "file": "config/agent.yaml",
+          "line": 15,
+          "note": "git push to infra repos with no review step"
+        }
+      ],
+      "summary": "CODEOWNERS covers config, but the agent can change production config directly, outside review.",
+      "next_step": "Remove the agent's ability to change production config outside the review process, document emergency changes; then run recipe C02.",
+      "lead_role": "governance"
+    },
+    {
+      "item": "C03",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 13,
+          "note": "config and prompt loaded with no hash check and no emitted type id"
+        }
+      ],
+      "summary": "No check matches running prompt, model, and tools to an approved manifest; only the image is verified.",
+      "next_step": "Add a startup check against the manifest and emit the computed type id; then run recipe C03.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "C04",
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [],
+      "summary": "No drift detection in the repo; it may live in a platform GitOps tool.",
+      "next_step": "Run drill C04 against the platform's drift tooling; note the agent can edit its own NetworkPolicy via cluster-admin.",
+      "lead_role": "operations"
+    },
+    {
+      "item": "C05",
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "requirements.txt",
+          "line": 1,
+          "note": "direct dependencies pinned with hashes"
+        },
+        {
+          "file": "config/agent.yaml",
+          "line": 8,
+          "note": "dated model snapshot"
+        },
+        {
+          "file": "src/agent.py",
+          "line": 31,
+          "note": "response.model (served version) is discarded"
+        }
+      ],
+      "summary": "Pins exist, but the served model version is never recorded.",
+      "next_step": "Log requested and served model ids, define provider-notice re-test schedule; then run recipe C05.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "C06",
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "README.md",
+          "line": 21,
+          "note": "release described, but no tests or CI workflows exist in the repo"
+        }
+      ],
+      "summary": "No release test suite with attack cases exists in the repo.",
+      "next_step": "Add a gating suite covering destructive-action denial, access limits, injection, attribution, and stop; then run recipe C06.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "C07",
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/checkpoint.py",
+          "line": 29,
+          "note": "pending runs replay automatically on startup, including after rollback"
+        }
+      ],
+      "summary": "Rollback would replay queued side effects automatically.",
+      "next_step": "Write a rollback procedure that holds checkpoints for reconciliation; then run drill C07.",
+      "lead_role": "operations"
+    },
+    {
+      "item": "C08",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/audit.py",
+          "line": 13,
+          "note": "no trace, manifest link, context size, or parent prompt recorded"
+        }
+      ],
+      "summary": "Nothing links a trace to manifest, context sizes, or parent prompts.",
+      "next_step": "Fix R07, R13, A03, A06, then run recipe C08.",
+      "lead_role": "operations"
+    },
+    {
+      "item": "E01",
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "README.md",
+          "line": 10,
+          "note": "layout lists components but no dependency or responsibility map"
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 30,
+          "note": "GitHub, Anthropic, Slack, AWS dependencies with no owner mapping"
+        }
+      ],
+      "summary": "No shared-responsibility map exists for Slack, Anthropic, GitHub, S3, and the clusters.",
+      "next_step": "Write a dependency and responsibility table; then run recipe E01.",
+      "lead_role": "governance"
+    },
+    {
+      "item": "E02",
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "requirements.txt",
+          "line": 1,
+          "note": "direct deps pinned with hashes; transitive deps (slack_sdk, httpx, botocore) not listed, so --require-hashes would fail"
+        },
+        {
+          "file": "Dockerfile",
+          "line": 1,
+          "note": "base image pinned by digest; kubectl checksum verified (line 8)"
+        },
+        {
+          "file": "Dockerfile",
+          "line": 6,
+          "note": "git from apt unpinned; helm is never installed though it is a tool"
+        }
+      ],
+      "summary": "Some pins exist, but no scanning, review records, or complete lockfile are in the repo.",
+      "next_step": "Generate a full hashed lockfile, add vulnerability scanning, record publisher review; then run recipe E02.",
+      "lead_role": "security"
+    },
+    {
+      "item": "E03",
+      "rating": "na_candidate",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/registry.py",
+          "line": 6,
+          "note": "all tools built in and fixed; no MCP"
+        }
+      ],
+      "summary": "No external tools or MCP servers are loaded.",
+      "next_step": "Governance approves N/A.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E04",
+      "rating": "na_candidate",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/registry.py",
+          "line": 13,
+          "note": "tool metadata written in-house and fixed"
+        }
+      ],
+      "summary": "No external tool metadata is loaded.",
+      "next_step": "Governance approves N/A.",
+      "lead_role": "security"
+    },
+    {
+      "item": "E05",
+      "rating": "na_candidate",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/registry.py",
+          "line": 6,
+          "note": "no external tool servers"
+        }
+      ],
+      "summary": "No external tools or MCP servers are loaded.",
+      "next_step": "Governance approves N/A.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E06",
+      "rating": "na_candidate",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/tools/registry.py",
+          "line": 6,
+          "note": "no MCP or tool-server clients"
+        }
+      ],
+      "summary": "The agent uses no MCP or similar tool servers.",
+      "next_step": "Governance approves N/A.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E07",
+      "rating": "na_candidate",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/subagents.py",
+          "line": 13,
+          "note": "worker output is never read by the parent; no peer endpoint"
+        }
+      ],
+      "summary": "The agent receives no messages from other agents.",
+      "next_step": "Governance approves N/A; re-rate if worker output is ever read.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "E08",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/subagents.py",
+          "line": 10,
+          "note": "os.environ.copy() gives workers every token of the parent"
+        },
+        {
+          "file": "k8s/rbac.yaml",
+          "line": 18,
+          "note": "workers share the cluster-admin ServiceAccount"
+        }
+      ],
+      "summary": "Sub-agents get the parent's full credentials with no narrowing.",
+      "next_step": "Give workers narrowed, task-scoped credentials; then run recipe E08.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "E09",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/subagents.py",
+          "line": 16,
+          "note": "start_new_session=True detaches workers; no handle kept"
+        },
+        {
+          "file": "src/subagents.py",
+          "line": 18,
+          "note": "Popen returned without tracking, cancellation, or timeout"
+        }
+      ],
+      "summary": "No stop reaches workers short of killing the pod, and pod restart resumes runs.",
+      "next_step": "Track workers, propagate stop, add timeouts and leases; then run drill E09.",
+      "lead_role": "operations"
+    },
+    {
+      "item": "E10",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/audit.py",
+          "line": 6,
+          "note": "audit sink is a Slack channel written with the agent's own bot token"
+        },
+        {
+          "file": "src/tools/shell.py",
+          "line": 12,
+          "note": "shell injection can reach SLACK_BOT_TOKEN and cluster-admin to alter records"
+        },
+        {
+          "file": "src/main.py",
+          "line": 31,
+          "note": "worker runs record requester='parent'"
+        }
+      ],
+      "summary": "Audit history is written with credentials the agent holds and could rewrite or delete.",
+      "next_step": "Send audit to an append-only sink the agent cannot delete from; then run recipe E10.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E11",
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/audit.py",
+          "line": 11,
+          "note": "single fire-and-forget Slack post at run end; no retention, integrity, or gap alerts"
+        },
+        {
+          "file": "src/agent.py",
+          "line": 35,
+          "note": "actions run even if audit capture is down"
+        }
+      ],
+      "summary": "Audit is not durable, not integrity-checked, and actions do not fail closed when capture is down.",
+      "next_step": "Add a durable audit pipeline with retention, integrity, and gap alerts; then run recipe E11.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E12",
+      "rating": "needs_evidence",
+      "confidence": "low",
+      "evidence": [],
+      "summary": "Not provable from code; no inventory, quarantine control, or incident runbook is in the repo.",
+      "next_step": "Run drill E12 with the named responders.",
+      "lead_role": "security"
+    }
+  ],
+  "injection_attempts": []
+}

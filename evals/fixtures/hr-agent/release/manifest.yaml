@@ -1,0 +1,80 @@
+release:
+  name: hr-helpdesk-agent
+  version: "1.8.0"
+  git_sha: ""            # stamped by CI
+  agent_type_id: ""      # stamped by CI (src/type_id.py, scheme acme-agent-type-id/v1)
+  image:
+    repository: registry.acme.example/people/hr-helpdesk-agent
+    digest: ""           # stamped by CI
+    signer: "https://github.com/acme/hr-helpdesk-agent/.github/workflows/release.yml@refs/heads/main"
+    sbom: attached (BuildKit SPDX)
+    provenance: SLSA v1 via actions/attest-build-provenance
+  owners:
+    accountable_party: "VP People Operations"
+    operational_owner: people-platform
+
+stakes:
+  rating: moderate
+  autonomy: low (every write requires the employee's confirmation)
+  rationale: >-
+    Reads one employee's own leave data and the handbook; writes are leave requests that a
+    manager must still approve in HRIS, and helpdesk tickets. Worst credible harm: disclosure of
+    one employee's HR data to another employee, or a misleading policy answer.
+  approved_by: "Head of Security Engineering, 2026-09-19"
+
+capability_combination:
+  untrusted_input: yes (employee messages, handbook passages, tool output)
+  sensitive_access: yes (leave records, employee-specific HR documents)
+  external_change_or_send: yes (leave requests, helpdesk tickets)
+  containment: every consequential tool requires per-action employee approval bound to args
+
+harness:
+  files: [src/]
+  entrypoints: {agent: "src.main:app", gateway: "src.gateway:app"}
+system_prompt: {path: prompts/system.md}
+rules_files: []
+configuration: [config/agent.yaml, config/tools.yaml]
+
+models:
+  primary:
+    role: main agent
+    owner: people-platform
+    identity: {provider: anthropic, id: claude-sonnet-4-5-20250929, pinning: snapshot, adapter: none}
+    pinning_source: "Anthropic models overview, checked 2026-09-15"
+    served_version: recorded per call in audit.events.model_served
+    fine_tune: none
+    training_runs: not applicable
+    training_data: provider-undisclosed
+  helpers: []            # retrieval is Postgres full-text search; no embedding or reranker model
+
+tools:
+  built_in: []
+  local: [search_policies]
+  mcp_servers:
+    - {id: hris, identity: "spiffe://acme.example/ns/hris/sa/hris-mcp", owner: hris-platform, tools: [get_leave_balance, file_leave_request]}
+    - {id: helpdesk, identity: "spiffe://acme.example/ns/helpdesk/sa/helpdesk-mcp", owner: it-service-desk, tools: [create_ticket]}
+  policy_version_source: config/tools.yaml#policy_version
+
+permissions:
+  sts_scopes: [hr.policy.read, hris.leave.read, hris.leave.request, helpdesk.ticket.create]
+  token_ttl_seconds: 300
+  database_role: hr_agent (see migrations/001_init.sql grants)
+
+memory: none (conversation state is held per run and discarded; no cross-run memory)
+retrieval:
+  store: retrieval.chunks (Postgres FTS)
+  writers: [hr_docs_ingest]
+  filters: [quarantined, expires_at, audience/allowed_employees]
+
+identity_bindings:
+  agent: spiffe://acme.example/ns/hr-agent/sa/hr-helpdesk-agent
+  gateway: spiffe://acme.example/ns/hr-agent/sa/hr-tool-gateway
+
+network: [k8s/networkpolicy.yaml]
+admission: [k8s/admission.yaml]
+budgets: config/agent.yaml#budgets
+
+audit:
+  store: audit.events, audit.gateway_decisions (Postgres, weekly partitions)
+  retention: 6 months
+  readers: hr_audit_reader

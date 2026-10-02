@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: counsel-research
+  namespace: counsel-research
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: counsel-research
+  template:
+    metadata:
+      labels:
+        app: counsel-research
+    spec:
+      serviceAccountName: counsel-research-agent
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: stage-model
+          image: ghcr.io/harrowellprice/model-loader@sha256:7d2c4e6f8a0b1c3d5e7f9a1b3c5d7e9f1a3b5c7d9e1f3a5b7c9d1e3f5a7b9c1d
+          args: ["s3://hp-ml-artifacts/models/hp-legal-drafter/2026.09.1/manifest.json"]
+          securityContext: &restricted
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - { name: models, mountPath: /models/stage }
+            - { name: tmp, mountPath: /tmp }
+      containers:
+        - name: api
+          image: ghcr.io/harrowellprice/counsel-research@sha256:4c1e9a0f7b2d38e6a5c4b3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2
+          ports:
+            - containerPort: 8080
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: RERANK_API_KEY
+              valueFrom: { secretKeyRef: { name: counsel-research-secrets, key: rerank-api-key } }
+          securityContext: *restricted
+          resources:
+            limits: { cpu: "2", memory: 4Gi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: agent-tokens, mountPath: /var/run/secrets/agent-tokens, readOnly: true }
+        - name: vllm
+          image: ghcr.io/harrowellprice/vllm-runtime@sha256:3f8e1d2c4b6a8e0f2d4c6b8a0e2f4d6c8b0a2e4f6d8c0b2a4e6f8d0c2b4a6e8f
+          args:
+            - --model=/models/stage/2026.09.1/base
+            - --enable-lora
+            - --lora-modules=hp-legal-drafter=/models/stage/2026.09.1/adapter
+            - --served-model-name=hp-legal-drafter
+            - --host=127.0.0.1
+            - --port=8000
+          securityContext: *restricted
+          resources:
+            limits: { nvidia.com/gpu: "4", memory: 160Gi }
+          volumeMounts:
+            - { name: models, mountPath: /models/stage, readOnly: true }
+            - { name: vllm-cache, mountPath: /home/nonroot/.cache }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: models
+          emptyDir: { sizeLimit: 200Gi }
+        - name: vllm-cache
+          emptyDir: { sizeLimit: 20Gi }
+        - name: tmp
+          emptyDir: { medium: Memory, sizeLimit: 256Mi }
+        - name: agent-tokens
+          projected:
+            sources:
+              - serviceAccountToken: { audience: "api://conflicts", expirationSeconds: 600, path: conflicts/token }
+              - serviceAccountToken: { audience: "api://qdrant-matter-index", expirationSeconds: 600, path: qdrant/token }
+              - serviceAccountToken: { audience: "api://agent-memory", expirationSeconds: 600, path: memory/token }
+              - serviceAccountToken: { audience: "api://smtp-relay", expirationSeconds: 600, path: smtp/token }

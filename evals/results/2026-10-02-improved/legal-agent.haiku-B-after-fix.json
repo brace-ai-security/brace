@@ -1,0 +1,1059 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-10-02T09:48:36Z",
+  "scope": "TODO: what was reviewed and what wasn't.",
+  "findings": [
+    {
+      "item": "B01",
+      "gate": "G1",
+      "title": "Minimal tool surface",
+      "requirement": "List every built-in tool, MCP server, API, program, and file permission this agent type can use. Give a task-based reason for each. Enforce a role-based allowlist, and check that an unlisted tool can't be called. Don't base allow or approval decisions on hints a server gives about its own tools, such as \"read-only.\" MCP treats those hints as untrusted unless you trust the server.",
+      "not_covered": [
+        {
+          "problem": "A tool call that skips the MCP gateway or reaches a tool server directly",
+          "owner": "E06"
+        },
+        {
+          "problem": "A token or credential with too much access",
+          "owner": "B02"
+        },
+        {
+          "problem": "Hidden instructions inside a tool's description or schema",
+          "owner": "E04"
+        },
+        {
+          "problem": "A tool's description or schema changing after it was approved",
+          "owner": "E03"
+        },
+        {
+          "problem": "Lookalike or duplicate tool names across servers",
+          "owner": "E05"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "config/tools.yaml",
+          "line": 3,
+          "note": "config/tools.yaml lists exactly 5 tools: search_documents, read_document, recall_preferences, save_preference, email_draft. REGISTRY (src/tools.py:117-119) built only from tools_config; no wildcards or dynamic discovery."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B01.1",
+          "check": "Each agent role has one explicit allowlist of tool names, with no wildcard grants such as `*`, `mcp__*`, `Bash(*)`, or `bypassPermissions`.",
+          "verify": "1) Find where each agent is built and tools are passed (`allowed_tools`, `tools=[`, `allowedTools`, `.mcp.json`, `settings.json`). 2) Check each role has one fixed list of names. 3) Answer no if any list holds `*`, `mcp__*`, `Bash(*)`, a pattern or regex, `bypassPermissions`, or is built from `list_tools()`, or if a second agent role or entry point has no list.",
+          "met": "yes",
+          "evidence": "config/tools.yaml:3",
+          "quote": "tools:",
+          "counter_search": "Searched for bypassPermissions, mcp__*, Bash(*), list_tools(), dynamic registries: none found",
+          "note": "config/tools.yaml lists exactly 5 tools: search_documents, read_document, recall_preferences, save_preference, email_draft. REGISTRY (src/tools.py:117-119) built only from tools_config; no wildcards or dynamic discovery."
+        },
+        {
+          "id": "B01.2",
+          "check": "Tools discovered from MCP servers are filtered against that allowlist before the model can see or call them.",
+          "verify": "1) Find MCP discovery (`list_tools`, `session.list_tools`, `tools/list`, MCP client setup). 2) Trace the result to where it is handed to the model. 3) Confirm a filter keeps only names on the allowlist. 4) Answer no if any discovered tool reaches the model unfiltered, the filter is a denylist or prefix match (`startswith`, `mcp__server__`), or a refresh or reconnect path skips it.",
+          "met": "yes",
+          "evidence": "config/tools.yaml:35",
+          "quote": "mcp_servers: []",
+          "counter_search": "Searched for list_tools, session.list_tools, MCP client setup: none found",
+          "note": "No MCP servers are configured. The tool registry is static and built only from config/tools.yaml named tools. There is no list_tools() call or MCP discovery."
+        },
+        {
+          "id": "B01.3",
+          "check": "The dispatcher rejects a call to any tool name not on the allowlist, instead of looking it up dynamically.",
+          "verify": "1) Find the dispatcher (search `tool_use`, `call_tool`, `dispatch`, `execute`, `getattr`, `registry[`). 2) Check it rejects names not on the allowlist with an error. 3) Answer no if it looks tools up with `getattr`, `globals()`, `eval`, or a registry holding more than the allowlist, falls back to calling the MCP server directly, or catches the unknown-tool error and continues.",
+          "met": "yes",
+          "evidence": "src/tools.py:145",
+          "quote": "if tool is None or role not in tools_config[\"tools\"][name][\"roles\"]:",
+          "counter_search": "Searched for getattr, globals(), eval, registry bypass: none found",
+          "note": "dispatch() rejects tool calls where tool not in REGISTRY or role not in allowlist for that role. No getattr, globals(), eval, or dynamic registry lookup."
+        },
+        {
+          "id": "B01.4",
+          "check": "Allow and approval decisions never read server-supplied hints or descriptions such as `readOnlyHint` or 'read-only'.",
+          "verify": "1) Search for `readOnlyHint`, `destructiveHint`, `annotations`, `description`, and approval or auto-approve code. 2) Check whether any allow, skip-approval, or permission branch reads these. 3) Answer no if any allow or approval decision depends on a server hint or tool description text, including a default that auto-approves tools marked read-only.",
+          "met": "yes",
+          "evidence": "src/tools.py:96",
+          "quote": "_SCHEMAS = {",
+          "counter_search": "Searched for readOnlyHint, destructiveHint, annotations: none found",
+          "note": "Tool schemas are static JSON in _SCHEMAS dict lines 96-107. No schema hints like readOnlyHint or destructiveHint. Approval logic for email (line 82) checks recipient domain only."
+        },
+        {
+          "id": "B01.5",
+          "check": "File access is limited to named directories, not the whole filesystem.",
+          "verify": "1) Find file tools and mounts (`allowed_directories`, `cwd`, `open(`, `fs.`, `os.ReadFile`, container `volumes`, `mountPath`). 2) Check paths are resolved (`realpath`, `resolve`, `filepath.Clean`) then compared to named directories. 3) Answer no if access is unrestricted, `/` or home is mounted, the check is a string `startsWith`/prefix test without resolving `..` and symlinks, or a shell tool bypasses it.",
+          "met": "yes",
+          "evidence": "config/tools.yaml:37",
+          "quote": "file_permissions:",
+          "counter_search": "Searched for hostPath, volumes mounting / or home: none found",
+          "note": "File access limited to /tmp only via emptyDir 256Mi memory volume. No unrestricted access, no host mounts, no / or home mounts."
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Tool allowlist is explicit and static; dispatcher enforces by role; no MCP discovery. Challenge needed.",
+      "next_step": "done",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B02",
+      "gate": "G1",
+      "title": "Least-privilege access",
+      "requirement": "Limit credentials to named operations and resources, including tenant boundaries. Test that an allowed read works. Test that an out-of-scope write, an admin action, and a request for another tenant's data all fail. Limit each token to its intended audience, so other services reject it. Remove wildcard permissions and permissions inherited from people.",
+      "not_covered": [
+        {
+          "problem": "A retrieval search or cache not filtered by the requesting tenant or user",
+          "owner": "R04"
+        },
+        {
+          "problem": "Long-lived or static secrets that never expire or rotate",
+          "owner": "B03"
+        },
+        {
+          "problem": "Revocation delay from cached or self-contained tokens",
+          "owner": "B04"
+        },
+        {
+          "problem": "A sub-agent getting powers beyond its task, or a parent escalating through a peer",
+          "owner": "E08"
+        },
+        {
+          "problem": "Memory readable across tenants or tasks",
+          "owner": "R05"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/auth.py",
+          "line": 79,
+          "note": "Matter ID is pinned to session at open_session(), checked against conflicts service, never from model. Matter cannot be changed after session opens."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B02.1",
+          "check": "The agent's IAM policy or role names specific actions and resources, with no `*` action or resource and no owner, editor, or cluster-admin role.",
+          "verify": "1) Find IAM and RBAC files (`*.tf`, `iam*.json`, `Role`, `ClusterRoleBinding`, `RoleBinding`, CloudFormation). 2) Find the policy attached to the agent's identity. 3) Answer no if any `Action` or `Resource` is `*` or a service wildcard (`s3:*`), or it binds `roles/owner`, `roles/editor`, `cluster-admin`, or AdministratorAccess. Answer unknown if the agent's IAM is not in this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No RBAC files (Role, RoleBinding, IAM policies) found in this repo. RBAC likely defined outside repo in cluster configuration. Cannot verify service account bindings from code alone."
+        },
+        {
+          "id": "B02.2",
+          "check": "Tenant scope is enforced in the credential or the data layer (token claim, row-level security, or per-tenant account), not by the prompt or by code the model's output controls.",
+          "verify": "1) Find how queries and API calls pick a tenant (search `tenant`, `org_id`, row-level security, `CREATE POLICY`, per-tenant credentials). 2) Trace where the tenant value comes from. 3) Answer no if one shared login or key reaches all tenants and the tenant ID comes from the prompt, a tool argument the model fills, or app code filtering after the query.",
+          "met": "yes",
+          "evidence": "src/auth.py:79",
+          "quote": "session = Session(",
+          "counter_search": "Searched for model-controlled tenant selection: none found",
+          "note": "Matter ID is pinned to session at open_session(), checked against conflicts service, never from model. Matter cannot be changed after session opens."
+        },
+        {
+          "id": "B02.3",
+          "check": "Tokens are issued with a set audience, and receiving services reject tokens whose audience does not match.",
+          "verify": "1) Find token requests (`audience`, `aud`, `resource`, `scope`, token client setup). 2) Find token validation in receiving services (`verify`, `jwt.decode`, middleware). 3) Answer no if tokens are requested without an audience, validation skips `aud` (`verify_aud=False`, no audience option), or accepts a list or wildcard. Answer unknown if receiving services are outside this repo.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:79",
+          "quote": "audience: \"api://conflicts\"",
+          "counter_search": "Searched for tokens without audience, verify_aud=False: none found",
+          "note": "Each projected token has a set audience (conflicts, qdrant, memory, smtp). Tokens expire in 600s. Services should verify audience on receipt."
+        },
+        {
+          "id": "B02.4",
+          "check": "The agent uses its own service identity, not a human user's token, a copied session, or an admin key.",
+          "verify": "1) Find where the agent loads credentials (env vars, `credentials`, `token`, `Authorization`, service account settings). 2) Check they belong to a service or workload identity for the agent. 3) Answer no if it uses a user's OAuth or session token, a personal access token, an admin or root key, or forwards the calling user's token to tools.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:16",
+          "quote": "serviceAccountName: counsel-research-agent",
+          "counter_search": "Searched for user OAuth tokens, admin keys, forwarded credentials: none found",
+          "note": "Agent uses its own workload service account, not a user's token or admin key."
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Tenant scope enforced by matter_id; service workload identity with audience-scoped tokens. RBAC details outside repo.",
+      "next_step": "B03",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B03",
+      "gate": "G2",
+      "title": "Credential lifetime and handling",
+      "requirement": "Issue short-lived credentials from a managed identity or secrets service. Keep long-lived secrets out of prompts, images, and checked-in config. Where the service supports it, bind tokens to their holder (mTLS, DPoP, or workload proof tokens). Then a copied token won't work from another machine. Don't use fixed API keys when short-lived or federated credentials are available. Show that credentials expire and rotate, and explain why you chose their lifetime.",
+      "not_covered": [
+        {
+          "problem": "A credential scoped to more operations, resources, or tenants than needed",
+          "owner": "B02"
+        },
+        {
+          "problem": "No way to cut off the agent's access without cutting off the user",
+          "owner": "B04"
+        },
+        {
+          "problem": "Secrets showing up in tool output, responses, or normal logs",
+          "owner": "R03"
+        },
+        {
+          "problem": "Container image not pinned by digest or signature-checked",
+          "owner": "B10"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 79,
+          "note": "Service tokens use Kubernetes OIDC federation (serviceAccountToken with 600s expiry). Cohere API key from Secret (rerank-api-key) which is outside the agent code."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B03.1",
+          "check": "Credentials are fetched at run time from a managed identity or secrets service, not fixed API keys, where short-lived or federated credentials are available.",
+          "verify": "1) Find credential setup (`AssumeRole`, IRSA, Workload Identity, Managed Identity, Vault, `os.environ`, `process.env`). 2) Check each credential is fetched at run time. 3) Answer no if a fixed key (`AWS_ACCESS_KEY_ID`, `API_KEY` in a Secret or env) is used for a service that offers federated or short-lived credentials, or code falls back to a static key when the managed source fails.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:79,config/settings.yaml:10-12",
+          "quote": "serviceAccountToken: { audience:",
+          "counter_search": "Searched for fixed AWS keys, AKIA literals in code, hardcoded API keys: none found",
+          "note": "Service tokens use Kubernetes OIDC federation (serviceAccountToken with 600s expiry). Cohere API key from Secret (rerank-api-key) which is outside the agent code."
+        },
+        {
+          "id": "B03.2",
+          "check": "Credential lifetime and rotation are set in config to bounded values.",
+          "verify": "1) Search for lifetime and rotation settings (`DurationSeconds`, `ttl`, `expires_in`, `max_ttl`, rotation job or policy). 2) Check each credential the agent uses has a bounded value. 3) Answer no if any credential has no expiry, no rotation, or an unbounded or very long value. Answer unknown if lifetimes are set in an identity provider outside this repo.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:79",
+          "quote": "expirationSeconds: 600",
+          "counter_search": "Searched for unlimited, unbounded, or very long credential lifetimes: none found",
+          "note": "Service tokens expire in 600 seconds (10 minutes). Short-lived by design."
+        },
+        {
+          "id": "B03.3",
+          "check": "No long-lived secrets appear in prompts, Dockerfiles or image layers, or checked-in config.",
+          "verify": "1) Search prompt templates, Dockerfiles (`ENV`, `ARG`, `COPY .env`), `.env*`, `*.yaml`, `*.tfvars`, `.mcp.json` `env` blocks for key-like literals (`sk-`, `AKIA`, `token:`, `password:`). 2) Check prompt-building code for env values inserted into messages. 3) Answer no if any real secret is checked in, baked into an image, or placed in a prompt; `.gitignore` listing a file does not count if it is committed.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Service tokens not in repo files. Cohere API key in Secret (outside repo). Cannot verify no long-lived secrets in prompts/images without examining running artifacts."
+        },
+        {
+          "id": "B03.4",
+          "check": "Where the service supports it, tokens are bound to their holder with mTLS, DPoP, or workload proof tokens.",
+          "verify": "1) Find token and client setup for each service (`mTLS`, `client_cert`, `DPoP`, `cert-bound`, SPIFFE). 2) Check whether the service supports holder binding. 3) Answer no if a supporting service uses plain bearer tokens. Answer unknown if support depends on a provider outside this repo and nothing states it.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Agent uses service account tokens with workload proof (Kubernetes OIDC projection). Whether services validate this is outside repo and unknown."
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Tokens expire in 600s. Secrets stored in Kubernetes secrets, outside repo. Cannot verify image layers and prompt text from code.",
+      "next_step": "B04",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B04",
+      "gate": "G1",
+      "title": "Independent revocation",
+      "requirement": "Show that an operator can cut off this agent's access without cutting off the user who launched it. The agent must not need to cooperate. Set and measure the longest time before the cutoff takes effect. Count cached tokens, self-contained tokens, and open sessions. A trusted enforcement point must block later calls within a time limit that fits the potential harm. Revoking only the refresh token is not enough. If tokens live longer than that limit, push the revocation to each service (for example, with OpenID CAEP session-revoked events) or make the tokens shorter-lived.",
+      "not_covered": [
+        {
+          "problem": "A kill switch that doesn't stop running work or open tool streams",
+          "owner": "R11"
+        },
+        {
+          "problem": "Sub-agents or remote workers still acting after the parent is stopped",
+          "owner": "E09"
+        },
+        {
+          "problem": "Static API keys used where short-lived credentials are available",
+          "owner": "B03"
+        },
+        {
+          "problem": "No way to trace a suspicious action to its team, operator, and live instance",
+          "owner": "A05"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 79,
+          "note": "Access tokens expire in 600s, shorter than revocation limit. Self-contained tokens with short lifetime."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B04.1",
+          "check": "A revocation control disables the agent's own identity or credentials without disabling the user who launched it.",
+          "verify": "1) Find a disable or revoke path (script, runbook, IdP config, `disable`, `revoke`, deny list). 2) Check it targets the agent's own identity or credential. 3) Answer no if the agent uses the user's token, so revocation disables the user too, or no revoke path exists. Answer unknown if revocation lives only in an identity provider outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Agent uses workload service account separate from user tokens. Revocation would target service account at identity provider level, outside this repo."
+        },
+        {
+          "id": "B04.2",
+          "check": "Revocation is applied at a trusted enforcement point (identity provider, gateway, or target service) and does not need the agent's cooperation.",
+          "verify": "1) Find where revocation is checked (gateway, auth middleware, IdP, introspection, deny list lookup). 2) Check it runs outside the agent process. 3) Answer no if revocation sends a message or signal to the agent and relies on it to drop credentials, or the check runs inside agent code.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Revocation enforcement at identity provider level, outside this repo."
+        },
+        {
+          "id": "B04.3",
+          "check": "Later calls are blocked even with cached tokens, self-contained tokens, and open sessions: token lifetime is shorter than the revocation limit, or revocation is pushed to each service (for example CAEP) or checked on every call.",
+          "verify": "1) Find access-token lifetimes and how services validate tokens (signature only vs `introspect`, deny list, CAEP). 2) Compare lifetime with the stated revocation limit. 3) Answer no if self-contained JWTs outlive the limit and are checked by signature only, cached tokens or open sessions skip the check, or no limit is stated. Answer unknown if validation lives outside this repo.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:79",
+          "quote": "expirationSeconds: 600",
+          "counter_search": "Searched for long-lived JWTs: none found",
+          "note": "Access tokens expire in 600s, shorter than revocation limit. Self-contained tokens with short lifetime."
+        },
+        {
+          "id": "B04.4",
+          "check": "Revocation covers access tokens and open sessions, not only the refresh token.",
+          "verify": "1) Find the revoke code or runbook. 2) List what it revokes: refresh token, access tokens, sessions, streams. 3) Answer no if it only revokes the refresh token or deletes stored credentials while issued access tokens and open sessions stay valid.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Revocation of access tokens and sessions outside this repo at identity provider level."
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Service account separate from users; tokens expire in 600s. Revocation control at identity provider outside repo.",
+      "next_step": "B05",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B05",
+      "gate": "G1",
+      "title": "Destructive-action interception",
+      "requirement": "List the high-impact operations. These include deletes, destructive database updates, force-pushes, tearing down infrastructure, payment changes, and sending anything outside. Block them by default in the execution path. Allow one only when a reviewer or system with higher authority approves that specific action. When the action runs, authorize its operation, target, and arguments, and block it if they aren't allowed. A list of blocked words or command names is not enough. Test other tools and raw API or shell paths that could do the same thing. Treat deleting audit records, or changing how long they are kept, as high-impact too. That includes asking a more powerful tool or peer to do it. Some agents can do all three of these in one context: read untrusted input, reach sensitive data or systems, and change things or talk to the outside. For those agents, treat every consequential action as high-impact. The exception is a design that stops untrusted content from picking the tool, destination, or arguments. Examples are plan-then-execute, a two-model pattern, or capability tracking such as CaMeL. Record which of the three each agent type has.",
+      "not_covered": [
+        {
+          "problem": "Denied actions not recorded in the audit trail",
+          "owner": "R13"
+        },
+        {
+          "problem": "Approvals that can be replayed, reused in parallel, or used after expiry",
+          "owner": "B06"
+        },
+        {
+          "problem": "Outside effects left unreconciled after the agent is stopped",
+          "owner": "R12"
+        },
+        {
+          "problem": "A chain of individually allowed actions that adds up to data theft",
+          "owner": "R09"
+        },
+        {
+          "problem": "Tool output not labelled or kept apart from trusted instructions",
+          "owner": "R02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "config/tools.yaml",
+          "line": 22,
+          "note": "High-impact operation: email_draft sends memos outside. Only available to associate/partner roles. Requires approval for external addresses."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B05.1",
+          "check": "High-impact operations are listed in code or config and blocked by default, including deletes, destructive updates, force-pushes, infrastructure teardown, payment changes, outbound sends, and deleting audit records or changing their retention.",
+          "verify": "1) Search code and config for a list of high-impact operations (deny/approval policy, OPA/Rego, Cedar, hook config). 2) Check it covers deletes, destructive updates, force-push, teardown, payments, outbound sends, audit deletion or retention changes. 3) Answer no if no list exists, any category is missing with a tool that can do it, or unlisted operations default to `allow`.",
+          "met": "yes",
+          "evidence": "config/tools.yaml:22",
+          "quote": "email_draft:",
+          "counter_search": "Searched for unlisted high-impact operations: none found beyond email and memory writes",
+          "note": "High-impact operation: email_draft sends memos outside. Only available to associate/partner roles. Requires approval for external addresses."
+        },
+        {
+          "id": "B05.2",
+          "check": "The gate runs in the execution path when the call runs and checks the operation, the target, and the arguments, not only a tool name, command name, or blocklist of words.",
+          "verify": "1) Find where tool calls execute (`tool_use`, `call_tool`, `execute`, `can_use_tool`, `PreToolUse`). 2) Find the gate that runs before the side effect and see what it inspects. 3) Answer no if it checks only the tool or command name, matches words (`'rm' in cmd`, `DROP`), runs after the call, lives only in the prompt, or sits in a `try`/`catch` that continues on error. 4) For each value that lets an action skip approval (an internal recipient, a small amount, a safe path), read the comparison itself: answer no if a domain, host, or path is matched by suffix, prefix, or substring without an anchor, so `endswith('example.com')` also passes `evil-example.com`.",
+          "met": "no",
+          "evidence": "src/tools.py:73",
+          "quote": "return address.strip().lower().endswith(FIRM_DOMAIN)",
+          "counter_search": "No matching target or argument validation beyond domain suffix",
+          "note": "Domain check implementation uses unanchored suffix match. evil-example.com passes example.com check gate runs before side effect."
+        },
+        {
+          "id": "B05.3",
+          "check": "The same gate covers every path that can do the operation, including raw shell, HTTP or API clients, other tools, and requests to a more powerful tool or peer agent.",
+          "verify": "1) Open the tool registry or config and write every tool the model can call into your note, by name, including MCP servers and sub-agents. 2) For each, say whether it can do a gated operation, including through a page it controls: a browser click or form fill in a logged-in session can buy, send, or delete. 3) Trace each such tool to the gate. 4) Answer no if any alias, raw shell or HTTP tool, browser action, second dispatch path, peer agent, or more powerful MCP tool can do the operation without passing the same gate.",
+          "met": "no",
+          "evidence": "config/tools.yaml:3-24",
+          "quote": "tools:",
+          "counter_search": "Searched for other paths to external send: none found",
+          "note": "Only tool that can send outside is email_draft. search_documents, read_document, recall_preferences, save_preference are read-only or internal. This gate covers the only path to external send."
+        },
+        {
+          "id": "B05.4",
+          "check": "A blocked operation runs only after approval from a person or system with higher authority than the agent; a prompt, comment, or model instruction is never the enforcement.",
+          "verify": "1) Find what happens when the gate blocks (approval request, `interrupt()`, `needs_approval`, webhook to reviewer). 2) Check who approves. 3) Answer no if the model, the agent itself, or a prompt instruction can approve, if approval is auto-granted (`bypassPermissions`, `acceptEdits`, auto-approve flag, `yes` default), or if a timeout proceeds.",
+          "met": "no",
+          "evidence": "src/tools.py:79",
+          "quote": "if not _is_internal(to):",
+          "counter_search": "No invalid internal domains found, but gate is bypassable via suffix match",
+          "note": "External emails require approval, but _is_internal() check is vulnerable to suffix match. Domain check does not inspect arguments beyond recipient."
+        },
+        {
+          "id": "B05.5",
+          "check": "For an agent that reads untrusted input, reaches sensitive data or systems, and acts outside, every consequential action is gated, unless code shows untrusted content cannot pick the tool, destination, or arguments (for example plan-then-execute or capability tracking).",
+          "verify": "1) Check whether the agent reads untrusted content (web, email, files, tool output), reaches sensitive data, and can act outside. 2) If all three, list consequential actions and check each is gated. 3) Answer no if any is ungated and untrusted content can choose its tool, destination, or arguments with no plan-then-execute or capability tracking in code. Answer yes if the three are not combined.",
+          "met": "yes",
+          "evidence": "config/tools.yaml:1,src/tools.py:42",
+          "quote": "The service runs no subprocesses and ships no shell",
+          "counter_search": "No ungated consequential actions found",
+          "note": "Agent can read untrusted content (search results), reach sensitive data (firm docs), and act outside (email). All consequential actions are gated (only email_draft can send)."
+        }
+      ],
+      "red_flags_found": [
+        "src/tools.py:73 Domain check uses endswith() without anchor. evil-example.com passes example.com check, bypassing external email approval."
+      ],
+      "violates": [
+        "authorize its operation, target, and arguments"
+      ],
+      "also_affects": [],
+      "summary": "Domain check for external email uses unanchored endswith(), allowing evil-example.com to bypass example.com check.",
+      "next_step": "fix-b06",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B06",
+      "gate": "G1",
+      "title": "Approval integrity",
+      "requirement": "Tie each approval to the agent instance that asked, and to the exact operation, target, arguments, and scope. Record who approved it and when it expires. Show the reviewer what the action will do. Make approvals single-use, or set clear limits on a broader grant. When the action runs, check permissions and the relevant resource state again. Record each use of an approval in one step, so parallel calls can't go past the grant. Test changed arguments, a different agent instance, expired approvals, replay, parallel reuse, and approvers without authority. If the approval service fails, the action must not quietly go ahead.",
+      "not_covered": [
+        {
+          "problem": "A high-impact action that never asks for approval at all",
+          "owner": "B05"
+        },
+        {
+          "problem": "A parent gaining a denied power by asking a stronger peer",
+          "owner": "E08"
+        },
+        {
+          "problem": "Harness or approval code changed in production without review",
+          "owner": "B12"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/approvals.py",
+          "line": 19,
+          "note": "Approval record stores instance_id, operation, args_digest, summary, requested_by, approved_by, approved_at, expires_at. All required fields present."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B06.1",
+          "check": "Each approval record is bound to the requesting agent instance and to the exact operation, target, arguments, and scope, and records the approver and an expiry time.",
+          "verify": "1) Find the approval data model (schema, class, table, `approval`). 2) List its fields. 3) Answer no if it lacks any of agent instance ID, operation, target, exact arguments or hash, scope, approver, and expiry, or if approval is a boolean like `approved=True`.",
+          "met": "yes",
+          "evidence": "src/approvals.py:19",
+          "quote": "approval_id: str",
+          "counter_search": "No boolean-only approvals found",
+          "note": "Approval record stores instance_id, operation, args_digest, summary, requested_by, approved_by, approved_at, expires_at. All required fields present."
+        },
+        {
+          "id": "B06.2",
+          "check": "When the action runs, the gate rejects it if the instance, operation, target, or arguments differ from the approval, or if the approval has expired.",
+          "verify": "1) Find where an approved action executes. 2) Check the code compares instance, operation, target, and arguments (or hash) against the stored approval and checks expiry at that moment. 3) Answer no if approval is checked only when requested, any field is not compared, arguments are re-read from the model after the check, or expiry is never checked.",
+          "met": "no",
+          "evidence": "src/approvals.py:72",
+          "quote": "return appr.status == \"approved\"",
+          "counter_search": "No expiry check on use",
+          "note": "is_approved() checks status, matter_id, and operation but never checks expiry. Expired approvals still pass."
+        },
+        {
+          "id": "B06.3",
+          "check": "Each use of an approval is recorded in one atomic step (single-use or a bounded counter), so replays and parallel calls cannot go past the grant.",
+          "verify": "1) Find where an approval is used or marked consumed. 2) Check it is one atomic step: transaction with lock, compare-and-set, unique constraint, or atomic decrement. 3) Answer no if it reads then writes separately, never marks use, or keeps the count in process memory that parallel workers do not share.",
+          "met": "no",
+          "evidence": "src/approvals.py:68",
+          "quote": "def is_approved(approval_id: str, matter_id: str, operation: str) -> bool:",
+          "counter_search": "No single-use enforcement",
+          "note": "Approval is read from Redis but never marked used or consumed. Can be used multiple times. No atomic step."
+        },
+        {
+          "id": "B06.4",
+          "check": "The gate checks that the approver has authority for this action, and rechecks permissions and the relevant resource state when the action runs.",
+          "verify": "1) Find approver checks (role list, `can_approve`, authority mapping). 2) Find rechecks of permissions and resource state at execution. 3) Answer no if any logged-in user can approve, the approver is not checked against the action, or permissions and resource state are not rechecked when the action runs.",
+          "met": "yes",
+          "evidence": "src/approvals.py:56",
+          "quote": "if approver_role != \"partner\":",
+          "counter_search": "Searched for self-approval: line 58 blocks requester",
+          "note": "Approver must be partner role. Requester cannot approve own request."
+        },
+        {
+          "id": "B06.5",
+          "check": "If the approval service errors or cannot be reached, the action is denied.",
+          "verify": "1) Find calls to the approval service. 2) Read their error, timeout, and exception handling. 3) Answer no if a `try`/`except` or `catch` logs and proceeds, the default on error or timeout is allow, or a missing response is treated as approved.",
+          "met": "yes",
+          "evidence": "src/tools.py:81",
+          "quote": "if not approval_id or not approvals.is_approved(approval_id",
+          "counter_search": "Searched for try/except that proceeds on error: none found",
+          "note": "Missing or failed approval raises ApprovalRequired, blocking email. No default allow."
+        }
+      ],
+      "red_flags_found": [
+        "src/approvals.py:72 Approval expiry not checked when approval is used. Expired approvals valid indefinitely."
+      ],
+      "violates": [
+        "Tie each approval to the agent instance that asked, and to the exact operation, target, arguments, and scope"
+      ],
+      "also_affects": [],
+      "summary": "Expiry not checked when approval used; approvals never marked consumed (can be reused).",
+      "next_step": "fix-b11",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B07",
+      "gate": "G2",
+      "title": "Hard execution budgets",
+      "requirement": "Enforce limits outside the model on loop count, run time, tokens, cost, tool-call rate, and how many sub-agents it can start. Also set spend and rate quotas per user or service, per tenant, and across the whole fleet. That way, many small runs can't use up shared capacity. Hit each limit in a test, and record how the run stops or escalates.",
+      "not_covered": [
+        {
+          "problem": "Budget or cross-agent abuse alerts not reaching the team that can act",
+          "owner": "E12"
+        },
+        {
+          "problem": "Unusual fan-out or resource use going undetected",
+          "owner": "R09"
+        },
+        {
+          "problem": "Context size not logged for each action decision",
+          "owner": "R07"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "config/settings.yaml",
+          "line": 44,
+          "note": "Config sets all six limits: max_graph_steps 24, max_run_seconds 240, max_prompt_tokens 400k, max_completion_tokens 24k, max_cost 4USD, tool_calls_per_minute 30, sub-agents 0."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B07.1",
+          "check": "Limits on loop count, run time, tokens, cost, tool-call rate, and number of sub-agents started are set in code or config.",
+          "verify": "1) Search for `max_turns`, `recursion_limit`, `max_iterations`, `timeout`, `max_tokens`, cost or budget caps, rate limits, sub-agent caps. 2) Check each of the six limits has a value. 3) Answer no if any is missing, set to unlimited (`None`, `0`, `-1`, `inf`), or the loop is `while True` with no cap.",
+          "met": "yes",
+          "evidence": "config/settings.yaml:44",
+          "quote": "max_graph_steps: 24",
+          "counter_search": "No missing or unlimited values",
+          "note": "Config sets all six limits: max_graph_steps 24, max_run_seconds 240, max_prompt_tokens 400k, max_completion_tokens 24k, max_cost 4USD, tool_calls_per_minute 30, sub-agents 0."
+        },
+        {
+          "id": "B07.2",
+          "check": "The harness or a gateway outside the model enforces each limit and stops or escalates the run when it is hit; the model cannot raise, reset, or skip them.",
+          "verify": "1) For each limit, find the code that enforces it and what happens when hit. 2) Check it runs in the harness or gateway. 3) Answer no if a limit is only in the prompt, can be changed by a tool argument or model output, is caught and the run continues, or hitting it has no stop or escalation.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Budgets set in config but enforcement mechanism unknown - not in repo code shown, likely in graph orchestration (research_graph.py)."
+        },
+        {
+          "id": "B07.3",
+          "check": "Budgets apply to nested sub-agents, so their usage counts against the limits.",
+          "verify": "1) Find sub-agent spawning (`spawn`, `Task`, `handoff`, `create_agent`). 2) Check child runs share or deduct from the parent budget and depth is capped. 3) Answer no if each child gets a fresh budget, nested spawns are uncounted, or depth and count are unlimited.",
+          "met": "yes",
+          "evidence": "config/settings.yaml:50",
+          "quote": "max_subagents: 0",
+          "counter_search": "No sub-agent spawning found",
+          "note": "No sub-agents can be spawned (max_subagents: 0). Depth and count capped."
+        },
+        {
+          "id": "B07.4",
+          "check": "Spend and rate quotas also apply per user or service, per tenant, and across the fleet, counted across runs, not only within one run.",
+          "verify": "1) Search gateway, LLM proxy (LiteLLM budgets), and provider config for per-user, per-tenant, and fleet quotas. 2) Check counts persist across runs (shared store, not process memory). 3) Answer no if only per-run limits exist. Answer unknown if quotas would live in a provider console or gateway outside this repo.",
+          "met": "yes",
+          "evidence": "config/settings.yaml:51-58",
+          "quote": "rates:",
+          "counter_search": "All quota levels covered",
+          "note": "Per-user, per-matter, and fleet-wide quotas set: per_user 6 runs/min, per_matter 20 runs/min, fleet 400 runs/min. Daily USD quotas: per_user 60, per_matter 150, fleet 2500."
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "All budget limits set in config: loop steps, timeout, tokens, cost, tool-call rate, sub-agent cap. Per-user/tenant/fleet quotas. Enforcement mechanism unknown.",
+      "next_step": "B08",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B08",
+      "gate": "G2",
+      "title": "Environment isolation",
+      "requirement": "Write down every system and data store the agent can reach. Test that it has no path to unapproved production resources, admin systems, host services, or other tenants. Enforce this in the infrastructure, not only in the prompt. For each allowed connection, also check input and response validation under R01\u2013R02, including API responses and messages from connected services. Being allowed on the network does not make their content trusted.",
+      "not_covered": [
+        {
+          "problem": "Outbound traffic to unapproved internet destinations",
+          "owner": "B09"
+        },
+        {
+          "problem": "Container running as root or shipping a shell it doesn't need",
+          "owner": "B11"
+        },
+        {
+          "problem": "Content from an allowed service trusted without validation",
+          "owner": "R01"
+        },
+        {
+          "problem": "Agent reaching an approved MCP server directly instead of through the gateway",
+          "owner": "E06"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/networkpolicy.yaml",
+          "line": 10,
+          "note": "NetworkPolicy specifies default deny for Ingress and Egress, with explicit allows to named namespaces only."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B08.1",
+          "check": "Network policy or security groups default-deny and allow only the listed systems and data stores the agent needs.",
+          "verify": "1) Find NetworkPolicy, security groups, firewall rules, docker-compose networks. 2) Check for a default deny and named allowed peers. 3) Answer no if the agent's namespace has no policy, rules allow all, `0.0.0.0/0` or a broad CIDR is allowed, or allowed peers go beyond the listed systems. Answer unknown if network config lives outside this repo.",
+          "met": "yes",
+          "evidence": "k8s/networkpolicy.yaml:10",
+          "quote": "policyTypes: [Ingress, Egress]",
+          "counter_search": "No broad allow rules found",
+          "note": "NetworkPolicy specifies default deny for Ingress and Egress, with explicit allows to named namespaces only."
+        },
+        {
+          "id": "B08.2",
+          "check": "No route, mount, or credential gives the runtime a path to unapproved production resources, admin systems, host services, or other tenants. Egress to 0.0.0.0/0 or another broad range, even only on ports 80 and 443, is such a route: it reaches cloud metadata (169.254.169.254) and internal services unless they are explicitly blocked.",
+          "verify": "1) List routes, mounts, and credentials in the agent's runtime (egress rules, volumes, env secrets, `hostNetwork`, `docker.sock`). 2) Check each reaches only approved systems. 3) Answer no if egress allows `0.0.0.0/0` or a broad range on any port without blocking 169.254.169.254, if host services or the Docker socket are reachable, or credentials reach production admin or other tenants.",
+          "met": "yes",
+          "evidence": "k8s/networkpolicy.yaml:10",
+          "quote": "policyTypes: [Ingress, Egress]",
+          "counter_search": "No unrestricted egress, no metadata service access",
+          "note": "Egress allows only to search, memory, models, mail, audit, egress-gateway, kube-dns namespaces. No 0.0.0.0/0 or broad CIDR ranges."
+        },
+        {
+          "id": "B08.3",
+          "check": "Isolation is enforced in infrastructure config, not by the prompt or by agent code the model can influence.",
+          "verify": "1) Find where isolation is defined. 2) Check it is in infrastructure (NetworkPolicy, VPC, IAM, separate namespace or account). 3) Answer no if it relies on prompt text or agent code (URL checks, host lists in the harness) that the model's output can steer, with no infrastructure rule behind it.",
+          "met": "yes",
+          "evidence": "k8s/networkpolicy.yaml:1",
+          "quote": "apiVersion: networking.k8s.io/v1",
+          "counter_search": "No application-level isolation logic found",
+          "note": "Isolation enforced via infrastructure NetworkPolicy manifest, not in application code."
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "NetworkPolicy default-deny with explicit allows to named systems. Challenge needed.",
+      "next_step": "done",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B09",
+      "gate": "G2",
+      "title": "Egress allowlist",
+      "requirement": "Allow only the outside destinations the task needs. Test a blocked destination and ways around the block, such as going straight past a proxy or gateway. Cover redirects, DNS changes and rebinding, IPv4 and IPv6, and cloud metadata or loopback addresses where they apply. An allowed domain can still host an attacker's account or receive leaked data. So also limit which resources and tenants the agent can reach, and what data it can send. Record each block and confirm the right operator hears about it.",
+      "not_covered": [
+        {
+          "problem": "Data leaking through client-side Markdown images or link previews",
+          "owner": "R03"
+        },
+        {
+          "problem": "Network path to internal production or admin systems",
+          "owner": "B08"
+        },
+        {
+          "problem": "A loosened egress rule in the running setup raising no alert",
+          "owner": "C04"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/networkpolicy.yaml",
+          "line": 10,
+          "note": "Outbound traffic default-deny with destination allowlist (named namespaces). No 0.0.0.0/0."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B09.1",
+          "check": "Outbound traffic is default-deny, with a destination allowlist enforced at a proxy, gateway, or network policy.",
+          "verify": "1) Find egress rules (NetworkPolicy egress, Cilium FQDN, proxy ACLs, cloud firewall). 2) Check outbound is default deny with a destination allowlist. 3) Answer no if egress allows `0.0.0.0/0` or broad CIDRs, no egress rules exist, or the allowlist is only in app code the agent runs. Answer unknown if egress is set outside this repo.",
+          "met": "yes",
+          "evidence": "k8s/networkpolicy.yaml:10",
+          "quote": "policyTypes: [Ingress, Egress]",
+          "counter_search": "Searched for 0.0.0.0/0, broad CIDRs: none found",
+          "note": "Outbound traffic default-deny with destination allowlist (named namespaces). No 0.0.0.0/0."
+        },
+        {
+          "id": "B09.2",
+          "check": "Network policy blocks direct routes around the proxy or gateway, for both IPv4 and IPv6.",
+          "verify": "1) Check whether the proxy is enforced by network policy or only by `HTTP_PROXY`/`HTTPS_PROXY` env. 2) Check IPv6 egress rules. 3) Answer no if pods can reach the internet except via the proxy, the proxy is only an env var, `NO_PROXY` is broad, or IPv6 is not restricted.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "NetworkPolicy enforces access to named services. HTTP_PROXY and IPv6 enforcement outside code shown."
+        },
+        {
+          "id": "B09.3",
+          "check": "Redirect targets and resolved IP addresses are checked against the allowlist, and cloud metadata and loopback addresses are blocked.",
+          "verify": "1) Find fetch and HTTP client code (`requests`, `fetch`, `http.Client`, `follow_redirects`, `allow_redirects`). 2) Check each redirect hop and resolved IP is checked. 3) Answer no if redirects are followed unchecked, the check uses the hostname but not the resolved IP, or 169.254.169.254, fd00:ec2::254, or 127.0.0.0/8 and ::1 are not blocked.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "HTTP client redirect and IP checking outside main code shown. Cannot verify."
+        },
+        {
+          "id": "B09.4",
+          "check": "Allowed destinations are limited by resource, tenant, or path where needed, not only by domain.",
+          "verify": "1) List allowed destinations that are shared services (S3, GitHub, storage, paste sites). 2) Check rules limit bucket, account, repo, tenant, or path. 3) Answer no if a shared service is allowed by domain or wildcard (`*.s3.amazonaws.com`) alone, or path checks use string prefix without normalising.",
+          "met": "yes",
+          "evidence": "k8s/networkpolicy.yaml:16",
+          "quote": "namespaceSelector: { matchLabels:",
+          "counter_search": "No S3 wildcard buckets or shared service access",
+          "note": "Allowed destinations are specific Kubernetes namespaces by label, not domain wildcards or shared services."
+        },
+        {
+          "id": "B09.5",
+          "check": "Each blocked request is logged and routed as an alert to a named operator.",
+          "verify": "1) Find where blocked requests are logged (proxy deny log, policy audit, app code). 2) Find the alert route to a named operator. 3) Answer no if blocks are not logged, only allowed requests are logged, or no alert route names an operator. Answer unknown if alerting lives outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Blocked request alerting outside repo - likely in gateway or network policy audit logs."
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Egress default-deny to named services. Proxy enforcement, redirect checks, alerting outside repo.",
+      "next_step": "B10",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B10",
+      "gate": "G2",
+      "title": "Pinned, verified image",
+      "requirement": "Pin the container by digest. Before it runs, check its digest and signature against an approved signing key, or an approved certificate identity and issuer. Keep its build provenance (the record of how it was built) and its list of dependencies. Check provenance fields such as the builder, source repository, build type, and the parameters set from outside the build (SLSA `externalParameters`) against what you expect. Keep the verifier patched. Cosign versions before 2.6.2 and 3.0.4 could accept a bundle whose transparency-log entry didn't match the artifact. Confirm that the admission check covers production namespaces and is set to enforce, not just audit. Show that an unapproved or changed image is rejected.",
+      "not_covered": [
+        {
+          "problem": "Tool or MCP server package not vetted or pinned",
+          "owner": "E02"
+        },
+        {
+          "problem": "Model weights or adapters loaded without a signature or format check",
+          "owner": "C05"
+        },
+        {
+          "problem": "Image runs as root or includes a shell or package manager",
+          "owner": "B11"
+        },
+        {
+          "problem": "Secrets baked into the image",
+          "owner": "B03"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 39,
+          "note": "Main deployment images pinned by digest. Training job image uses :latest tag (not digest)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B10.1",
+          "check": "Production manifests reference images by digest (`@sha256:`), not by tag alone.",
+          "verify": "1) Find every `image:` field in manifests, Helm values, compose, and Terraform. 2) Check each uses `@sha256:`. 3) Answer no if any production image uses only a tag (`:latest`, `:v1`), or a template defaults to a tag when the digest value is empty.",
+          "met": "no",
+          "evidence": "k8s/deployment.yaml:39,training/finetune-job.yaml:20",
+          "quote": "image: ghcr.io/harrowellprice/counsel-research@sha256:",
+          "counter_search": "Non-production training image not pinned",
+          "note": "Main deployment images pinned by digest. Training job image uses :latest tag (not digest)."
+        },
+        {
+          "id": "B10.2",
+          "check": "An admission policy verifies the signature against a pinned key, or a pinned certificate identity and issuer, with no wildcard identity or issuer.",
+          "verify": "1) Find admission policies (Kyverno `verifyImages`, `ClusterImagePolicy`, Gatekeeper). 2) Check the key or certificate identity and issuer are pinned. 3) Answer no if identity or issuer uses `.*` or wildcard regex, issuer is unset, or no admission policy exists. Answer unknown if admission config is outside this repo.",
+          "met": "yes",
+          "evidence": "k8s/admission-policy.yaml:24",
+          "quote": "subject: \"https://github.com/harrowellprice",
+          "counter_search": "Searched for .* or wildcard regex: none found",
+          "note": "Admission policy checks keyless signature against GitHub Actions identity. Identity and issuer pinned."
+        },
+        {
+          "id": "B10.3",
+          "check": "The policy checks provenance fields: builder, source repository, build type, and external parameters.",
+          "verify": "1) In the admission policy, find attestation or provenance conditions. 2) Check builder ID, source repository, build type, and `externalParameters` are each compared to expected values. 3) Answer no if any is missing, provenance is only generated in CI but not verified, or conditions use wildcards.",
+          "met": "yes",
+          "evidence": "k8s/admission-policy.yaml:30",
+          "quote": "attestations:",
+          "counter_search": "Searched for missing provenance checks or wildcards: none found",
+          "note": "Policy checks SLSA provenance: repository, builder (GitHub Actions), externalParameters."
+        },
+        {
+          "id": "B10.4",
+          "check": "The policy is in enforce mode, covers production namespaces, and denies images that match no policy.",
+          "verify": "1) Read the policy mode and scope (`validationFailureAction`, `failureAction`, `mode`, namespace selectors, exclusions). 2) Check for a no-match deny. 3) Answer no if mode is `Audit` or `warn`, production namespaces are excluded or unmatched, `failurePolicy: Ignore`, or images matching no policy are allowed.",
+          "met": "no",
+          "evidence": "k8s/admission-policy.yaml:6",
+          "quote": "validationFailureAction: Audit",
+          "counter_search": "No enforce mode found",
+          "note": "Admission policy is in Audit mode, not Enforce. Violating images are logged but still run. Production namespaces not protected."
+        },
+        {
+          "id": "B10.5",
+          "check": "The pinned Cosign or verifier version is at least 2.6.2 (2.x) or 3.0.4 (3.x).",
+          "verify": "1) Find Cosign or verifier versions in CI workflows (`cosign-installer`, `cosign-release`), Dockerfiles, and policy-controller charts. 2) Compare to 2.6.2 (2.x) and 3.0.4 (3.x). 3) Answer no if any pin is lower or uses `latest` or no version. Answer unknown if no verifier is in this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Cosign or verifier version not in this repo - would be in CI config or policy controller chart."
+        }
+      ],
+      "red_flags_found": [
+        "training/finetune-job.yaml:20 Training job uses image:latest tag, bypassing digest requirement."
+      ],
+      "violates": [
+        "Pin the container by digest"
+      ],
+      "also_affects": [
+        "B11"
+      ],
+      "summary": "Training image uses :latest tag; admission policy in Audit mode, not Enforce.",
+      "next_step": "fix2",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B11",
+      "gate": "G2",
+      "title": "Minimal, isolated runtime",
+      "requirement": "Remove shells, downloaders, package managers, mounts, and privileges the agent doesn't need. As a container baseline, meet the Kubernetes Pod Security Standards \"restricted\" profile or the same controls elsewhere. That means non-root, no privilege escalation, all capabilities dropped, and a seccomp profile set. Where supported, also use a read-only root filesystem and user namespaces; the restricted profile doesn't require those two. For running untrusted code, use a sandbox that fits the threat, such as a microVM or a user-space kernel. Ordinary containers share the host's kernel. For managed runtimes, record the provider's isolation evidence and what you can't see. Test that host access is blocked. A blocked probe does not prove the sandbox resists every escape.",
+      "not_covered": [
+        {
+          "problem": "Container image not pinned by digest or signature-checked",
+          "owner": "B10"
+        },
+        {
+          "problem": "Outbound traffic to unapproved internet destinations",
+          "owner": "B09"
+        },
+        {
+          "problem": "Network path to admin systems or other tenants' resources",
+          "owner": "B08"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 28,
+          "note": "vllm container (line 53) missing readOnlyRootFilesystem. API container (line 38) also missing readOnlyRootFilesystem. Only restricted profile partially met."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B11.1",
+          "check": "Container settings set non-root, no privilege escalation, all capabilities dropped, and a seccomp profile, matching Pod Security 'restricted' or the same controls.",
+          "verify": "1) Find pod `securityContext` and container `securityContext`, plus namespace labels. 2) Check `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`. 3) Answer no if any is missing on any container (including init and sidecars), set the wrong way, or overridden per container, or the Dockerfile runs as root with no override.",
+          "met": "no",
+          "evidence": "k8s/deployment.yaml:28-33,53-68",
+          "quote": "allowPrivilegeEscalation: false",
+          "counter_search": "readOnlyRootFilesystem missing from containers",
+          "note": "vllm container (line 53) missing readOnlyRootFilesystem. API container (line 38) also missing readOnlyRootFilesystem. Only restricted profile partially met."
+        },
+        {
+          "id": "B11.2",
+          "check": "The final image has no shell, downloader, or package manager the agent does not need.",
+          "verify": "1) Read the final stage of each Dockerfile (after the last `FROM`). 2) Check base image and installs for `bash`, `sh`, `curl`, `wget`, `apt`, `apk`, `pip`, `npm`. 3) Answer no if the final image has any the agent does not need, or the final stage is a full OS image (ubuntu, debian, python) not distroless or scratch.",
+          "met": "yes",
+          "evidence": "Dockerfile:10",
+          "quote": "FROM gcr.io/distroless/python3-debian12:nonroot",
+          "counter_search": "No bash, curl, wget, apt, pip, npm found",
+          "note": "Final image uses distroless base, no shell, no package managers."
+        },
+        {
+          "id": "B11.3",
+          "check": "There is no privileged mode, hostPath or Docker socket mount, or host network or PID namespace.",
+          "verify": "1) Search manifests and compose for `privileged`, `hostPath`, `docker.sock`, `hostNetwork`, `hostPID`, `hostIPC`, `network_mode: host`, `pid: host`. 2) Answer no if any appears on the agent's workloads, including sidecars and init containers.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:16",
+          "quote": "serviceAccountName: counsel-research-agent",
+          "counter_search": "Searched for privileged, hostPath, docker.sock, hostNetwork: none found",
+          "note": "No privileged mode, hostPath, docker.sock, hostNetwork, or hostPID."
+        },
+        {
+          "id": "B11.4",
+          "check": "If the agent runs untrusted or model-written code, that code runs in a separate sandbox such as gVisor, Kata, or a microVM, not in the agent's own container.",
+          "verify": "1) Find code execution tools (`subprocess`, `exec`, `eval`, `child_process`, `os/exec`, code interpreter). 2) Check where that code runs (`runtimeClassName: gvisor`, Kata, Firecracker, remote sandbox API). 3) Answer no if model-written or untrusted code runs in the agent's own process or container, or the sandbox call falls back to local execution on error. Answer yes if no such code runs.",
+          "met": "yes",
+          "evidence": "config/tools.yaml:3",
+          "quote": "tools:",
+          "counter_search": "No code interpreter found",
+          "note": "No untrusted code execution tools. Only structured tool calls through allowlist."
+        }
+      ],
+      "red_flags_found": [
+        "k8s/deployment.yaml:38 api and vllm containers missing readOnlyRootFilesystem: true.",
+        "k8s/deployment.yaml:18 securityContext applies to pod; containers (api line 38, vllm line 53) missing readOnlyRootFilesystem: true."
+      ],
+      "violates": [
+        "all capabilities dropped, and a seccomp profile"
+      ],
+      "also_affects": [],
+      "summary": "Distroless image with no shells. Main containers (api, vllm) missing readOnlyRootFilesystem.",
+      "next_step": "B12",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B12",
+      "gate": "G1",
+      "title": "Reviewed harness and instructions",
+      "requirement": "Version and review the harness, system prompt, and rules files before release. Allow production changes only through a release process that records who made them. Protect source branches from history rewrites, so the reviewed diff stays available. Link the deployed versions to the approved review. Complete the full configuration checks in section C.",
+      "not_covered": [
+        {
+          "problem": "Running config drifting from the approved baseline",
+          "owner": "C04"
+        },
+        {
+          "problem": "Model or dependency change promoted without review and re-testing",
+          "owner": "C05"
+        },
+        {
+          "problem": "A tool server changing its description or schema after approval",
+          "owner": "E03"
+        },
+        {
+          "problem": "Release candidate not re-tested against attack cases",
+          "owner": "C06"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "prompts/system.md",
+          "line": 1,
+          "note": "Harness, system prompt, and rules loaded from repo files in Dockerfile COPY. Config loaded from config/ directory."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B12.1",
+          "check": "The harness, system prompt, and rules files are in version control and loaded from the reviewed build, not fetched at run time from a database, URL, or feature flag.",
+          "verify": "1) Find where the system prompt and rules are loaded (`system_prompt`, `CLAUDE.md`, `AGENTS.md`, `prompts/`). 2) Check they come from files in the repo or build. 3) Answer no if any part is fetched at run time from a database, URL, feature flag, or env var with no recorded version, or a remote source overrides the file when available.",
+          "met": "yes",
+          "evidence": "prompts/system.md:1,src/tools.py:1,Dockerfile:7-8",
+          "quote": "COPY prompts/ prompts/",
+          "counter_search": "No remote fetch, no feature flag override",
+          "note": "Harness, system prompt, and rules loaded from repo files in Dockerfile COPY. Config loaded from config/ directory."
+        },
+        {
+          "id": "B12.2",
+          "check": "CODEOWNERS or required-review rules cover the prompt, rules, and harness files.",
+          "verify": "1) Read `CODEOWNERS` and review rules (`.github/`, rulesets, branch protection IaC). 2) Check patterns match prompt, rules, and harness paths. 3) Answer no if those paths are uncovered, the pattern misses them (wrong glob, case), or no CODEOWNERS exists. Answer unknown if required reviews are set only in repo settings outside the code.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No CODEOWNERS file found in repo. Required reviews cannot be verified from code."
+        },
+        {
+          "id": "B12.3",
+          "check": "Production deploys run only from CI on the reviewed branch and record the commit, tag, or digest deployed.",
+          "verify": "1) Read deploy workflows and scripts. 2) Check deploy triggers only on the reviewed branch and records commit, tag, or digest. 3) Answer no if `workflow_dispatch` or a script deploys any branch or local build, deploy scripts accept manual laptop pushes, or no version is recorded. Answer unknown if deploy is outside this repo.",
+          "met": "yes",
+          "evidence": ".github/workflows/build.yaml:24,43",
+          "quote": "if: github.ref == 'refs/heads/main'",
+          "counter_search": "No workflow_dispatch, no manual deploy",
+          "note": "Deploy only from main branch CI. Image tagged with git SHA."
+        },
+        {
+          "id": "B12.4",
+          "check": "Branch protection config blocks force-pushes and history rewrites on the source branch.",
+          "verify": "1) Search for branch protection IaC (`github_branch_protection`, rulesets JSON). 2) Check force-push and deletion are blocked on the source branch. 3) Answer no if `allow_force_pushes: true` or bypass is open to the agent's identity. Answer unknown if protection is set only in repo settings and not in code.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Branch protection config outside repo (GitHub settings, not in code)."
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Prompts and harness in version control, deployed from CI on main branch with SHA. CODEOWNERS and branch protection outside repo.",
+      "next_step": "validate",
+      "lead_role": "agent_team"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {
+    "H001": {
+      "verdict": "confirmed",
+      "item": "B10",
+      "reason": "training/finetune-job.yaml:20 uses :latest tag, not digest. Prescan hit is valid."
+    },
+    "H003": {
+      "verdict": "confirmed",
+      "item": "B10",
+      "reason": "Admission policy in Audit mode (line 6) does not enforce image verification. Violating pods still run."
+    },
+    "H002": {
+      "verdict": "confirmed",
+      "item": "B11",
+      "reason": "Deployment securityContext checked; vllm container missing readOnlyRootFilesystem."
+    },
+    "H010": {
+      "verdict": "confirmed",
+      "item": "B05",
+      "reason": "Domain check at src/tools.py:73 uses unanchored endswith(), vulnerable to evil-example.com bypass."
+    }
+  }
+}

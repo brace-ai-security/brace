@@ -1,0 +1,49 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with: { node-version: 20.17.0, cache: npm }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: arn:aws:iam::412093557310:role/github-shopper-deploy
+          aws-region: us-east-1
+      - uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+      - uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
+        with: { cosign-release: v2.6.2 }
+      - name: Build and push
+        id: build
+        run: |
+          IMAGE=412093557310.dkr.ecr.us-east-1.amazonaws.com/shopper-agent
+          docker build -t $IMAGE:${GITHUB_SHA} -t $IMAGE:latest .
+          docker push $IMAGE:${GITHUB_SHA}
+          docker push $IMAGE:latest
+          echo "digest=$(docker inspect --format='{{index .RepoDigests 0}}' $IMAGE:${GITHUB_SHA})" >> "$GITHUB_OUTPUT"
+      - name: Sign
+        run: cosign sign --yes "${{ steps.build.outputs.digest }}"
+      - name: Deploy
+        working-directory: infra
+        run: |
+          terraform init -input=false
+          terraform apply -auto-approve -input=false -var image_tag=${GITHUB_SHA}

@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hr-helpdesk-agent
+  namespace: hr-agent
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hr-tool-gateway
+  namespace: hr-agent
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hr-helpdesk-agent
+  namespace: hr-agent
+  labels: {app: hr-helpdesk-agent, app.kubernetes.io/part-of: hr-helpdesk}
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: hr-helpdesk-agent}
+  template:
+    metadata:
+      labels: {app: hr-helpdesk-agent}
+      annotations:
+        acme.example/release-manifest: "release/manifest.yaml@${GIT_SHA}"
+    spec:
+      serviceAccountName: hr-helpdesk-agent
+      automountServiceAccountToken: false
+      hostUsers: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: agent
+          image: registry.acme.example/people/hr-helpdesk-agent@${IMAGE_DIGEST}
+          args: ["-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080"]
+          ports: [{containerPort: 8080}]
+          env:
+            - {name: AGENT_TYPE_ID, value: "${AGENT_TYPE_ID}"}
+            - {name: IMAGE_DIGEST, value: "${IMAGE_DIGEST}"}
+            - name: POD_UID
+              valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: hr-agent-db, key: url}}
+            - name: ANTHROPIC_API_KEY
+              valueFrom: {secretKeyRef: {name: hr-agent-anthropic, key: api_key}}
+            - {name: ANTHROPIC_BASE_URL, value: "https://api.anthropic.com"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: sts-token, mountPath: /var/run/secrets/tokens, readOnly: true}
+            - {name: svid, mountPath: /etc/svid, readOnly: true}
+      volumes:
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 32Mi}
+        - name: sts-token
+          projected:
+            sources:
+              - serviceAccountToken: {path: sts-token, audience: sts.acme.example, expirationSeconds: 600}
+        - name: svid
+          csi: {driver: csi.spiffe.io, readOnly: true}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hr-tool-gateway
+  namespace: hr-agent
+  labels: {app: hr-tool-gateway, app.kubernetes.io/part-of: hr-helpdesk}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: hr-tool-gateway}
+  template:
+    metadata:
+      labels: {app: hr-tool-gateway}
+    spec:
+      serviceAccountName: hr-tool-gateway
+      automountServiceAccountToken: false
+      hostUsers: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: gateway
+          image: registry.acme.example/people/hr-helpdesk-agent@${IMAGE_DIGEST}
+          args: ["-m", "uvicorn", "src.gateway:app", "--host", "0.0.0.0", "--port", "8443"]
+          ports: [{containerPort: 8443}]
+          env:
+            - name: GATEWAY_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: hr-gateway-db, key: url}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: sts-token, mountPath: /var/run/secrets/tokens, readOnly: true}
+            - {name: svid, mountPath: /etc/svid, readOnly: true}
+      volumes:
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+        - name: sts-token
+          projected:
+            sources:
+              - serviceAccountToken: {path: sts-token, audience: sts.acme.example, expirationSeconds: 600}
+        - name: svid
+          csi: {driver: csi.spiffe.io, readOnly: true}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hr-tool-gateway
+  namespace: hr-agent
+spec:
+  selector: {app: hr-tool-gateway}
+  ports: [{port: 8443, targetPort: 8443}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hr-helpdesk-agent
+  namespace: hr-agent
+spec:
+  selector: {app: hr-helpdesk-agent}
+  sessionAffinity: ClientIP
+  ports: [{port: 80, targetPort: 8080}]

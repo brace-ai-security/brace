@@ -13,10 +13,10 @@ The checklist covers two kinds of trouble. An attacker may **hijack or misuse** 
 ## How to use this checklist
 
 1. **Describe the deployment.** Write down the agent's task, environment, tenants (customers or accounts whose data must stay separate), data sensitivity, allowed actions, and level of autonomy. Also write down the worst damage it could credibly cause. Include tools, retrieval, memory, helper models, and sub-agents.
-2. **Go through all five aspects.** Give every item an owner. Mark an item done only when the deployed setup meets it and you can link to proof. Proof means a reviewed artifact, an enforced policy, a trace, or a dated test result. A plan or a vendor claim is not proof.
+2. **Go through all five aspects.** Give every item an owner. The [role map](ROLES.md) suggests which team should lead each item. Mark an item done only when the deployed setup meets it and you can link to proof. Proof means a reviewed artifact, an enforced policy, a trace, or a dated test result. A plan or a vendor claim is not proof.
 3. **Record every result.** Use **Pass**, **Gap**, or **N/A** in the evidence record below. A partial fix is a Gap. N/A needs a reason and a reviewer's approval. A missing control is not N/A. For example, memory checks are N/A only if the agent has no memory that lasts between runs.
 4. **Apply the priority gates in all five sections.** The section letters say *where to look*. The gate labels say *what blocks release*. Don't stop after Build-time or after the first section that passes.
-5. **Use the verification recipes.** The [verification guide](CHECKLIST-VERIFICATION.md) gives each item a test, the result to expect, and the evidence to keep. Test the release candidate. Use separate test resources and fake data, and write down how the test setup differs from production.
+5. **Use the verification recipes.** The [verification guide](CHECKLIST-VERIFICATION.md) gives each item a test, the result to expect, and the evidence to keep. To keep the record in the agent's repository and check it in CI, see [BRACE in your codebase](TOOLS.md). Test the release candidate. Use separate test resources and fake data, and write down how the test setup differs from production.
 6. **Finish the sign-off record.** Fix blockers, write down any allowed deferrals, and set the next review date.
 
 ### Working with operational limits

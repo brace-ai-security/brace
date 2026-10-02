@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: cloudops-agent, namespace: cloudops}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: cloudops-agent}}
+  template:
+    metadata: {labels: {app: cloudops-agent}}
+    spec:
+      serviceAccountName: cloudops-agent
+      hostUsers: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: agent
+          image: ghcr.io/northwind-platform/cloudops-agent@sha256:4e7d2a91c0b35f68e1d9a7c4b2f0e8d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities: {drop: ["ALL"]}
+          ports: [{name: webhook, containerPort: 8443}]
+          env:
+            - {name: AUDIT_DATABASE_URL, valueFrom: {secretKeyRef: {name: cloudops-db, key: url}}}
+            - {name: SLACK_BOT_TOKEN, valueFrom: {secretKeyRef: {name: cloudops-slack, key: bot-token}}}
+            - {name: ALERT_WEBHOOK_SECRET, valueFrom: {secretKeyRef: {name: cloudops-alertmanager, key: hmac}}}
+            - {name: MCP_AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: cloudops-mcp-aws, key: access-key-id}}}
+            - {name: MCP_AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: cloudops-mcp-aws, key: secret-access-key}}}
+            - {name: PROM_PROXY_URL, value: "http://prom-label-proxy.monitoring.svc:8080"}
+            - {name: LOKI_PROXY_URL, value: "http://loki-label-proxy.monitoring.svc:8080"}
+            - {name: APPROVALS_BOT_URL, value: "http://approvals-bot.platform.svc:8080"}
+            - {name: HTTPS_PROXY, value: "http://egress-proxy.netsec.svc:3128"}
+            - {name: NO_PROXY, value: ".svc,.cluster.local"}
+            - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.observability.svc:4317"}
+          resources:
+            requests: {cpu: 200m, memory: 256Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - {name: clusters, mountPath: /etc/cloudops/clusters, readOnly: true}
+            - {name: mcp, mountPath: /etc/cloudops/.mcp.json, subPath: .mcp.json, readOnly: true}
+            - {name: tls, mountPath: /tls, readOnly: true}
+      volumes:
+        - {name: clusters, secret: {secretName: cloudops-cluster-kubeconfigs}}
+        - {name: mcp, configMap: {name: cloudops-mcp}}
+        - {name: tls, secret: {secretName: cloudops-webhook-tls}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: cloudops-agent, namespace: cloudops}
+spec:
+  podSelector: {matchLabels: {app: cloudops-agent}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}, podSelector: {matchLabels: {app.kubernetes.io/name: alertmanager}}}]
+      ports: [{port: 8443}]
+  egress:
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: netsec}}, podSelector: {matchLabels: {app: egress-proxy}}}]
+      ports: [{port: 3128}]
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}, podSelector: {matchExpressions: [{key: app, operator: In, values: [prom-label-proxy, loki-label-proxy]}]}}]
+      ports: [{port: 8080}]
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: platform}}, podSelector: {matchLabels: {app: approvals-bot}}}]
+      ports: [{port: 8080}]
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: observability}}, podSelector: {matchLabels: {app: otel-collector}}}]
+      ports: [{port: 4317}]
+    - to: [{ipBlock: {cidr: 10.40.30.15/32}}]
+      ports: [{port: 5432}]

@@ -1,0 +1,89 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: hr-agent
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hr-helpdesk-agent-egress
+  namespace: hr-agent
+spec:
+  endpointSelector:
+    matchLabels: {app: hr-helpdesk-agent}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {"k8s:io.kubernetes.pod.namespace": web-frontends, app: hr-portal-bff}
+      toPorts: [{ports: [{port: "8080", protocol: TCP}]}]
+  egress:
+    - toEndpoints:
+        - matchLabels: {"k8s:io.kubernetes.pod.namespace": kube-system, k8s-app: kube-dns}
+      toPorts:
+        - ports: [{port: "53", protocol: UDP}]
+          rules:
+            dns:
+              - matchName: api.anthropic.com
+              - matchName: sso.acme.example
+              - matchPattern: "*.svc.cluster.local"
+    - toFQDNs:
+        - matchName: api.anthropic.com
+        - matchName: sso.acme.example
+      toPorts: [{ports: [{port: "443", protocol: TCP}]}]
+    - toEndpoints:
+        - matchLabels: {app: hr-tool-gateway}
+      toPorts: [{ports: [{port: "8443", protocol: TCP}]}]
+    - toEndpoints:
+        - matchLabels: {"k8s:io.kubernetes.pod.namespace": identity, app: sts}
+      toPorts: [{ports: [{port: "443", protocol: TCP}]}]
+    - toEndpoints:
+        - matchLabels: {"k8s:io.kubernetes.pod.namespace": data, app: hr-postgres}
+      toPorts: [{ports: [{port: "5432", protocol: TCP}]}]
+    - toEndpoints:
+        - matchLabels: {"k8s:io.kubernetes.pod.namespace": observability, app: otel-collector}
+      toPorts: [{ports: [{port: "4317", protocol: TCP}]}]
+    - toEndpoints:
+        - matchLabels: {"k8s:io.kubernetes.pod.namespace": helpdesk, app: helpdesk-mcp}
+      toPorts: [{ports: [{port: "8443", protocol: TCP}]}]
+  egressDeny:
+    - toCIDR: [169.254.169.254/32, 169.254.170.2/32, 100.100.100.200/32]
+    - toCIDRSet:
+        - cidr: fd00:ec2::254/128
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hr-tool-gateway-egress
+  namespace: hr-agent
+spec:
+  endpointSelector:
+    matchLabels: {app: hr-tool-gateway}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: hr-helpdesk-agent}
+      toPorts: [{ports: [{port: "8443", protocol: TCP}]}]
+  egress:
+    - toEndpoints:
+        - matchLabels: {"k8s:io.kubernetes.pod.namespace": kube-system, k8s-app: kube-dns}
+      toPorts:
+        - ports: [{port: "53", protocol: UDP}]
+          rules:
+            dns:
+              - matchPattern: "*.svc.cluster.local"
+    - toEndpoints:
+        - matchLabels: {"k8s:io.kubernetes.pod.namespace": hris, app: hris-mcp}
+        - matchLabels: {"k8s:io.kubernetes.pod.namespace": helpdesk, app: helpdesk-mcp}
+      toPorts: [{ports: [{port: "8443", protocol: TCP}]}]
+    - toEndpoints:
+        - matchLabels: {"k8s:io.kubernetes.pod.namespace": identity, app: sts}
+      toPorts: [{ports: [{port: "443", protocol: TCP}]}]
+    - toEndpoints:
+        - matchLabels: {"k8s:io.kubernetes.pod.namespace": data, app: hr-postgres}
+      toPorts: [{ports: [{port: "5432", protocol: TCP}]}]
+  egressDeny:
+    - toCIDR: [169.254.169.254/32, 169.254.170.2/32, 100.100.100.200/32]
+    - toCIDRSet:
+        - cidr: fd00:ec2::254/128

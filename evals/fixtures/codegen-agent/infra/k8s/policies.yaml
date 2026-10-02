@@ -1,0 +1,171 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: agents
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: issuesmith-worker-egress
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels: { app: issuesmith, component: worker }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    - to:
+        - podSelector: { matchLabels: { app: egress-proxy } }
+      ports: [{ protocol: TCP, port: 3128 }]
+    - to:
+        - podSelector: { matchLabels: { app: redis } }
+      ports: [{ protocol: TCP, port: 6379 }]
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: observability } }
+          podSelector: { matchLabels: { app: audit-collector } }
+      ports: [{ protocol: TCP, port: 4318 }]
+    - to:
+        - ipBlock: { cidr: 10.40.32.0/22 }   # approvals RDS subnet group
+      ports: [{ protocol: TCP, port: 5432 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-proxy
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels: { app: egress-proxy }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: issuesmith } }
+      ports: [{ protocol: TCP, port: 3128 }]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 127.0.0.0/8]
+      ports: [{ protocol: TCP, port: 443 }]
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports: [{ protocol: UDP, port: 53 }]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: egress-proxy
+  namespace: agents
+data:
+  squid.conf: |
+    http_port 3128
+    acl SSL_ports port 443
+    acl CONNECT method CONNECT
+    acl allowed_sites ssl::server_name api.anthropic.com
+    acl allowed_sites ssl::server_name api.github.com
+    acl allowed_sites ssl::server_name github.com
+    acl allowed_sites ssl::server_name registry.npmjs.org
+    acl allowed_sites ssl::server_name docs-search.internal.acme-corp.com
+    acl allowed_sites ssl::server_name secretsmanager.us-east-1.amazonaws.com
+    acl allowed_sites ssl::server_name sts.us-east-1.amazonaws.com
+    acl allowed_sites ssl::server_name acme-issuesmith-memory.s3.us-east-1.amazonaws.com
+    acl allowed_sites ssl::server_name acme-issuesmith-prompts.s3.us-east-1.amazonaws.com
+    acl ip_literal url_regex -i ^[0-9.]+:443$ ^\[[0-9a-f:]+\]:443$
+    http_access deny !SSL_ports
+    http_access deny ip_literal
+    http_access allow CONNECT allowed_sites
+    http_access deny all
+    ssl_bump peek all
+    ssl_bump splice allowed_sites
+    ssl_bump terminate all
+    logformat agentlog %ts.%03tu %>a %rm %ru %ssl::>sni %>Hs %Ss
+    access_log stdio:/dev/stdout agentlog
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-issuesmith-image
+spec:
+  validationFailureAction: Enforce
+  webhookTimeoutSeconds: 15
+  failurePolicy: Fail
+  background: false
+  rules:
+    - name: restrict-registry-and-digest
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [agents]
+      validate:
+        message: "images in agents must come from ghcr.io/acme-corp and be referenced by digest"
+        pattern:
+          spec:
+            =(initContainers):
+              - image: "ghcr.io/acme-corp/*@sha256:*"
+            containers:
+              - image: "ghcr.io/acme-corp/*@sha256:*"
+    - name: require-org-signature
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [agents]
+      verifyImages:
+        - imageReferences: ["ghcr.io/acme-corp/*"]
+          verifyDigest: true
+          required: true
+          attestors:
+            - entries:
+                - keyless:
+                    issuer: https://token.actions.githubusercontent.com
+                    subjectRegExp: ^https://github\.com/acme-corp/[a-z0-9-]+/\.github/workflows/release\.yml@refs/heads/main$
+                    rekor:
+                      url: https://rekor.sigstore.dev
+    - name: require-issuesmith-provenance
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [agents]
+      verifyImages:
+        - imageReferences: ["ghcr.io/acme-corp/issuesmith*"]
+          mutateDigest: false
+          verifyDigest: true
+          required: true
+          attestors:
+            - entries:
+                - keyless:
+                    issuer: https://token.actions.githubusercontent.com
+                    subject: https://github.com/acme-corp/issuesmith/.github/workflows/release.yml@refs/heads/main
+                    rekor:
+                      url: https://rekor.sigstore.dev
+          attestations:
+            - type: https://slsa.dev/provenance/v1
+              attestors:
+                - entries:
+                    - keyless:
+                        issuer: https://token.actions.githubusercontent.com
+                        subject: https://github.com/acme-corp/issuesmith/.github/workflows/release.yml@refs/heads/main
+              conditions:
+                - all:
+                    - key: "{{ buildDefinition.buildType }}"
+                      operator: Equals
+                      value: https://actions.github.io/buildtypes/workflow/v1
+                    - key: "{{ buildDefinition.externalParameters.workflow.repository }}"
+                      operator: Equals
+                      value: https://github.com/acme-corp/issuesmith
+                    - key: "{{ buildDefinition.externalParameters.workflow.ref }}"
+                      operator: Equals
+                      value: refs/heads/main
+                    - key: "{{ runDetails.builder.id }}"
+                      operator: Equals
+                      value: https://github.com/actions/runner/github-hosted

@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: audit-partition-maintenance
+  namespace: hr-agent
+  labels: {app.kubernetes.io/part-of: hr-helpdesk}
+spec:
+  schedule: "17 2 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels: {app: audit-maintenance}
+        spec:
+          serviceAccountName: hr-audit-maint
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: maintain
+              image: registry.acme.example/platform/psql@sha256:9b2e61c04d7f3a85e1c6b09d2f4a7e3c58d1b6a0f9e2c47d3b8a15e6f0c9d2a4
+              env:
+                - name: PGSERVICE
+                  value: hr_audit_maint
+                - name: PERIOD
+                  value: "1 week"
+                - name: AHEAD
+                  value: "4"
+                - name: KEEP_PARTITIONS
+                  value: "6"
+              command: ["psql", "-v", "ON_ERROR_STOP=1", "-c"]
+              args:
+                - >-
+                  SELECT audit.maintain_partitions('audit.events', '$(PERIOD)', $(AHEAD), $(KEEP_PARTITIONS));
+                  SELECT audit.maintain_partitions('audit.gateway_decisions', '$(PERIOD)', $(AHEAD), $(KEEP_PARTITIONS));
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: pgservice, mountPath: /etc/postgresql-common, readOnly: true}
+          volumes:
+            - name: pgservice
+              secret: {secretName: hr-audit-maint-pgservice}

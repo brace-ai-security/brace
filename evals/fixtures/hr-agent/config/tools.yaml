@@ -1,0 +1,107 @@
+policy_version: "2026-09-18.3"
+
+servers:
+  hris:
+    endpoint: https://hris-mcp.hris.svc.cluster.local:8443/mcp
+    identity: spiffe://acme.example/ns/hris/sa/hris-mcp
+    downstream_audience: hris-mcp
+    owner: hris-platform
+  helpdesk:
+    endpoint: https://helpdesk-mcp.helpdesk.svc.cluster.local:8443/mcp
+    identity: spiffe://acme.example/ns/helpdesk/sa/helpdesk-mcp
+    downstream_audience: helpdesk-mcp
+    owner: it-service-desk
+
+# Model-facing name -> qualified tool. Server annotations (readOnlyHint etc.)
+# are never consulted; approval comes only from this file.
+tools:
+  search_policies:
+    kind: local
+    reason: "Answer policy questions from the approved HR handbook index."
+    scope: hr.policy.read
+    approval: none
+    input_schema:
+      type: object
+      properties:
+        query: {type: string, minLength: 3, maxLength: 300}
+      required: [query]
+      additionalProperties: false
+
+  get_leave_balance:
+    kind: mcp
+    qualified: hris/get_leave_balance
+    server: hris
+    reason: "Show the asking employee their own leave balance."
+    scope: hris.leave.read
+    approval: none
+    target: "employee:{subject}"
+    fingerprint: "sha256:5d1c0e9a7b3f48e2a61c9d04f7be3a92c815e6d07ab4f3c2e19d8a6b5c4f0e71"
+    input_schema:
+      type: object
+      properties:
+        leave_type: {enum: [annual, sick, parental, unpaid]}
+      required: [leave_type]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        leave_type: {type: string, maxLength: 20}
+        balance_days: {type: number, minimum: 0, maximum: 400}
+        accrual_per_month: {type: number, minimum: 0, maximum: 5}
+        as_of: {type: string, format: date}
+      required: [leave_type, balance_days, as_of]
+      additionalProperties: false
+
+  file_leave_request:
+    kind: mcp
+    qualified: hris/file_leave_request
+    server: hris
+    reason: "File a leave request for the asking employee; the manager approves it in HRIS."
+    scope: hris.leave.request
+    approval: subject
+    target: "employee:{subject}"
+    fingerprint: "sha256:a0f7c3d95e21b84f6c0d19e3a7b25f48d6e0c1a93b7f2e54d81c6a09f3e7b2d4"
+    input_schema:
+      type: object
+      properties:
+        leave_type: {enum: [annual, sick, parental, unpaid]}
+        start_date: {type: string, format: date}
+        end_date: {type: string, format: date}
+        note: {type: string, maxLength: 280}
+      required: [leave_type, start_date, end_date]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        request_id: {type: string, pattern: "^LR-[0-9]{8}$"}
+        status: {enum: [submitted, duplicate]}
+        approver_role: {type: string, maxLength: 40}
+      required: [request_id, status]
+      additionalProperties: false
+
+  escalate_to_human:
+    kind: mcp
+    qualified: helpdesk/create_ticket
+    server: helpdesk
+    reason: "Hand the conversation to an HR advisor when the agent cannot help."
+    scope: helpdesk.ticket.create
+    approval: subject
+    target: "queue:hr-advisors"
+    fingerprint: "sha256:3e9b71f0c2d84a6e5b17f9c03d2a8e46b1f5c07d93a2e68b4c1d0f7a5e3b9c28"
+    direct_route:
+      endpoint: https://helpdesk-mcp.helpdesk.svc.cluster.local:8443/mcp
+      audience: helpdesk-mcp
+    input_schema:
+      type: object
+      properties:
+        summary: {type: string, minLength: 10, maxLength: 1000}
+        category: {enum: [payroll, leave, benefits, conduct, other]}
+      required: [summary, category]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        ticket_id: {type: string, pattern: "^HR-[0-9]{6}$"}
+        queue: {type: string, maxLength: 40}
+      required: [ticket_id]
+      additionalProperties: false

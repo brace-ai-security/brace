@@ -1,0 +1,81 @@
+# Every capability the shopper agent type can reach. Anything not listed here is refused by
+# src/tools/registry.ts, including tools a connected MCP server advertises later.
+version: 14
+roles:
+  shopper:
+    - id: builtin:browser_navigate
+      reason: Open retailer product, search, and cart pages to compare offers.
+    - id: builtin:browser_read
+      reason: Read the visible text of the current page for price and stock.
+    - id: builtin:browser_click
+      reason: Add to cart, pick size/colour variants, apply coupon codes.
+    - id: builtin:browser_fill
+      reason: Enter search terms, quantities, coupon codes, and shipping details.
+    - id: builtin:extract_offers
+      reason: Turn a product page into structured offers via the price-extractor helper model.
+    - id: builtin:recall_preferences
+      reason: Load sizes, brands, budget, and addresses the user saved.
+    - id: builtin:remember_preference
+      reason: Save a preference the user stated.
+    - id: builtin:ask_deals_peer
+      reason: Ask DealsNet for coupon codes for a retailer and SKU list.
+    - id: builtin:request_checkout_approval
+      reason: Show the user a cart summary and ask for approval to buy.
+    - id: builtin:checkout
+      reason: Complete an approved purchase with a single-use vault token.
+  price-watch:
+    - id: builtin:browser_navigate
+      reason: Re-open a watched product page.
+    - id: builtin:browser_read
+      reason: Read the current price.
+    - id: builtin:extract_offers
+      reason: Structure the price for comparison with the watch threshold.
+
+# Called by harness code only (src/tools/checkout.ts). Never listed to the model.
+internal:
+  - id: vaultline-payments:issue_single_use_token
+    caller: builtin:checkout
+    reason: Obtain a one-time card token capped to the order amount.
+
+mcp_servers:
+  vaultline-payments:
+    reason: Card tokenization; the agent never sees card numbers.
+    launch: stdio, node /app/node_modules/@vaultline/payments-mcp/dist/cli.js
+    package: "@vaultline/payments-mcp@2.3.1"
+
+apis:
+  - endpoint: https://api.anthropic.com/v1/messages
+    reason: Primary and price-extractor model calls.
+  - endpoint: dynamodb shopper-memory, shopper-approvals, shopper-control
+    reason: Preferences, approvals, quotas, and operator controls.
+  - endpoint: https://login.shopper.app/oauth2/token
+    reason: Token exchange for the one-hop DealsNet credential.
+  - endpoint: https://agents.dealsnet.com/a2a
+    reason: Coupon queries (ask_deals_peer).
+  - endpoint: https://api.vaultline.io/v2
+    reason: Reached only by the vault MCP server process, not by harness code.
+
+programs:
+  - path: /ms-playwright/chromium-1134/chrome-linux/chrome
+    reason: Headless browser for retailer sites.
+  - path: /usr/local/bin/node
+    reason: Runtime for the harness and the vault MCP server.
+  - path: /opt/ext
+    reason: Consent-banner dismissal extension loaded into Chromium so product pages are readable.
+
+file_permissions:
+  - path: /tmp/browser-profiles
+    mode: rw
+    reason: Per-run Chromium profile, deleted when the run ends.
+  - path: /run/vault/token
+    mode: r
+    reason: Vault client token file, written by the sidecar.
+  - path: /run/identity/token
+    mode: r
+    reason: Workload identity token, used as actor_token for the DealsNet token exchange.
+  - path: /opt/ext
+    mode: r
+    reason: Consent-banner extension files.
+  - path: /app
+    mode: r
+    reason: Application code and prompts.

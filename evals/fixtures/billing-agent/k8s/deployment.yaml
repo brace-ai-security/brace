@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: billing-agent
+  namespace: billing-agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: billing-agent
+  namespace: billing-agent
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: billing-agent
+  namespace: billing-agent
+subjects:
+  - kind: ServiceAccount
+    name: billing-agent
+    namespace: billing-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: billing-agent
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: billing-agent-control
+  namespace: billing-agent
+data:
+  halted: "false"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: billing-agent-sweep-cursor
+  namespace: billing-agent
+data:
+  last_tenant: ""
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-agent
+  namespace: billing-agent
+  labels:
+    app: billing-agent
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: billing-agent
+  template:
+    metadata:
+      labels:
+        app: billing-agent
+    spec:
+      serviceAccountName: billing-agent
+      hostUsers: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: ghcr.io/ledgerly/billing-agent@sha256:4e1b7c2a9d0f3e5b8c6a1d4f7e0b3c9a2d5f8e1b4c7a0d3f6e9b2c5a8d1f4e7b
+          args: ["serve"]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: IMAGE_DIGEST
+              value: sha256:4e1b7c2a9d0f3e5b8c6a1d4f7e0b3c9a2d5f8e1b4c7a0d3f6e9b2c5a8d1f4e7b
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PAYRAIL_SA_TOKEN_PATH
+              value: /var/run/secrets/payrail/token
+          envFrom:
+            - secretRef:
+                name: billing-agent-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: payrail-token
+              mountPath: /var/run/secrets/payrail
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: payrail-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: sts.internal.ledgerly.io
+                  expirationSeconds: 600

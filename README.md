@@ -19,6 +19,8 @@ BRACE defines controls for that configuration, says which to build first, and li
 - **[Sign-off checklist](CHECKLIST.md)** — a 53-item go/no-go review across all five BRACE aspects. It is for the engineer or manager who approves an agent for production, and it notes what is hard, what to do if you can't fully comply, and which tradeoffs are acceptable. If you read one thing, read this.
 - **[Self-assessment](SELF-ASSESSMENT.md)** — score the same 53 checklist items for a running deployment or a vendor.
 - **[Source review](SOURCE-REVIEW.md)** — supporting sources, corrections, and the limits of the evidence.
+- **[BRACE in your codebase](TOOLS.md)** — AI skills that review an agent's code, a `.brace/` record for exceptions and approvals, and a CI check that returns GO or NO-GO.
+- **[Role map](ROLES.md)** — which team leads each checklist item.
 
 ---
 
@@ -135,6 +137,8 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 | [SELF-ASSESSMENT.md](SELF-ASSESSMENT.md) | Scoring worksheet for the same 53 checklist item IDs and gates. |
 | [otel-conventions.md](otel-conventions.md) | Proposed OpenTelemetry attributes for agent identity and provenance. |
 | [mappings/](mappings/) | How BRACE items line up with [MITRE ATLAS](mappings/mitre-atlas.md), the [NIST AI RMF](mappings/nist-ai-rmf.md), and [ISO/IEC 42001](mappings/iso-iec-42001.md). Each row is rated Direct, Partial, or Out of scope. |
+| [TOOLS.md](TOOLS.md) | Use BRACE inside an agent's codebase: AI skills that review code and write tests, a `.brace/` record for outcomes, exceptions, and approvals, and a CI check that returns GO or NO-GO. |
+| [ROLES.md](ROLES.md) | Which role leads or shares each checklist item and sign-off duty, from the agent team to vendors and independent audit. |
 | [VENDOR-MATRIX.md](VENDOR-MATRIX.md) | Evidence to request when evaluating vendor and platform support for each control. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose changes, report a real-world incident, or map a vendor product. |
 | [GOVERNANCE.md](GOVERNANCE.md) | How the project is run, and how to become a co-maintainer. |

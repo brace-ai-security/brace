@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hr-agent
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.31
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+    istio.io/dataplane-mode: ambient
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: hr-agent-verify-images
+  annotations:
+    policies.kyverno.io/owner: people-platform
+spec:
+  validationFailureAction: Enforce
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 15
+  background: false
+  rules:
+    - name: only-approved-registry
+      match:
+        any:
+          - resources: {kinds: [Pod], namespaces: [hr-agent]}
+      validate:
+        message: "Images in hr-agent must come from registry.acme.example and be referenced by digest."
+        pattern:
+          spec:
+            =(initContainers):
+              - image: "registry.acme.example/*@sha256:*"
+            containers:
+              - image: "registry.acme.example/*@sha256:*"
+    - name: verify-signature-and-provenance
+      match:
+        any:
+          - resources: {kinds: [Pod], namespaces: [hr-agent]}
+      verifyImages:
+        - imageReferences: ["registry.acme.example/people/hr-helpdesk-agent*"]
+          mutateDigest: false
+          verifyDigest: true
+          required: true
+          attestors:
+            - entries:
+                - keyless:
+                    subject: "https://github.com/acme/hr-helpdesk-agent/.github/workflows/release.yml@refs/heads/main"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor: {url: "https://rekor.sigstore.dev"}
+          attestations:
+            - type: https://slsa.dev/provenance/v1
+              attestors:
+                - entries:
+                    - keyless:
+                        subject: "https://github.com/acme/hr-helpdesk-agent/.github/workflows/release.yml@refs/heads/main"
+                        issuer: "https://token.actions.githubusercontent.com"
+              conditions:
+                - all:
+                    - key: "{{ buildDefinition.buildType }}"
+                      operator: Equals
+                      value: "https://actions.github.io/buildtypes/workflow/v1"
+                    - key: "{{ buildDefinition.externalParameters.workflow.repository }}"
+                      operator: Equals
+                      value: "https://github.com/acme/hr-helpdesk-agent"
+                    - key: "{{ buildDefinition.externalParameters.workflow.ref }}"
+                      operator: Equals
+                      value: "refs/heads/main"
+                    - key: "{{ runDetails.builder.id }}"
+                      operator: Equals
+                      value: "https://github.com/actions/runner/github-hosted"
+        - imageReferences: ["registry.acme.example/platform/*"]
+          mutateDigest: false
+          verifyDigest: true
+          required: true
+          attestors:
+            - entries:
+                - keyless:
+                    subject: "https://github.com/acme/platform-images/.github/workflows/build.yml@refs/heads/main"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor: {url: "https://rekor.sigstore.dev"}
