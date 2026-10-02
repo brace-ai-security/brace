@@ -1,0 +1,76 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: procurement-verify-images
+  annotations:
+    policies.kyverno.io/title: Verify procurement agent images
+    kyverno.io/kyverno-version: "1.15.2"
+spec:
+  validationFailureAction: Enforce
+  background: false
+  webhookTimeoutSeconds: 15
+  failurePolicy: Fail
+  rules:
+    - name: only-approved-registry
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [procurement-prod]
+      validate:
+        message: "Images in procurement-prod must come from registry.example-corp.test/procurement and be pinned by digest."
+        pattern:
+          spec:
+            =(initContainers):
+              - image: "registry.example-corp.test/procurement/*@sha256:*"
+            containers:
+              - image: "registry.example-corp.test/procurement/*@sha256:*"
+    - name: verify-signature-and-provenance
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [procurement-prod]
+      verifyImages:
+        - imageReferences:
+            - "registry.example-corp.test/procurement/*"
+          mutateDigest: false
+          verifyDigest: true
+          required: true
+          attestors:
+            - entries:
+                - keyless:
+                    issuer: "https://token.actions.githubusercontent.com"
+                    subject: "https://github.com/example-corp/procurement-agent/.github/workflows/ci.yaml@refs/heads/main"
+                    rekor:
+                      url: https://rekor.sigstore.dev
+          attestations:
+            - type: https://slsa.dev/provenance/v1
+              attestors:
+                - entries:
+                    - keyless:
+                        issuer: "https://token.actions.githubusercontent.com"
+                        subject: "https://github.com/example-corp/procurement-agent/.github/workflows/ci.yaml@refs/heads/main"
+              conditions:
+                - all:
+                    - key: "{{ buildDefinition.buildType }}"
+                      operator: Equals
+                      value: "https://actions.github.io/buildtypes/workflow/v1"
+                    - key: "{{ buildDefinition.externalParameters.workflow.repository }}"
+                      operator: Equals
+                      value: "https://github.com/example-corp/procurement-agent"
+                    - key: "{{ buildDefinition.externalParameters.workflow.ref }}"
+                      operator: Equals
+                      value: "refs/heads/main"
+                    - key: "{{ buildDefinition.externalParameters.workflow.path }}"
+                      operator: Equals
+                      value: ".github/workflows/ci.yaml"
+                    - key: "{{ runDetails.builder.id }}"
+                      operator: Equals
+                      value: "https://github.com/actions/runner/github-hosted"
+            - type: https://cyclonedx.org/bom
+              attestors:
+                - entries:
+                    - keyless:
+                        issuer: "https://token.actions.githubusercontent.com"
+                        subject: "https://github.com/example-corp/procurement-agent/.github/workflows/ci.yaml@refs/heads/main"

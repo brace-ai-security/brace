@@ -5,7 +5,7 @@ description: Review an AI agent's codebase against the 53-item BRACE sign-off ch
 
 # BRACE review
 
-**Use a strong model, such as Claude Sonnet or Claude Opus.** In tests on agent codebases this skill had never seen, strong models found every planted gap and never rated a broken control as likely to pass. Small, fast models (such as Claude Haiku) missed planted gaps that look like working controls, and in one round rated 4 broken controls as likely to pass. Examples: a shell check that validates only the first word, or a sub-agent that receives the parent's full environment. If you only have a small model, run with `--conservative`, review one aspect per sub-agent, and treat the result as a partial list of gaps, not a review. Say in the report which model was used.
+**Use a strong model, such as Claude Sonnet or Claude Opus.** In tests on agent codebases this skill had never seen, strong models found every planted gap and never rated a broken control as likely to pass. Small, fast models (such as Claude Haiku) missed planted gaps that look like working controls, and rated 9 broken controls as likely to pass across eight codebases. Examples: a shell check that validates only the first word, or a sub-agent that receives the parent's full environment. If you only have a small model, run with `--conservative`, review one aspect per sub-agent, and treat the result as a partial list of gaps, not a review. Say in the report which model was used.
 
 You review one AI agent's code and configuration against the BRACE checklist. You write a findings report a person can act on. You don't decide whether the agent ships. People do that through the `.brace/` record and its approvals.
 

@@ -48,20 +48,28 @@ def refs(evidence):
     return [(m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))) for m in REF.finditer(str(evidence))]
 
 
+def _windows(repo, evidence):
+    for path, start, end in refs(evidence):
+        f = repo / path
+        if f.is_file():
+            lines = f.read_text(errors="replace").splitlines()
+            yield norm(" ".join(lines[max(0, start - 4):min(len(lines), end + 3)]))
+
+
 def quote_found(repo, evidence, quote):
-    """True if the quote appears in a cited file within 3 lines of the cited lines."""
+    """True if the quote appears in a cited file within 3 lines of the cited lines.
+
+    A quote joined from several places with newlines or "..." also counts when every
+    piece is found near one of the cited lines.
+    """
     q = norm(quote)
     if len(q) < 4:
         return False
-    for path, start, end in refs(evidence):
-        f = repo / path
-        if not f.is_file():
-            continue
-        lines = f.read_text(errors="replace").splitlines()
-        window = norm(" ".join(lines[max(0, start - 4):min(len(lines), end + 3)]))
-        if q in window:
-            return True
-    return False
+    windows = list(_windows(repo, evidence))
+    if any(q in w for w in windows):
+        return True
+    pieces = [norm(x) for x in re.split(r"\n|\.\.\.|\u2026", str(quote)) if len(norm(x)) >= 8]
+    return len(pieces) > 1 and all(any(piece in w for w in windows) for piece in pieces)
 
 
 def yes_problem(repo, c, doc_ok):

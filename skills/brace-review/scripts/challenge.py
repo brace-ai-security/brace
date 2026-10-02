@@ -106,7 +106,10 @@ def make(doc, table, repo, out, hunt=False):
                      "\", \"result\": \"holds | fails | unclear\", \"evidence\": \"path:line\", "
                      "\"quote\": \"exact code\", \"note\": \"why\"}],\n \"note\": \"one sentence\"}\n```\n"
                      "Verdict is **failed** if any check fails, **unclear** if none fails but any is unclear, "
-                     "otherwise **upheld**. A failed check needs the quoted line that makes it false.")
+                     "otherwise **upheld**. A failed check needs the quoted line that makes it false: `evidence` is "
+                     "path:line, and `quote` is the exact text of that line. To cite two places, list both refs in "
+                     "`evidence` (`a.py:12, b.yaml:40`) and put each line's text on its own line in `quote`. If the check "
+                     "fails, add `\"violates\": [\"words copied exactly from the requirement\"]`.")
         (out / f"{item}.md").write_text("\n\n".join(parts) + "\n")
         verdicts[item] = {"verdict": "TODO", "checks": [], "note": "", "hunt": is_hunt}
     (out / "verdicts.json").write_text(json.dumps(verdicts, indent=2) + "\n")

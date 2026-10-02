@@ -1,0 +1,195 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: clinic-agent
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.33
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clinic-agent
+  namespace: clinic-agent
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::418295730611:role/clinic-agent-runtime
+    eks.amazonaws.com/token-expiration: "3600"
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clinic-agent-reminders
+  namespace: clinic-agent
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::418295730611:role/clinic-agent-runtime
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clinic-agent
+  namespace: clinic-agent
+data:
+  CLINIC_DIRECTORY: |
+    [{"id":"nb-castro","name":"Northbay Castro","smsNumber":"+14155550110"},
+     {"id":"nb-fremont","name":"Northbay Fremont","smsNumber":"+15105550111"},
+     {"id":"nb-oakland","name":"Northbay Oakland","smsNumber":"+15105550112"},
+     {"id":"nb-sanmateo","name":"Northbay San Mateo","smsNumber":"+16505550113"},
+     {"id":"nb-walnutcreek","name":"Northbay Walnut Creek","smsNumber":"+19255550114"}]
+  SMS_SIGNING_SECRET_ARN: arn:aws:secretsmanager:us-west-2:418295730611:secret:clinic-agent/sms-signing
+  HTTPS_PROXY: http://egress-proxy.platform.svc.cluster.local:3128
+  NO_PROXY: ehr-mcp.internal.northbay-clinics.example,.svc.cluster.local
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clinic-agent
+  namespace: clinic-agent
+  labels: { app: clinic-agent }
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: clinic-agent }
+  template:
+    metadata:
+      labels: { app: clinic-agent }
+    spec:
+      serviceAccountName: clinic-agent
+      automountServiceAccountToken: false
+      hostUsers: false
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: 418295730611.dkr.ecr.us-west-2.amazonaws.com/clinic-agent@sha256:b81f3c0e9d2a4756c8e1f0a3b2d4c6e8f0a1b3c5d7e9f1a2b4c6d8e0f2a4b6c8
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef: { name: clinic-agent }
+          env:
+            - name: IMAGE_DIGEST
+              value: sha256:b81f3c0e9d2a4756c8e1f0a3b2d4c6e8f0a1b3c5d7e9f1a2b4c6d8e0f2a4b6c8
+            - name: GIT_SHA
+              value: e4b7c19d2f80a3561c7e9b0d4f2a6c8e1b3d5f70
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests: { cpu: 250m, memory: 384Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: sts-token, mountPath: /var/run/secrets/tokens, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: { medium: Memory, sizeLimit: 32Mi }
+        - name: sts-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: https://sts.northbay-clinics.example
+                  expirationSeconds: 900
+                  path: sts-token
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: clinic-agent-reminders
+  namespace: clinic-agent
+spec:
+  schedule: "0 17 * * *"
+  timeZone: America/Los_Angeles
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels: { app: clinic-agent-reminders }
+        spec:
+          serviceAccountName: clinic-agent-reminders
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          hostUsers: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: reminders
+              image: 418295730611.dkr.ecr.us-west-2.amazonaws.com/clinic-agent@sha256:b81f3c0e9d2a4756c8e1f0a3b2d4c6e8f0a1b3c5d7e9f1a2b4c6d8e0f2a4b6c8
+              args: ["dist/workers/reminders.js"]
+              envFrom:
+                - configMapRef: { name: clinic-agent }
+              env:
+                - name: IMAGE_DIGEST
+                  value: sha256:b81f3c0e9d2a4756c8e1f0a3b2d4c6e8f0a1b3c5d7e9f1a2b4c6d8e0f2a4b6c8
+                - name: GIT_SHA
+                  value: e4b7c19d2f80a3561c7e9b0d4f2a6c8e1b3d5f70
+              securityContext:
+                allowPrivilegeEscalation: false
+                privileged: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+---
+# Egress: DNS, the EHR MCP endpoint (private link), and the platform egress proxy only.
+# The proxy allows api.anthropic.com, the payments and SMS providers, the eligibility agent,
+# the group STS and auth service, and AWS service endpoints.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clinic-agent-egress
+  namespace: clinic-agent
+spec:
+  podSelector: {}
+  policyTypes: ["Egress", "Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress }
+      ports:
+        - { port: 8080, protocol: TCP }
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: platform }
+          podSelector:
+            matchLabels: { app: egress-proxy }
+      ports:
+        - { port: 3128, protocol: TCP }
+    - to:
+        - ipBlock: { cidr: 10.60.12.0/28 }
+      ports:
+        - { port: 443, protocol: TCP }

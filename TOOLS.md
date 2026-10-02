@@ -44,7 +44,7 @@ The skills follow the common `SKILL.md` format. To use them with Claude Code, co
 - **They don't prove an agent is secure.** A code review finds likely gaps and likely controls. Many items, such as stop times, revocation delays, and drift alerts, can only be shown by running the recipes.
 - **They don't replace people's judgment.** The stakes rating, risk acceptances, N/A decisions, and the GO/NO-GO decision stay with the roles in [ROLES.md](ROLES.md).
 - **The review's accuracy is measured, not assumed.** See the [eval results](evals/README.md) before trusting `brace-review` on its own, and re-run the evals when the skill or the checklist changes.
-- **Use a strong model for `brace-review`, such as Claude Sonnet or Opus.** On six agent codebases the skill had never seen, a strong model found all 68 planted gaps with no false passes. A small model (Claude Haiku) found 49 of 68, missed gaps hidden behind code that looks like a working control, and passed 4 broken controls. If only a small model is available, use `--conservative` and treat the output as a partial gap list.
+- **Use a strong model for `brace-review`, such as Claude Sonnet or Opus.** On eight agent codebases the skill had never seen, a strong model found all 92 planted gaps with no false passes. A small model (Claude Haiku) found 64 of 92, missed gaps hidden behind code that looks like a working control, and passed 9 broken controls. If only a small model is available, use `--conservative` and treat the output as a partial gap list.
 
 ---
 

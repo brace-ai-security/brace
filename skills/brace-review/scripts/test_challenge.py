@@ -54,3 +54,13 @@ def test_answer_rejects_paraphrased_violates(tmp_path):
                           capture_output=True, text=True)
     assert good.returncode == 0, good.stderr
     assert json.loads(f.read_text())["findings"][0]["violates"] == ["Block them by default in the execution path"]
+
+
+def test_quote_pieces_from_two_files(tmp_path):
+    from validate_findings import quote_found
+    (tmp_path / "a.py").write_text("x = 1\nif not op.startswith(READ_PREFIXES):\n    deny()\n")
+    (tmp_path / "b.yaml").write_text("read_prefixes:\n  - invoice.\n")
+    ev = "a.py:2, b.yaml:2"
+    assert quote_found(tmp_path, ev, "if not op.startswith(READ_PREFIXES):\n  - invoice.")
+    assert quote_found(tmp_path, ev, "if not op.startswith(READ_PREFIXES): ... read_prefixes:")
+    assert not quote_found(tmp_path, ev, "if not op.startswith(READ_PREFIXES):\nallow_everything()")
