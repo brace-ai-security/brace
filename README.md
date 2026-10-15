@@ -33,7 +33,7 @@ BRACE has **nine controls** (C1–C9) and **three observability requirements** (
 | Code | Control | What it does |
 |---|---------|--------------|
 | C1 | Architecture | Isolate the agent's environment and network. Allow only the outside destinations its task needs. Limit damage by design, not by trusting good behavior. |
-| C2 | Capability-scoped API access | Give each token only the powers it needs (`read:tickets`, not `*`). Keep tokens short-lived, limited to one service, and bound to their holder where possible. Make sure you can cut off the agent without cutting off its user. |
+| C2 | Capability-scoped API access | Use access tokens for the agent's own service account or workload identity, rather than long-lived API keys or other static credentials. Give each access token only the powers it needs (`read:tickets`, not `*`). Keep access tokens short-lived, limited to one service, and bound to their holder where possible. Make sure you can cut off the agent without cutting off its user. |
 | C3 | Container | Run a pinned, signed, minimal image whose build record you have checked. Use a stronger sandbox, such as a microVM, when the agent runs untrusted code. The image digest is part of the agent's identity. |
 | C4 | Harness | Enforce which tools, arguments, and budgets the agent may use. **Block destructive actions** unless someone with authority approves that exact action. Treat every consequential action as destructive when one agent can read untrusted input, reach sensitive data, and act on the outside world. |
 
@@ -60,7 +60,7 @@ BRACE has **nine controls** (C1–C9) and **three observability requirements** (
 | Obs-T2 | Context-size logging | How full the model's context was when it decided, so you can compare behavior at different context sizes. Mark missing values as unknown, never zero. |
 | Obs-T3 | Sub-agent and parent-prompt provenance | Which sub-agent ran, and the prompt its parent gave it. |
 
-**Every control has two halves:** the settings for each agent type, and the support from shared infrastructure and services. You can't secure one half alone. For example, an agent can't present a narrowly scoped token unless the identity system can issue one.
+**Every control has two halves:** the settings for each agent type, and the support from shared infrastructure and services. You can't secure one half alone. For example, an agent can't present a narrowly scoped access token unless the identity system can issue one.
 
 ### The six required identity fields (Obs-T1)
 
@@ -74,7 +74,7 @@ The **agent-type-id** is a fingerprint (a content hash) of the container digest,
 
 Build the twelve elements (nine controls and three observability requirements) in stages. Apply the checklist’s release gates at each stage. Start in this order:
 
-- **Tier 1 — prevent damage, keep track of who did what.** Harness blocking of destructive actions (C4), capability-scoped tokens (C2), a tested kill switch (C8), an audit trail (C9), and the six identity fields (Obs-T1). Once you show they are enforced and the audit covers every action, these controls limit damage and let you rebuild what happened.
+- **Tier 1 — prevent damage, keep track of who did what.** Harness blocking of destructive actions (C4), capability-scoped access tokens (C2), a tested kill switch (C8), an audit trail (C9), and the six identity fields (Obs-T1). Once you show they are enforced and the audit covers every action, these controls limit damage and let you rebuild what happened.
 - **Tier 2 — harden the substrate (the environment the agent runs on), and expose hidden failures.** Network and egress isolation (C1), a signed, minimal container (C3), input validation (C5), and context-size logging (Obs-T2).
 - **Tier 3 — active detection.** Security monitoring with baselines of normal action sequences (C7), memory scoping and source records (C6), and sub-agent and parent-prompt provenance (Obs-T3).
 
@@ -109,7 +109,7 @@ Five concrete requirements BRACE brings together:
 
 ## Two threat models, one containment layer
 
-BRACE was built for the **hijacked or misused agent**: one manipulated by prompt injection, a poisoned tool, or a supply-chain attack. It also helps contain the **misaligned insider**, where the model itself acts as a deliberate adversary. Containment does not depend on *why* an agent went rogue. A scoped token, an egress allowlist, and a tested kill switch limit the damage either way.
+BRACE was built for the **hijacked or misused agent**: one manipulated by prompt injection, a poisoned tool, or a supply-chain attack. It also helps contain the **misaligned insider**, where the model itself acts as a deliberate adversary. Containment does not depend on *why* an agent went rogue. A scoped access token, an egress allowlist, and a tested kill switch limit the damage either way.
 
 BRACE does **not** detect misaligned *intent* hidden inside allowed behavior, such as a model faking alignment or deliberately underperforming. That is a problem for model research and monitoring, the field of AI control work such as Google DeepMind's [AI Control Roadmap](https://arxiv.org/abs/2607.13087). BRACE is the containment layer. AI control is the detection layer. Use both.
 

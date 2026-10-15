@@ -49,7 +49,7 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | [AML.T0004](https://atlas.mitre.org/techniques/AML.T0004) | Search Application Repositories | Out of scope | — | Searching public app stores happens outside the deployment. |
 | [AML.T0006](https://atlas.mitre.org/techniques/AML.T0006) | Active Scanning | Partial | B08, E06, R08 | Isolation and an authenticating gateway shrink what a scan can reach; R08 alerts on probing. |
 | [AML.T0006.000](https://atlas.mitre.org/techniques/AML.T0006.000) | Active Scanning: Enumerate Hosted AI Resources | Partial | E06, E01 | The gateway rejects unauthenticated calls to found agents; E01 names who owns the hosting platform's side. |
-| [AML.T0006.001](https://atlas.mitre.org/techniques/AML.T0006.001) | Active Scanning: Query Platform Metadata APIs | Partial | E01, B02 | E01 assigns the platform owner for metadata APIs; scoped tokens limit what a leaked identity can list. |
+| [AML.T0006.001](https://atlas.mitre.org/techniques/AML.T0006.001) | Active Scanning: Query Platform Metadata APIs | Partial | E01, B02 | E01 assigns the platform owner for metadata APIs; scoped access tokens limit what a leaked identity can list. |
 | [AML.T0006.002](https://atlas.mitre.org/techniques/AML.T0006.002) | Active Scanning: Scan for Exposed AI Infrastructure | Partial | B08, E06 | B08 tests that agent backends have no unapproved exposure; E06 requires authentication on every call. |
 | [AML.T0006.003](https://atlas.mitre.org/techniques/AML.T0006.003) | Active Scanning: Probe AI Agent Trigger Channels | Partial | R01, E07, R08 | R01 and E07 authenticate webhook and message senders, so probes from strangers are rejected; R08 alerts on repeats. |
 | [AML.T0064](https://atlas.mitre.org/techniques/AML.T0064) | Gather RAG-Indexed Targets | Partial | R04 | Finding the sources is not blocked, but R04 limits who can add or change indexed content. |
@@ -133,7 +133,7 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | [AML.T0010.003](https://atlas.mitre.org/techniques/AML.T0010.003) | AI Supply Chain Compromise: Model | Partial | C05, E02 | Signer and format checks before loading reject unapproved models; a signed bad model can still pass. |
 | [AML.T0010.004](https://atlas.mitre.org/techniques/AML.T0010.004) | AI Supply Chain Compromise: Container Registry | Direct | B10, C03, C04 | The image is pinned by digest and its signature is checked, so an overwritten tag is rejected. |
 | [AML.T0010.005](https://atlas.mitre.org/techniques/AML.T0010.005) | AI Supply Chain Compromise: AI Agent Tool | Partial | E02, E03, E04, B01 | Tools are vetted, fingerprinted, and scanned, and only allowlisted tools load; hidden remote code changes can slip by. |
-| [AML.T0012](https://atlas.mitre.org/techniques/AML.T0012) | Valid Accounts | Partial | B03, B02, B04, R08 | Short-lived, holder-bound tokens limit reuse, scopes limit reach, and revocation cuts off the account. |
+| [AML.T0012](https://atlas.mitre.org/techniques/AML.T0012) | Valid Accounts | Partial | B03, B02, B04, R08 | Short-lived, holder-bound access tokens limit reuse, scopes limit reach, and revocation cuts off the account. |
 | [AML.T0015](https://atlas.mitre.org/techniques/AML.T0015) | Evade AI Model | Partial | R02, A07 | R02 requires harm to stay blocked even when a detector model is fooled; A07 treats a failing checker as a failed control. |
 | [AML.T0049](https://atlas.mitre.org/techniques/AML.T0049) | Exploit Public-Facing Application | Partial | B11, B08, E02 | A minimal runtime and network isolation limit what an exploited app can reach; finding app bugs is general security work. |
 | [AML.T0052](https://atlas.mitre.org/techniques/AML.T0052) | Phishing | Partial | B05, R08 | B05 gates outbound messages, so a hijacked agent can't send phishing unapproved; phishing of people by other means is outside BRACE. |
@@ -201,7 +201,7 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 
 | ATLAS ID | Technique | Coverage | BRACE items | How BRACE addresses it |
 |---|---|---|---|---|
-| [AML.T0012](https://atlas.mitre.org/techniques/AML.T0012) | Valid Accounts | Partial | B03, B02, B04, R08 | Short-lived, holder-bound tokens limit reuse, scopes limit reach, and revocation cuts off the account. |
+| [AML.T0012](https://atlas.mitre.org/techniques/AML.T0012) | Valid Accounts | Partial | B03, B02, B04, R08 | Short-lived, holder-bound access tokens limit reuse, scopes limit reach, and revocation cuts off the account. |
 | [AML.T0053](https://atlas.mitre.org/techniques/AML.T0053) | AI Agent Tool Invocation | Direct | B01, B02, B05, E08 | Only listed tools exist, tokens are scoped, high-impact calls need approval, and delegation can't add power. |
 | [AML.T0054](https://atlas.mitre.org/techniques/AML.T0054) | LLM Jailbreak | Partial | R02, B05, B02 | Actions don't depend on model guardrails, so gates and scopes still hold; harmful text is a model-safety issue. |
 | [AML.T0105](https://atlas.mitre.org/techniques/AML.T0105) | Escape to Host | Partial | B11, B08, B02 | B11 requires a hardened container or microVM; a blocked probe doesn't prove every escape fails. |
@@ -234,12 +234,12 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 
 | ATLAS ID | Technique | Coverage | BRACE items | How BRACE addresses it |
 |---|---|---|---|---|
-| [AML.T0055](https://atlas.mitre.org/techniques/AML.T0055) | Unsecured Credentials | Direct | B03, B02, R03 | Secrets stay out of prompts, images, and config, issued tokens are short-lived and scoped, and outputs are redacted. |
+| [AML.T0055](https://atlas.mitre.org/techniques/AML.T0055) | Unsecured Credentials | Direct | B03, B02, R03 | Secrets stay out of prompts, images, and config, issued access tokens are short-lived and scoped, and outputs are redacted. |
 | [AML.T0082](https://atlas.mitre.org/techniques/AML.T0082) | RAG Credential Harvesting | Partial | R03, R04, B03 | R03 strips secrets from retrieved text before the model sees it; detection of secrets in documents is not complete. |
 | [AML.T0083](https://atlas.mitre.org/techniques/AML.T0083) | Credentials from AI Agent Configuration | Direct | B03, E06, B02 | The agent's config holds no long-lived secrets, and the gateway holds backend credentials instead of the agent. |
-| [AML.T0090](https://atlas.mitre.org/techniques/AML.T0090) | OS Credential Dumping | Partial | B03, B11 | Holder-bound, short-lived tokens limit stolen ones; a non-root runtime makes dumping harder. |
-| [AML.T0098](https://atlas.mitre.org/techniques/AML.T0098) | AI Agent Tool Credential Harvesting | Partial | R03, B02 | R03 strips secrets from tool output, and scoped tokens limit which sources the agent can read. |
-| [AML.T0106](https://atlas.mitre.org/techniques/AML.T0106) | Exploitation for Credential Access | Partial | B03, E02, B11 | Short-lived, bound tokens limit what an exploit steals; patching is general security work. |
+| [AML.T0090](https://atlas.mitre.org/techniques/AML.T0090) | OS Credential Dumping | Partial | B03, B11 | Holder-bound, short-lived access tokens limit stolen ones; a non-root runtime makes dumping harder. |
+| [AML.T0098](https://atlas.mitre.org/techniques/AML.T0098) | AI Agent Tool Credential Harvesting | Partial | R03, B02 | R03 strips secrets from tool output, and scoped access tokens limit which sources the agent can read. |
+| [AML.T0106](https://atlas.mitre.org/techniques/AML.T0106) | Exploitation for Credential Access | Partial | B03, E02, B11 | Short-lived, bound access tokens limit what an exploit steals; patching is general security work. |
 | [AML.T0113](https://atlas.mitre.org/techniques/AML.T0113) | Steal Web Session Cookie | Partial | B03, R03 | Binding tokens to their holder makes stolen sessions fail elsewhere where services support it. |
 
 ## Discovery (AML.TA0008)
@@ -255,7 +255,7 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | [AML.T0069.000](https://atlas.mitre.org/techniques/AML.T0069.000) | Discover LLM System Information: Special Character Sets | Partial | R02, R01 | Labeling each input's source keeps trust out of delimiters an attacker can copy. |
 | [AML.T0069.001](https://atlas.mitre.org/techniques/AML.T0069.001) | Discover LLM System Information: System Instruction Keywords | Partial | B01, B05 | Knowing function names doesn't grant tools outside the allowlist or skip action gates. |
 | [AML.T0069.002](https://atlas.mitre.org/techniques/AML.T0069.002) | Discover LLM System Information: System Prompt | Partial | B03, R03 | A revealed system prompt exposes no credentials when B03 is met. |
-| [AML.T0075](https://atlas.mitre.org/techniques/AML.T0075) | Enterprise Resource Discovery | Partial | B02, B08 | Scoped tokens and isolation limit which accounts and systems the agent can list. |
+| [AML.T0075](https://atlas.mitre.org/techniques/AML.T0075) | Enterprise Resource Discovery | Partial | B02, B08 | Scoped access tokens and isolation limit which accounts and systems the agent can list. |
 | [AML.T0084](https://atlas.mitre.org/techniques/AML.T0084) | Discover AI Agent Configuration | Partial | B11, B03, B01 | File access is limited, configs hold no secrets, and a minimal tool list reveals little. |
 | [AML.T0084.000](https://atlas.mitre.org/techniques/AML.T0084.000) | Discover AI Agent Configuration: Embedded Knowledge | Partial | R04, B02 | Search enforces the requester's access, so the agent reveals only sources that user may see. |
 | [AML.T0084.001](https://atlas.mitre.org/techniques/AML.T0084.001) | Discover AI Agent Configuration: Tool Definitions | Partial | B01, B02 | A minimal, scoped tool list limits what discovery reveals. |
@@ -268,7 +268,7 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 
 | ATLAS ID | Technique | Coverage | BRACE items | How BRACE addresses it |
 |---|---|---|---|---|
-| [AML.T0012](https://atlas.mitre.org/techniques/AML.T0012) | Valid Accounts | Partial | B03, B02, B04, R08 | Short-lived, holder-bound tokens limit reuse, scopes limit reach, and revocation cuts off the account. |
+| [AML.T0012](https://atlas.mitre.org/techniques/AML.T0012) | Valid Accounts | Partial | B03, B02, B04, R08 | Short-lived, holder-bound access tokens limit reuse, scopes limit reach, and revocation cuts off the account. |
 | [AML.T0052](https://atlas.mitre.org/techniques/AML.T0052) | Phishing | Partial | B05, R08 | B05 gates outbound messages, so a hijacked agent can't send phishing unapproved; phishing of people by other means is outside BRACE. |
 | [AML.T0052.000](https://atlas.mitre.org/techniques/AML.T0052.000) | Phishing: Spearphishing via Social Engineering LLM | Partial | R02, B05 | Containment limits what a manipulated agent can do, but BRACE doesn't stop a chat model from talking a user into something. |
 | [AML.T0052.001](https://atlas.mitre.org/techniques/AML.T0052.001) | Phishing: Deepfake-Assisted Phishing | Out of scope | — | Fake voice or video aimed at people is outside BRACE. |

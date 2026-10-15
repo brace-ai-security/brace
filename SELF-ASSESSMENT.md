@@ -145,7 +145,7 @@ Finish with the [checklist's final sign-off](CHECKLIST.md#final-sign-off), inclu
 
 ## Using this to evaluate a vendor
 
-- Ask for concrete artifacts: scoped-token metadata, denial records, release and model manifests, drill results, and traces that show who did what.
+- Ask for concrete artifacts: scoped access-token metadata, denial records, release and model manifests, drill results, and traces that show who did what.
 - Ask which controls the platform supplies and which your team must set up or build. A platform feature that is turned off in your deployment does not pass.
 - For hosted models, ask for the version details the provider shares. Keep them apart from pretraining history it doesn't share. For fine-tuning you run yourself, keep your job and dataset records, even if the base-model provider keeps theirs private.
 - Discuss the notes under the harder checklist items. Name the limits and the costs you accept. Then record any allowed risk acceptance, with an owner and approver.
