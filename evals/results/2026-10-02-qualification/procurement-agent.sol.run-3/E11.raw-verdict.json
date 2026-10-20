@@ -1,0 +1,46 @@
+{
+  "verdict": "failed",
+  "checks": [
+    {
+      "id": "E11.1",
+      "result": "unclear",
+      "evidence": "agent/deploy/k8s/deployment.yaml:45",
+      "quote": "              value: \"postgresql://procurement_agent@procurement-db.procurement-data.svc.cluster.local:5432/procurement?sslmode=verify-full\"",
+      "note": "Audit records use an external Postgres service. Searches of agent/ for retention, lifecycle, TTL, and audit storage configuration found no audit retention period or investigation window. The database lifecycle configuration is not supplied, so its retention cannot be established."
+    },
+    {
+      "id": "E11.2",
+      "result": "fails",
+      "evidence": "agent/app/redact.py:56, agent/app/audit.py:116",
+      "quote": "        return {k: redact_value(v) for k, v in value.items()}\n        json.dumps(redact_value(payload or {}), default=str),",
+      "note": "SQL grants audit reads to named agent and ops roles, but sensitive-field redaction is bypassable. Dictionary keys are preserved and values are redacted without their field names. A payload containing {\"password\": \"plain-secret\"} is stored unchanged: the bare value matches none of the configured secret or account patterns. Nested tool arguments and results pass through this same function.",
+      "violates": [
+        "what is redacted"
+      ]
+    },
+    {
+      "id": "E11.3",
+      "result": "fails",
+      "evidence": "agent/app/audit.py:91, agent/app/loop.py:99, agent/app/main.py:196",
+      "quote": "    node_id = f\"node-{uuid.uuid4()}\"\n            payload={\"result_sha256\": audit.digest(output), \"result\": output},\n    return {\"ok\": True}",
+      "note": "The complete writer and schema use random IDs and parent links without sequence numbers or persisted delivery receipts. Runtime append-only grants do not implement hash-chain verification or missing-event detection. Result hashes are computed but no audit integrity verifier consumes them. Searches across agent/ for integrity, sequence, receipt, alert, and audit consumers found no gap or pipeline-failure alert; the health endpoint returns success without checking audit capture. External infrastructure is unspecified, but the required local detection and verification pieces are absent.",
+      "violates": [
+        "how their integrity is checked",
+        "test that missing records or a broken pipeline get noticed"
+      ]
+    },
+    {
+      "id": "E11.4",
+      "result": "holds",
+      "evidence": "agent/app/loop.py:55, agent/app/loop.py:68, agent/app/loop.py:83, agent/app/audit.py:93",
+      "quote": "        proposed = await audit.record(\n        authz = await audit.record(\n                output = await tool.invoke(use.input, ident)\n    await pool.execute(",
+      "note": "The shared execution path awaits proposal and authorization persistence before invoking any registered tool, including payments and purchase orders. Audit writes propagate errors; these pre-action writes sit outside the tool exception handler, so capture failure prevents invocation."
+    }
+  ],
+  "violates": [
+    "what is redacted",
+    "how their integrity is checked",
+    "test that missing records or a broken pipeline get noticed"
+  ],
+  "note": "E11 fails because sensitive-field redaction is bypassable and audit integrity verification and missing-record or pipeline-failure alerts are absent."
+}

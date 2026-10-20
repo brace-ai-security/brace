@@ -1,5 +1,6 @@
 """Self-test for challenge.py apply. Run: pytest skills/brace-review/scripts/test_challenge.py"""
 import sys
+import json
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -64,3 +65,60 @@ def test_quote_pieces_from_two_files(tmp_path):
     assert quote_found(tmp_path, ev, "if not op.startswith(READ_PREFIXES):\n  - invoice.")
     assert quote_found(tmp_path, ev, "if not op.startswith(READ_PREFIXES): ... read_prefixes:")
     assert not quote_found(tmp_path, ev, "if not op.startswith(READ_PREFIXES):\nallow_everything()")
+
+
+def test_make_challenges_na_only_for_g1_g2_without_hunt(tmp_path):
+    table = {item: {"gate": gate, "title": "Peers", "requirement": "Verify peers",
+                    "na_when": "No peer messages", "checks": [{"id": item + ".1"}]}
+             for item, gate in (("E07", "G2"), ("B02", "G1"), ("C01", "G3"))}
+    doc = {"findings": [{"item": item, "rating": "na_candidate", "checks": [],
+                         "summary": "There are no peer messages here"} for item in table]}
+    challenge.make(doc, table, tmp_path, tmp_path / "sheets")
+    verdicts = json.loads((tmp_path / "sheets/verdicts.json").read_text())
+    assert set(verdicts) == {"E07", "B02"}
+    sheet = (tmp_path / "sheets/E07.md").read_text()
+    assert "No peer messages" in sheet and "indirect paths" in sheet
+    assert verdicts["E07"]["applicability"] == "TODO"
+
+
+def test_na_present_failed_control_becomes_gap(tmp_path):
+    (tmp_path / "app.py").write_text("import os\ntoken = REQUEST_TOKEN\n")
+    doc = _doc()
+    doc["findings"][0]["rating"] = "na_candidate"
+    verdict = _verdict("a request for one task")
+    verdict["B02"]["applicability"] = "present"
+    changes, problems = challenge.apply(doc, verdict, tmp_path)
+    assert changes and not problems
+    assert doc["findings"][0]["rating"] == "gap"
+
+
+def test_na_absence_requires_quote_and_search(tmp_path):
+    (tmp_path / "app.py").write_text("tools = []\n")
+    doc = _doc()
+    doc["findings"][0]["rating"] = "na_candidate"
+    doc["findings"][0]["item"] = "E07"
+    v = {"verdict": "upheld", "applicability": "absent", "checks": [],
+         "note": "Searched the harness and all tool registrations; no external tools exist"}
+    _, problems = challenge.apply(doc, {"E07": v}, tmp_path)
+    assert problems and "challenge" not in doc["findings"][0]
+    v.update(evidence="app.py:1", quote="tools = []")
+    _, problems = challenge.apply(doc, {"E07": v}, tmp_path)
+    assert not problems
+    f = doc["findings"][0]
+    assert f["rating"] == "na_candidate" and f["challenge"]["applicability"] == "absent"
+
+
+def test_na_uncertain_or_present_without_failure_needs_evidence(tmp_path):
+    for applicability in ("unclear", "present"):
+        doc = _doc()
+        doc["findings"][0].update(rating="na_candidate", checks=[])
+        _, problems = challenge.apply(doc, {"B02": {"verdict": "unclear", "applicability": applicability,
+                                                   "checks": [], "note": "Exposure could not be ruled out"}}, tmp_path)
+        assert not problems and doc["findings"][0]["rating"] == "needs_evidence"
+
+
+def test_validator_rejects_unchallenged_na(tmp_path):
+    from validate_findings import check_item
+    meta = {"gate": "G2", "checks": [], "na_when": "No peer messages"}
+    f = {"rating": "na_candidate", "checks": [], "red_flags_found": []}
+    assert any("fresh challenge" in e for e in check_item("E07", f, meta, tmp_path))

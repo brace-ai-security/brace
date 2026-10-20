@@ -1,0 +1,34 @@
+{
+  "verdict": "unclear",
+  "checks": [
+    {
+      "id": "A01.1",
+      "result": "holds",
+      "evidence": "k8s/deployment.yaml:60, infra/terraform/iam.tf:15, infra/terraform/iam.tf:16",
+      "quote": "      serviceAccountName: clinic-agent\n            \"system:serviceaccount:clinic-agent:clinic-agent\",\n            \"system:serviceaccount:clinic-agent:clinic-agent-reminders\",",
+      "note": "The deployment uses a credential-bearing service account bound to the runtime IAM role. Searches across agent deployment, source, workflows, and Terraform found this role used only by this agent and its related reminder worker, not an unrelated service or user."
+    },
+    {
+      "id": "A01.2",
+      "result": "unclear",
+      "evidence": "src/integrations/ehr-mcp.ts:37, src/integrations/payments.ts:13, src/integrations/sms.ts:25, src/integrations/eligibility-a2a.ts:41, src/agent/loop.ts:15",
+      "quote": "  const { client_id, client_secret, token_url } = JSON.parse(sec.SecretString ?? \"{}\");\n  return JSON.parse(s.SecretString ?? \"{}\").restricted_key;\n  return { token: v.api_token, from: v.from_number };\n      subject_token: workloadToken,\nconst anthropic = new Anthropic({ maxRetries: 1 });",
+      "note": "No incoming user token or cookie is forwarded to these clients. Eligibility uses the workload token; EHR, payments, and SMS use external secrets, while the model client relies on SDK credential configuration. The repository does not establish provider credential ownership or exclusivity, so a shared static credential cannot be proved or ruled out."
+    },
+    {
+      "id": "A01.3",
+      "result": "holds",
+      "evidence": "src/routes/webchat.ts:50, src/routes/sms-webhook.ts:65, src/agent/identity.ts:100, src/agent/identity.ts:112",
+      "quote": "      subject: { kind: claims.role === \"staff\" ? \"staff\" : \"patient\", id: claims.sub },\n        subject: { kind: \"patient\", id: `phone:${msg.from}` },\n    subject: init.subject,\n    workloadToken: async () => readFileSync(WORKLOAD_TOKEN_PATH, \"utf8\").trim(),",
+      "note": "Both user entry points carry the launching user in a separate subject field. The agent retains its service-account workload token independently of that subject; user credentials do not replace its principal."
+    },
+    {
+      "id": "A01.4",
+      "result": "unclear",
+      "evidence": "infra/terraform/iam.tf:27, infra/terraform/iam.tf:35, src/integrations/ehr-mcp.ts:34, src/integrations/sms.ts:34",
+      "quote": "  role = aws_iam_role.runtime.id\n        Resource = \"arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:clinic-agent/*\"\n  if (hit && hit.exp - 30_000 > Date.now()) return hit.value;\n      headers: { authorization: `Bearer ${c.token}`, \"content-type\": \"application/json\" },",
+      "note": "AWS permissions bind to the agent role rather than user grants. However, provider APIs authenticate with separately issued credentials, including cached EHR access tokens. Provider grants and revocation behavior are outside this repository, so revoking the workload principal alone cannot be shown to remove all agent access."
+    }
+  ],
+  "note": "Dedicated workload identity and separate user subjects are supported, but external provider credential exclusivity and principal-only revocation remain unverified."
+}

@@ -1,0 +1,30 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Find the team responsible, the current operator, the deployment manifest, and the live instance."
+  ],
+  "checks": [
+    {
+      "id": "A05.1",
+      "result": "fails",
+      "evidence": "agent/src/server.ts:32, agent/src/server.ts:33, agent/src/server.ts:34, agent/src/server.ts:36",
+      "quote": "if (typeId !== manifest.agentTypeId) {\n  app.log.error({ expected: manifest.agentTypeId, actual: typeId }, \"agent type id does not match release manifest\");\n  metrics.increment(\"identity.mismatch\");\nsetAgentTypeId(typeId);",
+      "note": "AuditEvent requires both IDs, and release/manifest.json stores a type ID. However, a mismatch only logs and increments a metric; startup continues with the computed, unmatched ID in audit records. No manifest persistence for that computed ID exists in the inspected repository, so not every audited type resolves to the stored manifest. The random instance UUID also has no supplied live-pod lookup; an external log index cannot be verified here."
+    },
+    {
+      "id": "A05.2",
+      "result": "holds",
+      "evidence": "agent/src/config.ts:64, agent/src/agent/identity.ts:106, agent/infra/terraform/iam.tf:69",
+      "quote": "  operationalOwner: \"team:agent-platform\",\n      operationalOwner: env.operationalOwner,\n        StringLike = { \"aws:PrincipalArn\" = \"arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_AgentPlatformOnCall_*\" }",
+      "note": "The common identity constructor maps all locally computed agent types to agent-platform. The operational role is explicitly bound in IAM to the AgentPlatformOnCall SSO group, providing a configured on-call binding beyond README prose; individual rotation membership is external."
+    },
+    {
+      "id": "A05.3",
+      "result": "unclear",
+      "evidence": "agent/src/control/kill-switch.ts:28, agent/k8s/deployment.yaml:60, agent/infra/terraform/iam.tf:15, agent/infra/terraform/iam.tf:16",
+      "quote": "          Keys: [{ pk: \"global\" }, ...[...new Set([...active.values()].map((a) => a.tenantId))].map((t) => ({ pk: `tenant#${t}` }))],\n      serviceAccountName: clinic-agent\n            \"system:serviceaccount:clinic-agent:clinic-agent\",\n            \"system:serviceaccount:clinic-agent:clinic-agent-reminders\",",
+      "note": "The supplied application stop control only reads global and tenant flags, not instance or type IDs. The runtime role is shared by HTTP and reminder workloads but separate from user credentials. Kubernetes provides independently named workloads and pods, so platform containment may be possible; the repository does not demonstrate an operator control that resolves an audited ID and contains its instance or type. Outside-platform containment remains unverified."
+    }
+  ],
+  "note": "A05 fails because startup permits audited agent type IDs that do not match the stored deployment manifest."
+}

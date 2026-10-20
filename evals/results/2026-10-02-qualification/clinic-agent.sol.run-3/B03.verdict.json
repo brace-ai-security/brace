@@ -1,0 +1,37 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Where the service supports it, bind tokens to their holder (mTLS, DPoP, or workload proof tokens)."
+  ],
+  "checks": [
+    {
+      "id": "B03.1",
+      "result": "unclear",
+      "evidence": "src/integrations/payments.ts:12, src/integrations/sms.ts:23, infra/terraform/iam.tf:11, src/agent/loop.ts:15",
+      "quote": "  const s = await sm.send(new GetSecretValueCommand({ SecretId: `clinic-agent/payments/${clinicId}` }));\n  const s = await sm.send(new GetSecretValueCommand({ SecretId: `clinic-agent/sms/${clinicId}` }));\n      Action    = \"sts:AssumeRoleWithWebIdentity\"\nconst anthropic = new Anthropic({ maxRetries: 1 });",
+      "note": "AWS uses federated runtime identity and payment/SMS keys are fetched from Secrets Manager at runtime, but those providers' support for short-lived or federated alternatives is unspecified; the model client's credential provisioning is also not shown. A fixed-key violation cannot be established for an unspecified provider capability."
+    },
+    {
+      "id": "B03.2",
+      "result": "unclear",
+      "evidence": "infra/terraform/iam.tf:5, k8s/deployment.yaml:111, src/integrations/ehr-mcp.ts:45, src/integrations/eligibility-a2a.ts:49",
+      "quote": "  max_session_duration = 3600\n                  expirationSeconds: 900\n  tokens.set(cacheKey, { value: body.access_token, exp: Date.now() + body.expires_in * 1000 });\n  return ((await res.json()) as { access_token: string }).access_token;",
+      "note": "AWS and projected workload credentials have explicit bounds. EHR expiry is supplied by the external issuer, and eligibility token lifetime is not returned to the caller. Provider-key and OAuth-client-secret expiry/rotation policies are not included; Secrets Manager reads and cache/session timeouts do not establish their actual lifetime or rotation. External policy could supply the missing bounds, so this remains unclear."
+    },
+    {
+      "id": "B03.3",
+      "result": "holds",
+      "evidence": "Dockerfile:17, Dockerfile:18, src/agent/loop.ts:49, src/agent/classifier.ts:50",
+      "quote": "COPY --chown=65532:65532 prompts ./prompts\nCOPY --chown=65532:65532 config ./config\n    const system = SYSTEM_TEMPLATE.replace(\"{{clinicName}}\", clinic.name);\n        system: CLASSIFIER_PROMPT,",
+      "note": "Inspection of all supplied files, including hidden deployment workflows, prompts, source, Dockerfile, configuration and Terraform, found no checked-in secret literals or credential insertion into prompts. Docker copies the inspected source/configuration rather than secret files; secret references are names/ARNs. This finding covers the supplied repository content, not unavailable built images or external tool responses."
+    },
+    {
+      "id": "B03.4",
+      "result": "fails",
+      "evidence": "README.md:20, src/integrations/ehr-mcp.ts:20, src/integrations/ehr-mcp.ts:58, src/integrations/ehr-mcp.ts:60",
+      "quote": "| EHR | `src/integrations/ehr-mcp.ts` | MCP over streamable HTTP with mTLS, per-clinic OAuth client |\n      checkServerIdentity: (_host: string, cert: PeerCertificate) => {\n      headers: { authorization: `Bearer ${token}`, \"x-clinic-id\": clinicId },\n      dispatcher: pinnedDispatcher(server),",
+      "note": "The repository explicitly describes the EHR integration as supporting mTLS. Its actual transport sends a plain bearer token through pinnedDispatcher, whose complete connect configuration (lines 18\u201325) only checks the server certificate and supplies no client certificate/private key. Token acquisition likewise supplies no holder proof, and no DPoP or certificate-binding implementation appears elsewhere. Server certificate pinning authenticates the server, not the token holder; the documented holder-binding control is absent. Other providers' support remains unspecified."
+    }
+  ],
+  "note": "B03 fails because the EHR integration documents mTLS but implements server certificate pinning with a plain bearer token and no holder binding."
+}

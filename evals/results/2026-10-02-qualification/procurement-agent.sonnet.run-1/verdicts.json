@@ -1,0 +1,836 @@
+{
+  "A01": {
+    "verdict": "unclear",
+    "checks": [
+      {
+        "id": "A01.1",
+        "result": "holds",
+        "evidence": "deploy/k8s/deployment.yaml:19",
+        "quote": "serviceAccountName: procurement-agent",
+        "note": "Dedicated ServiceAccount defined in serviceaccount.yaml; no other workload in the repo uses it, and the pod mounts its own projected token (audience sts.identity.example-corp.test)."
+      },
+      {
+        "id": "A01.2",
+        "result": "holds",
+        "evidence": "app/identity.py:104",
+        "quote": "\"subject_token\": self._workload_token(),",
+        "note": "ERP MCP, payments and Slack clients all call broker.token_for (mcp_client.py:119, payments.py:27, main.py:88). No client reads the incoming Authorization header or cookie; the user bearer is only used to authenticate /runs."
+      },
+      {
+        "id": "A01.3",
+        "result": "holds",
+        "evidence": "app/identity.py:109",
+        "quote": "\"actor_token\": ident.delegated_subject,",
+        "note": "The user (principal.subject, main.py:155) is carried as a separate delegated subject while the workload token stays as the exchange credential. Caveat: the field mapping is non-standard (user in actor_token as a bare subject-id, agent as subject_token), and how the STS validates it is outside this repo."
+      },
+      {
+        "id": "A01.4",
+        "result": "unclear",
+        "evidence": "deploy/k8s/serviceaccount.yaml:14",
+        "quote": "name: procurement-agent",
+        "note": "The repo has a ServiceAccount but no RoleBinding, IAM policy or STS grants. Permissions and revocation for the principal are defined outside this repo."
+      }
+    ],
+    "note": "A01.1-A01.3 hold in the code, but A01.4 cannot be confirmed because permission bindings and STS policy are not in this repo."
+  },
+  "A02": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "A02.1",
+        "result": "holds",
+        "evidence": "migrations/001_init.sql:10",
+        "quote": "accountable_party   text NOT NULL CHECK (accountable_party <> ''),",
+        "note": "All six fields are columns, NOT NULL and non-empty, and are set in audit.record."
+      },
+      {
+        "id": "A02.2",
+        "result": "fails",
+        "evidence": "app/loop.py:127, app/loop.py:129",
+        "quote": "await killswitch.assert_running(pool, ident.tenant)\nawait budget.reserve_run_start(pool)",
+        "note": "Refusals before the run starts (kill-switch halt, run-start rate quota) raise before the run_started audit.record, so they write no audit record. The task is fire-and-forget via asyncio.create_task, so the exception is lost. Approval decisions in approvals.decide and the Slack callback, and the /ingest/mail path, also write no audit_events record.",
+        "violates": [
+          "or writes no record at all"
+        ]
+      },
+      {
+        "id": "A02.3",
+        "result": "holds",
+        "evidence": "app/audit.py:106",
+        "quote": "span_id,",
+        "note": "trace_id and span_id are inserted as columns in the audit row."
+      },
+      {
+        "id": "A02.4",
+        "result": "holds",
+        "evidence": "app/main.py:150",
+        "quote": "tenant=principal.business_unit,",
+        "note": "Tenant comes from the verified JWT 'bu' claim, and owner from settings."
+      }
+    ],
+    "violates": [
+      "or writes no record at all"
+    ],
+    "note": "A02.2 fails: kill-switch and run-start quota refusals in loop.py:127-129 happen before any audit record is written, and approval decisions are not audited."
+  },
+  "A05": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "A05.1",
+        "result": "holds",
+        "evidence": "app/audit.py:103, app/audit.py:104",
+        "quote": "ident.agent_type_id,\nident.agent_instance_id,",
+        "note": "Both IDs are written on every record and enforced non-empty (identity.py IDENTITY_FIELDS, NOT NULL in migration). agent_type_id is a content hash over the release manifest, which is in the repo at release/manifest.yaml, though no store keyed by that ID is shown."
+      },
+      {
+        "id": "A05.2",
+        "result": "unclear",
+        "evidence": "release/manifest.yaml:4",
+        "quote": "owner: team-procurement-platform",
+        "note": "A team owner is present, but there is no current operator or on-call rotation mapping, and no CODEOWNERS or catalog file. This may live in an outside catalog."
+      },
+      {
+        "id": "A05.3",
+        "result": "fails",
+        "evidence": "app/killswitch.py:19, migrations/001_init.sql:96",
+        "quote": "AND (scope = 'fleet' OR scope = $1)\nscope    text PRIMARY KEY,           -- 'fleet' or 'tenant:<business_unit>'",
+        "note": "The only stop control halts the whole fleet or a whole business unit (tenant). There is no scope for a single agent instance or agent type. The check is also only made at run start (loop.py:127), so running instances are not stopped. Containing a tenant cuts off every user in that business unit."
+      }
+    ],
+    "violates": [
+      "contain the right instance or agent type without cutting off the launching user's other access"
+    ],
+    "note": "The only containment control is a fleet-wide or per-business-unit halt flag, with no per-instance or per-agent-type scope."
+  },
+  "A07": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "A07.1",
+        "result": "holds",
+        "evidence": "release/manifest.yaml:54",
+        "quote": "    model_id: \"claude-haiku-4-5-20251001\"",
+        "note": "Only the primary and extractor models are called (loop.py, extractor.py); no judge, reranker, embedding or moderation calls were found, and both models are inventoried."
+      },
+      {
+        "id": "A07.2",
+        "result": "holds",
+        "evidence": "release/manifest.yaml:24",
+        "quote": "    sha256: \"sha256:6ef6527b77ffcca8851e7a8760e6373f3daede15d5b343b878737f0deec28de3\"",
+        "note": "Extractor ID is a dated snapshot with no default (settings._env requires it), the prompt hash is at manifest.yaml:24, and startup compares prompt hashes. The prompt hash is under prompts: and not under models:."
+      },
+      {
+        "id": "A07.3",
+        "result": "holds",
+        "evidence": "app/extractor.py:80",
+        "quote": "                     payload={\"requested_model\": request[\"model\"], \"served_model\": response.model,",
+        "note": "Every extractor turn is recorded with the requested and served model before the output is parsed, so it is not logged only on success."
+      },
+      {
+        "id": "A07.4",
+        "result": "fails",
+        "evidence": "app/startup.py:43, app/extractor.py:80",
+        "quote": "        log.error(\"running state differs from release manifest: %s\", \", \".join(mismatches))\n                     payload={\"requested_model\": request[\"model\"], \"served_model\": response.model,",
+        "note": "A model-version mismatch (model:primary, model:extractor) is only logged at startup and the process continues. The served response.model is recorded but never compared with the expected ID. The parse-error branches do raise, but the version check does not block."
+      }
+    ],
+    "violates": [
+      "Also no if the returned model version is never compared with the expected one.",
+      "logs and continues"
+    ],
+    "note": "A07.4 fails because model version mismatches are only logged and response.model is never compared with the expected ID."
+  },
+  "B03": {
+    "verdict": "unclear",
+    "checks": [
+      {
+        "id": "B03.1",
+        "result": "unclear",
+        "evidence": "app/main.py:96",
+        "quote": "    client = AsyncAnthropic()",
+        "note": "Integration tokens come from the projected workload token exchanged at the STS (identity.py:99-117), fetched at run time. AsyncAnthropic() takes its key from ANTHROPIC_API_KEY, which deployment.yaml never sets and no volume mounts. Its source is outside this repo, so a fixed key can be neither confirmed nor ruled out."
+      },
+      {
+        "id": "B03.2",
+        "result": "unclear",
+        "evidence": "deploy/k8s/deployment.yaml:107",
+        "quote": "                  expirationSeconds: 600",
+        "note": "The projected workload token is bounded at 600s and STS tokens carry expires_in. The Slack signing secret and mail HMAC key are plain Kubernetes Secrets with no rotation or TTL in this repo, and no lifetime rationale is given beyond the README mention. Rotation may be handled outside the repo, so this cannot be decided."
+      },
+      {
+        "id": "B03.3",
+        "result": "holds",
+        "evidence": "Dockerfile:12",
+        "quote": "ENV PYTHONPATH=/opt/site:/app \\",
+        "note": "Dockerfile ENVs, deployment env values and config hold no secret literals. Secrets are mounted from Kubernetes Secrets at run time, and CI runs a secret scan."
+      },
+      {
+        "id": "B03.4",
+        "result": "unclear",
+        "evidence": "app/mcp_client.py:77",
+        "quote": "headers={\"Authorization\": f\"Bearer {token}\", \"Mcp-Protocol-Version\": \"2025-06-18\"},",
+        "note": "Tokens are sent as plain bearer headers (also payments.py:32 and slack.py:38) with no mTLS, DPoP or cert binding. Whether the internal STS, ERP gateway, payments API or Slack proxy support holder binding is not stated in the repo."
+      }
+    ],
+    "note": "No check was shown to fail; the Anthropic key source, rotation of the mounted secrets and holder-binding support all depend on things outside the repo."
+  },
+  "B04": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "B04.1",
+        "result": "unclear",
+        "evidence": "app/identity.py:103",
+        "quote": "\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\",",
+        "note": "Agent uses its own service account and exchanges tokens at an STS, so the user token is not used. The only revoke control in the repo is the control_flags halt, which does not disable the agent identity or credentials. Disabling the principal in the STS or IdP is outside this repo."
+      },
+      {
+        "id": "B04.2",
+        "result": "fails",
+        "evidence": "app/loop.py:127",
+        "quote": "        await killswitch.assert_running(pool, ident.tenant)",
+        "note": "The only revocation check in the repo is the halt flag, and the agent process itself reads it and raises AgentHalted. It is not a gateway, IdP or target-service check. The agent cannot clear the flag, but enforcement still depends on agent code running the check."
+      },
+      {
+        "id": "B04.3",
+        "result": "fails",
+        "evidence": "app/identity.py:97, app/loop.py:127",
+        "quote": "if cached and cached.expires_at - 30 > time.time():\n        await killswitch.assert_running(pool, ident.tenant)",
+        "note": "The halt is checked once at run start, not on every call or step. The broker keeps reusing cached STS tokens until they expire, and no maximum revocation time is stated. The repo has no introspection, deny list or CAEP push."
+      },
+      {
+        "id": "B04.4",
+        "result": "fails",
+        "evidence": "README.md:59",
+        "quote": "`'tenant:<bu>'`, `halted = true`) as `procurement_ops`. New runs refuse to",
+        "note": "The halt only stops new runs. It does not revoke issued access tokens, which stay cached in TokenBroker, and does not stop runs already in progress. Nothing in the repo revokes access tokens or sessions."
+      }
+    ],
+    "violates": [
+      "Revoking only the refresh token is not enough",
+      "A trusted enforcement point must block later calls within a time limit",
+      "Set and measure the longest time before the cutoff takes effect",
+      "The agent must not need to cooperate"
+    ],
+    "note": "The only revocation in the repo is a database halt flag checked once at run start inside agent code. It leaves issued and cached tokens and runs already in progress valid, and no revocation time limit is stated."
+  },
+  "B07": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "B07.1",
+        "result": "holds",
+        "evidence": "config/policy.yaml:44",
+        "quote": "max_tool_calls_per_minute: 30",
+        "note": "All six per-run limits (steps 25, wall 300s, tokens 400000, cost 4.00, tool rate 30/min, subagents 3) have finite values and are read via int()/Decimal() in Budget.for_run; the main loop's while True is capped by check_step."
+      },
+      {
+        "id": "B07.2",
+        "result": "holds",
+        "evidence": "app/loop.py:140",
+        "quote": "budget.check_step()",
+        "note": "Enforced in harness code. BudgetExceeded is re-raised by execute_tool (not swallowed by the generic except), caught in run(), audited, escalated to Slack, and the run returns None. Limits come from policy config, not tool args or model output."
+      },
+      {
+        "id": "B07.3",
+        "result": "holds",
+        "evidence": "app/extractor.py:43",
+        "quote": "budget.check_subagent()",
+        "note": "The extractor receives the parent's Budget via deps.current_budget and charges steps, tokens, cost and tool calls to it. The count is capped at 3. The extractor role has only read_document, so it cannot spawn nested sub-agents, and its own loop is capped by MAX_TURNS=4."
+      },
+      {
+        "id": "B07.4",
+        "result": "holds",
+        "evidence": "app/budget.py:147",
+        "quote": "for scope, key in self._scopes():",
+        "note": "Daily spend and per-minute run-start quotas for user, tenant and fleet are upserted in Postgres (spend_quota, run_start_window), so they persist across runs and processes."
+      }
+    ],
+    "note": "I found no skipped limit, unlimited value, swallowed BudgetExceeded or fresh child budget, so all four checks hold."
+  },
+  "B10": {
+    "verdict": "unclear",
+    "checks": [
+      {
+        "id": "B10.1",
+        "result": "holds",
+        "evidence": "deploy/k8s/deployment.yaml:32",
+        "quote": "image: registry.example-corp.test/procurement/agent@sha256:7c1e4a0f9b3d2e85a6c4f1b0d9e8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0",
+        "note": "The only deployed image is pinned by digest. The Dockerfile base images are digest-pinned too, and there are no Helm, compose or Terraform files."
+      },
+      {
+        "id": "B10.2",
+        "result": "holds",
+        "evidence": "deploy/k8s/kyverno-verify-images.yaml:43, deploy/k8s/kyverno-verify-images.yaml:44",
+        "quote": "issuer: \"https://token.actions.githubusercontent.com\"\nsubject: \"https://github.com/example-corp/procurement-agent/.github/workflows/ci.yaml@refs/heads/main\"",
+        "note": "The keyless issuer and subject are exact strings with no wildcards or regex. verifyDigest is true and required is true."
+      },
+      {
+        "id": "B10.3",
+        "result": "holds",
+        "evidence": "deploy/k8s/kyverno-verify-images.yaml:56-70",
+        "quote": "value: \"https://github.com/actions/runner/github-hosted\"",
+        "note": "The SLSA attestation conditions compare buildType, repository, ref, workflow path and builder id with Equals. externalParameters is covered by the repository, ref and path conditions."
+      },
+      {
+        "id": "B10.4",
+        "result": "holds",
+        "evidence": "deploy/k8s/kyverno-verify-images.yaml:9, deploy/k8s/kyverno-verify-images.yaml:12",
+        "quote": "validationFailureAction: Enforce\nfailurePolicy: Fail",
+        "note": "Both rules match procurement-prod. The validate rule denies any pod image that does not match the approved registry and digest pattern."
+      },
+      {
+        "id": "B10.5",
+        "result": "unclear",
+        "evidence": ".github/workflows/ci.yaml:52",
+        "quote": "cosign-release: \"v2.6.2\"",
+        "note": "The CI signer is pinned at the minimum safe version. The cosign version embedded in the Kyverno 1.15.2 admission verifier is not visible in this repo."
+      }
+    ],
+    "note": "No check fails; B10.5 is unclear because the Kyverno verifier's embedded cosign version cannot be determined from this repo."
+  },
+  "B11": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "B11.1",
+        "result": "holds",
+        "evidence": "deploy/k8s/deployment.yaml:74",
+        "quote": "drop: [\"ALL\"]",
+        "note": "Single container sets runAsNonRoot, allowPrivilegeEscalation false, drop ALL, seccomp RuntimeDefault; pod-level matches; no init or sidecar containers."
+      },
+      {
+        "id": "B11.2",
+        "result": "holds",
+        "evidence": "Dockerfile:10",
+        "quote": "FROM gcr.io/distroless/python3-debian12:nonroot@sha256:8f3c1a6e2b9d4f7a0c5e8b1d3f6a9c2e5b8d1f4a7c0e3b6d9f2a5c8e1b4d7f0a",
+        "note": "Final stage is distroless; pip and the full python image are only in the build stage; USER is 65532."
+      },
+      {
+        "id": "B11.3",
+        "result": "holds",
+        "evidence": "deploy/k8s/deployment.yaml:70",
+        "quote": "privileged: false",
+        "note": "No hostPath, docker.sock, hostNetwork, hostPID or hostIPC found in app or deploy."
+      },
+      {
+        "id": "B11.4",
+        "result": "holds",
+        "evidence": "config/tools.yaml:13",
+        "quote": "memory_write: \"Save new department preferences and contract terms.\"",
+        "note": "Grep of app for subprocess, exec, eval, os.system found nothing; no tool runs model-written code."
+      }
+    ],
+    "note": "All four checks hold; no violating line found."
+  },
+  "B12": {
+    "verdict": "unclear",
+    "checks": [
+      {
+        "id": "B12.1",
+        "result": "holds",
+        "evidence": "app/main.py:107, app/settings.py:83",
+        "quote": "client=client, deps=deps, system_prompt=(settings.prompt_dir / \"system.md\").read_text()\nprompt_dir=root / \"prompts\",",
+        "note": "Prompts and config are read from files baked into the image (Dockerfile COPY prompts/config); no database, URL or flag fetch. Startup only logs manifest hash mismatches, but the source is still the build."
+      },
+      {
+        "id": "B12.2",
+        "result": "unclear",
+        "evidence": "",
+        "quote": "",
+        "note": "No CODEOWNERS or review-rule file exists anywhere in the repo (only .github/workflows/ci.yaml). Required reviews may be configured in GitHub settings outside the code, so this cannot be confirmed either way."
+      },
+      {
+        "id": "B12.3",
+        "result": "holds",
+        "evidence": ".github/workflows/ci.yaml:",
+        "quote": "if: github.ref == 'refs/heads/main'",
+        "note": "Release job runs only on main, no workflow_dispatch, image pushed by sha tag and digest, signed; Kyverno (Enforce) admits only digest-pinned images signed by the main ci.yaml identity; manifest and deployment record the digest."
+      },
+      {
+        "id": "B12.4",
+        "result": "unclear",
+        "evidence": "",
+        "quote": "",
+        "note": "No branch protection IaC or ruleset in the repo; force-push blocking may be set only in GitHub settings."
+      }
+    ],
+    "note": "No check demonstrably fails, but CODEOWNERS/review rules and branch protection are not in the repo, so B12.2 and B12.4 cannot be verified."
+  },
+  "C01": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "C01.1",
+        "result": "fails",
+        "evidence": "release/manifest.yaml:87, config/policy.yaml:18",
+        "quote": "  sts_audiences: [erp-mcp-gateway, payments-api, slack-proxy]\n  operation_scopes:",
+        "note": "The manifest has no permission-scopes category. The per-operation scopes (erp.read, erp.vendor.write, erp.invoice.write, erp.po.create, and payments.create in app/tools/payments.py) appear only in policy.yaml and code. The manifest lists audiences but no scopes. It also has no rules-files entry, and built-in tools appear only as a tools.yaml hash. Line 83 points only to the budgets section of policy.yaml."
+      },
+      {
+        "id": "C01.2",
+        "result": "holds",
+        "evidence": "release/manifest.yaml:54",
+        "quote": "    model_id: \"claude-haiku-4-5-20251001\"",
+        "note": "Primary and extractor records both have provider, model_id, adapter and fine_tune. No embedding or reranker model appears in the code."
+      },
+      {
+        "id": "C01.3",
+        "result": "holds",
+        "evidence": "release/manifest.yaml:43",
+        "quote": "    id_kind: \"pinned snapshot\"",
+        "note": "Both IDs are dated snapshots, and both records have a source and a check date."
+      },
+      {
+        "id": "C01.4",
+        "result": "holds",
+        "evidence": "release/manifest.yaml:8",
+        "quote": "  digest: \"sha256:7c1e4a0f9b3d2e85a6c4f1b0d9e8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0\"",
+        "note": "The image and harness use digests or commits. A manifest-level owner is set, and models and MCP servers have their own owners."
+      },
+      {
+        "id": "C01.5",
+        "result": "holds",
+        "evidence": "release/manifest.yaml:58",
+        "quote": "    fine_tune: none",
+        "note": "No training or fine-tuning code exists in the repo."
+      }
+    ],
+    "violates": [
+      "permission scopes"
+    ],
+    "note": "The manifest omits the permission-scopes category, so C01.1 fails."
+  },
+  "C02": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "C02.1",
+        "result": "unclear",
+        "evidence": "release/manifest.yaml:1",
+        "quote": "# Release manifest for the procurement agent. Regenerated by CI on every",
+        "note": "Manifest, prompts, config are files in the repo, but no CODEOWNERS or ruleset is in the repo; review rules would live only in the hosting service."
+      },
+      {
+        "id": "C02.2",
+        "result": "fails",
+        "evidence": ".github/workflows/ci.yaml:40",
+        "quote": "    if: github.ref == 'refs/heads/main'",
+        "note": "The release/deploy job has no protected `environment:` entry, and there is no CODEOWNERS or IAM naming roles allowed to change production config; any merge to main builds and publishes with only a branch condition."
+      },
+      {
+        "id": "C02.3",
+        "result": "unclear",
+        "evidence": "",
+        "quote": "",
+        "note": "No emergency or break-glass path (runbook, workflow, CLI) found in the repo; searched for emergency, break-glass, override, follow-up, CODEOWNERS."
+      }
+    ],
+    "violates": [
+      "Show who is allowed to change production config"
+    ],
+    "note": "The release job publishes from main with no protected environment and no named-role config in the repo, while review rules and the emergency process are not visible here."
+  },
+  "C04": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "C04.1",
+        "result": "fails",
+        "evidence": "app/startup.py:26",
+        "quote": "for name in (\"policy\", \"tools\"):",
+        "note": "running_state_mismatches compares only image digest, prompts, policy/tools config hashes and model IDs. It does not compare the network policy, MCP server list or tool pins, harness settings or digest, or permissions with the baseline. The manifest lists network_policy and harness but the code never checks them. Self-hosted weights are not used (hosted models), so only model_id is compared."
+      },
+      {
+        "id": "C04.2",
+        "result": "fails",
+        "evidence": "app/main.py:83",
+        "quote": "agent_type_id = startup_checks(settings)",
+        "note": "The only comparison runs once at process startup. No cron, CI schedule, admission webhook or change-event trigger runs it afterwards, so drift after startup is never checked."
+      },
+      {
+        "id": "C04.3",
+        "result": "fails",
+        "evidence": "app/startup.py:43",
+        "quote": "log.error(\"running state differs from release manifest: %s\", \", \".join(mismatches))",
+        "note": "Mismatches are only logged. Startup continues and returns the agent_type_id. No alert, block, quarantine or rollback is configured, and no time limit is set."
+      }
+    ],
+    "violates": [
+      "Compare running images, harness settings, prompts, MCP server lists, permissions, network policies, and self-hosted model weights against their approved baseline",
+      "Check that each one raises an alert and gets the documented response \u2014 block, quarantine, or rollback \u2014 within a set time."
+    ],
+    "note": "Only a one-time startup check exists. It covers a subset of the required categories and only logs mismatches, with no schedule, response or time limit."
+  },
+  "C07": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "C07.1",
+        "result": "fails",
+        "evidence": "release/manifest.yaml:1",
+        "quote": "# Release manifest for the procurement agent. Regenerated by CI on every",
+        "note": "The only manifest is overwritten on each release; no retained earlier approved setup and no rollback script, pipeline or runbook exists anywhere in the repo."
+      },
+      {
+        "id": "C07.2",
+        "result": "unclear",
+        "evidence": "deploy/k8s/deployment.yaml",
+        "quote": "",
+        "note": "No rollback procedure exists, so nothing shows whether credentials are restored; secrets are referenced as external k8s Secrets and the STS, not re-applied from a release."
+      },
+      {
+        "id": "C07.3",
+        "result": "fails",
+        "evidence": "release/manifest.yaml:89",
+        "quote": "  store: \"postgres procurement.dept_notes\"",
+        "note": "Memory store is recorded, but no rollback step drains, migrates or discards memory/index state, checkpoints or queued work; grep finds no rollback, drain, checkpoint or queue handling."
+      },
+      {
+        "id": "C07.4",
+        "result": "fails",
+        "evidence": "release/manifest.yaml:42",
+        "quote": "    model_id: \"claude-sonnet-4-5-20250929\"",
+        "note": "Hosted models (sonnet and haiku) are named with no retirement date recorded anywhere."
+      }
+    ],
+    "violates": [
+      "show that rollback works",
+      "record the announced retirement date",
+      "Keep an approved recovery setup"
+    ],
+    "note": "No recovery setup, rollback procedure, or model retirement dates exist in the repo; C07.1, C07.3 and C07.4 fail."
+  },
+  "E06": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "E06.1",
+        "result": "unclear",
+        "evidence": "deploy/k8s/networkpolicy.yaml",
+        "quote": "",
+        "note": "Agent egress to the ERP MCP gateway namespace is allowed and no server credentials are held, but egress to any public IP on 443 is also open; gateway-side enforcement and any other MCP servers are outside this repo."
+      },
+      {
+        "id": "E06.2",
+        "result": "unclear",
+        "evidence": "app/mcp_client.py",
+        "quote": "",
+        "note": "Client sends its own STS-exchanged, audience-bound token; the gateway's validation of iss/aud/exp/scope is not in this repo."
+      },
+      {
+        "id": "E06.3",
+        "result": "unclear",
+        "evidence": "app/mcp_client.py",
+        "quote": "",
+        "note": "Gateway authorization, rate limits and decision logging are not in this repo."
+      },
+      {
+        "id": "E06.4",
+        "result": "unclear",
+        "evidence": "app/identity.py",
+        "quote": "",
+        "note": "Client-side STS and RPC errors propagate (raise_for_status) and block the call; gateway policy/scanner fail-closed behaviour is not visible."
+      },
+      {
+        "id": "E06.5",
+        "result": "fails",
+        "evidence": "app/mcp_client.py:70, app/mcp_client.py:110, app/identity.py:95",
+        "quote": "self._tools: dict[str, dict[str, Any]] = {}\n        self._tools = {t[\"name\"]: t for t in tools}\nkey = (audience, scope, ident.tenant)",
+        "note": "The tool list is held in one shared dict fetched with the service identity and overwritten on list_changed without pin check, not keyed by authorization context. The token cache is keyed only by audience, scope and tenant, so tokens minted for one delegated_subject are reused for other callers in the same tenant."
+      },
+      {
+        "id": "E06.6",
+        "result": "holds",
+        "evidence": "app/identity.py:98",
+        "quote": "async with httpx.AsyncClient(timeout=5.0) as client:",
+        "note": "Agent only exchanges tokens at a fixed configured STS URL and follows no discovery URLs; it is not a discovery-following OAuth client."
+      }
+    ],
+    "violates": [
+      "Store any cached tool list or response separately for each authorization context."
+    ],
+    "note": "The tool-list cache is a single shared dict and the token cache ignores the delegated subject, so caches are not separated per authorization context; other checks depend on gateway code outside this repo."
+  },
+  "E07": {
+    "verdict": "upheld",
+    "applicability": "absent",
+    "evidence": "app/main.py:142",
+    "quote": "@app.post(\"/runs\")",
+    "note": "Searched all non-test files under agent/ for a2a, peer, agent card, webhook, callback, mcp and agent-to-agent. main.py registers only /runs (OIDC bearer JWT for human or staff principals), /slack/interactions (Slack HMAC, human approvers from the approvers table) and /healthz. The ingest router adds /ingest/mail, an HMAC-signed mail gateway service that carries vendor documents and not agent messages. The ERP MCP, Slack and payments connections are outbound tool calls whose results are tool output, not peers that send requests. No peer endpoint, agent card, or peer-supplied callback URL exists, so the N/A condition holds.",
+    "checks": [
+      {
+        "id": "E07.1",
+        "result": "holds",
+        "evidence": "app/main.py:142",
+        "quote": "@app.post(\"/runs\")",
+        "note": "No peer agent message route exists; inbound is staff JWT, Slack and mail gateway."
+      },
+      {
+        "id": "E07.2",
+        "result": "holds",
+        "evidence": "app/ingest.py:104",
+        "quote": "@router.post(\"/ingest/mail\")",
+        "note": "No agent-to-agent channel; the mail gateway is a service posting documents."
+      },
+      {
+        "id": "E07.3",
+        "result": "holds",
+        "evidence": "app/main.py:163",
+        "quote": "@app.post(\"/slack/interactions\")",
+        "note": "No peer action requests exist; the Slack and mail routes do have timestamp checks."
+      },
+      {
+        "id": "E07.4",
+        "result": "holds",
+        "evidence": "app/ingest.py:5",
+        "quote": "``untrusted_document`` wrapper (tools/documents.py).",
+        "note": "No peer message content exists; mail documents are wrapped as untrusted."
+      },
+      {
+        "id": "E07.5",
+        "result": "holds",
+        "evidence": "app/main.py:142",
+        "quote": "@app.post(\"/runs\")",
+        "note": "No peer-supplied callback or webhook URLs; RunRequest has only task and department."
+      }
+    ]
+  },
+  "E10": {
+    "verdict": "unclear",
+    "checks": [
+      {
+        "id": "E10.1",
+        "result": "unclear",
+        "evidence": "app/audit.py:86",
+        "quote": "    for name in IDENTITY_FIELDS:",
+        "note": "In-repo writers (agent loop, extractor subagent via audit.record) enforce all six identity fields and carry trace_id; the DB also has NOT NULL/CHECK constraints. Gateway and tool-service audit writers are not in this repo, so those cannot be checked."
+      },
+      {
+        "id": "E10.2",
+        "result": "holds",
+        "evidence": "migrations/001_init.sql:120, migrations/001_init.sql:121",
+        "quote": "REVOKE ALL ON ALL TABLES IN SCHEMA public FROM procurement_agent;\nGRANT SELECT, INSERT ON audit_events TO procurement_agent;",
+        "note": "The agent role is revoked everything and then granted only SELECT and INSERT on audit_events. It has no UPDATE, DELETE or TRUNCATE, and no grant of *. No WORM or Object Lock exists, but the DB grants block rewriting by the agent role."
+      },
+      {
+        "id": "E10.3",
+        "result": "unclear",
+        "evidence": "config/policy.yaml:22, config/policy.yaml:25",
+        "quote": "    vendor.update_remit_to: \"erp.read erp.vendor.write\"\n    invoice.mark_paid: \"erp.read erp.invoice.write\"",
+        "note": "None of the agent's tools or listed ERP operations touch audit records, and there is no DB-admin, log or storage tool. But erp_call forwards any operation name the ERP exposes, and the ERP server's operation set is outside this repo. Whether any operation could alter audit records cannot be proven here."
+      },
+      {
+        "id": "E10.4",
+        "result": "unclear",
+        "evidence": "app/loop.py:99",
+        "quote": "            payload={\"result_sha256\": audit.digest(output), \"result\": output},",
+        "note": "The vendor's payment_id is stored in the tool_result row, which carries operation_id and the identity fields. However the payments and ERP calls send no trace context or instance id. Payments sends only an idempotency key, and ERP _meta carries only business_unit and run_id. A failed or timed-out call stores no vendor ID. The gateway-side and vendor-side mapping is outside this repo."
+      }
+    ],
+    "note": "No check was shown false in the repo: the agent role is insert-only on audit_events, but the gateway, tool-service and vendor-side audit behaviour is outside the repo."
+  },
+  "R04": {
+    "verdict": "failed",
+    "applicability": "present",
+    "evidence": "app/tools/memory.py:44",
+    "quote": "business_unit = args.get(\"business_unit\") or ident.tenant",
+    "note": "The manifest's 'retrieval: none' is true only for embeddings or a vector store. I searched agent/app, config, prompts, migrations and release for embedding, vector, chunk, search, index, FTS and tsvector. The hits were only audit, approval, document and note B-tree indexes, plus a vendor.search ERP tool. The agent does have a persistent corpus that it reads back into model context. dept_notes is written by memory_write and read by memory_read (app/tools/memory.py, migrations/001_init.sql:91). documents is written by /ingest/mail and read by read_document (app/ingest.py:142, app/tools/documents.py:20). These are keyed lookups, not similarity search, but they are stored documents the agent consults for context, so the N/A condition does not hold. Evaluating the controls, memory_read takes the tenant from a model-supplied argument (R04.3 fails). memory_write accepts writes from any run with no named writer or source list (R04.1 fails). I found no quarantine, revoke or cache-invalidation code, only a read-time filter (R04.4 unclear).",
+    "violates": [
+      "Enforce the requesting tenant's access when searching",
+      "Limit which identities and sources can add or change content there"
+    ],
+    "checks": [
+      {
+        "id": "R04.1",
+        "result": "fails",
+        "evidence": "app/tools/memory.py:70",
+        "quote": "async def memory_write(args: dict[str, Any], ident: RunIdentity) -> Any:",
+        "note": "memory_write only validates the note kind and body content (lines 71-73). It does not check the writer identity or source against a named list. Any agent run can add a note, including one derived from untrusted documents through source_doc_id. /ingest/mail does verify an HMAC, but it is a single shared key and does not name allowed senders, so the memory write path is the failing one."
+      },
+      {
+        "id": "R04.2",
+        "result": "holds",
+        "evidence": "app/tools/memory.py:78-83",
+        "quote": "verified, quarantined, expires_at,",
+        "note": "Both stores record the fields. dept_notes keeps business_unit (access), created_at (time added), verified (trust), and writer_instance, run_id and source_doc_id (source). documents keeps source, status, received_at and business_unit. source_doc_id is optional on notes, but writer_instance is always set."
+      },
+      {
+        "id": "R04.3",
+        "result": "fails",
+        "evidence": "app/tools/memory.py:44",
+        "quote": "business_unit = args.get(\"business_unit\") or ident.tenant",
+        "note": "memory_read takes the tenant from the model-supplied business_unit argument and falls back to the caller's tenant only when it is absent. The tool description invites this: 'shared-services staff may look up another unit's notes'. Neither gate.py nor policy.yaml enforces a check on the argument. The model, or injected content, can therefore read another tenant's notes. read_document does correctly filter by ident.tenant."
+      },
+      {
+        "id": "R04.4",
+        "result": "unclear",
+        "evidence": "app/tools/memory.py:51-52",
+        "quote": "AND NOT quarantined\n  AND (verified OR expires_at > now())",
+        "note": "memory_read excludes quarantined and expired notes at query time, and documents has a quarantined status. I found no code that quarantines, expires or revokes chunks after the fact, and no cache layer to invalidate. The admin UI mentioned in the memory.py docstring is not in the repo."
+      }
+    ]
+  },
+  "R07": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "R07.1",
+        "result": "holds",
+        "evidence": "app/audit.py:113",
+        "quote": "        measure.tokens,",
+        "note": "model_decision, tool_proposed, authz_decision, tool_result, tool_error and tool_denied rows in loop.py and extractor.py all pass context=ctx. Only lifecycle/housekeeping rows (run_started, budget_exceeded, subagent_started/finished, background_job) omit it and are stored as unavailable/NULL; none of them is a model decision or tool action."
+      },
+      {
+        "id": "R07.2",
+        "result": "holds",
+        "evidence": "migrations/001_init.sql:23",
+        "quote": "    context_tokens      integer CHECK (context_tokens IS NULL OR context_tokens > 0),",
+        "note": "context_method is NOT NULL, so every value carries a label. finalize() maps a zero total to unavailable (tokens=None), and the CHECK rejects 0. The `or 0` in finalize only feeds a sum that is then rejected when <= 0. The transient 'pending_usage' label is always replaced by finalize() in loop.py and extractor.py."
+      },
+      {
+        "id": "R07.3",
+        "result": "holds",
+        "evidence": "app/context_size.py:65",
+        "quote": "        counted = await client.messages.count_tokens(",
+        "note": "The method is documented in the module docstring. It counts the exact request, including the cached prefix, via the count_tokens endpoint. The fallback sums input + cache_read + cache_creation and is labelled usage_sum_estimate. Compaction is flagged via the compacted field."
+      },
+      {
+        "id": "R07.4",
+        "result": "holds",
+        "evidence": "app/loop.py:54",
+        "quote": "        self._contexts[ident.agent_instance_id] = ctx",
+        "note": "ctx is passed into execute_tool for both the parent and the sub-agent (extractor.py:96). It is written on each audit row together with trace_id, agent_instance_id, parent_instance_id, operation_id and the result payload, and into dept_notes by memory_write."
+      }
+    ],
+    "note": "Every model decision and tool action row carries a per-action, method-labelled context size (NULL when unknown), counted via count_tokens with a cache-inclusive usage fallback; only non-action lifecycle rows omit it."
+  },
+  "R12": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "R12.1",
+        "result": "fails",
+        "evidence": "config/tools.yaml:10",
+        "quote": "      create_purchase_order: \"Raise a purchase order once a quote is within budget and approved.\"",
+        "note": "tools.yaml, policy and code give only a task reason per tool (create_purchase_order, pay_invoice, post_slack_message, memory_write, etc.); none states whether it is cancelled, completed or reconciled after a stop."
+      },
+      {
+        "id": "R12.2",
+        "result": "fails",
+        "evidence": "app/loop.py:127, app/loop.py:139",
+        "quote": "        await killswitch.assert_running(pool, ident.tenant)\n            while True:",
+        "note": "The only killswitch.assert_running call (grep-confirmed) is at run start. The loop and execute_tool never re-check it, so a run already in flight (started via asyncio.create_task) keeps issuing model turns and tool calls after an operator halt. Nothing cancels or holds queued work or turns off retries."
+      },
+      {
+        "id": "R12.3",
+        "result": "fails",
+        "evidence": "app/loop.py:86",
+        "quote": "        except Exception as exc:",
+        "note": "A pay_invoice or create_purchase_order call that times out or errors after reaching the outside system is only written as tool_error and returned to the model. There is no tracked hold, owner or reconcile step, and the model can go on to dependent calls. The idempotency key in payments.py is not a reconcile."
+      },
+      {
+        "id": "R12.4",
+        "result": "holds",
+        "evidence": "app/main.py:159",
+        "quote": "    asyncio.create_task(request.app.state.agent.run(ident, task))",
+        "note": "Runs start only from an authenticated request. There is no checkpoint or auto-resume code (grep for resume, checkpoint and restart found nothing), and the Deployment does not resume interrupted runs."
+      },
+      {
+        "id": "R12.5",
+        "result": "fails",
+        "evidence": "app/loop.py:127, app/loop.py:83",
+        "quote": "        await killswitch.assert_running(pool, ident.tenant)\n                output = await tool.invoke(use.input, ident)",
+        "note": "Halt is a database flag that is read only at run start. It revokes no credentials. In-flight runs keep calling tool.invoke, which gets fresh tokens from deps.broker.token_for (payments.py:27), so work continues after stop. Nothing at stop revokes or expires their authority."
+      }
+    ],
+    "violates": [
+      "no orphaned work may be left able to act",
+      "writes in progress",
+      "show how you check and fix the result (reconcile) or undo it another way (compensate)"
+    ],
+    "note": "The kill switch is checked only at run start, so in-flight runs keep acting after a halt, and there is no per-operation stop policy or hold/reconcile for unclear outside actions."
+  },
+  "R13": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "R13.1",
+        "result": "holds",
+        "evidence": "app/loop.py:55",
+        "quote": "proposed = await audit.record(",
+        "note": "Proposed, result and error records carry run_id, args, payload and UTC timestamp."
+      },
+      {
+        "id": "R13.2",
+        "result": "holds",
+        "evidence": "app/loop.py:68",
+        "quote": "authz = await audit.record(",
+        "note": "Allow and deny both logged with policy_version, including allowlist denials."
+      },
+      {
+        "id": "R13.3",
+        "result": "holds",
+        "evidence": "app/loop.py:70",
+        "quote": "policy_version=decision.policy_version, approval_id=decision.approval_id,",
+        "note": "Approval id is recorded on authz, result and error records."
+      },
+      {
+        "id": "R13.4",
+        "result": "fails",
+        "evidence": "app/loop.py:83, app/tools/payments.py:34",
+        "quote": "output = await tool.invoke(use.input, ident)\n\"Idempotency-Key\": idempotency_key(ident, args),",
+        "note": "operation_id is generated and stored in the audit table but never passed to tool.invoke or to any destination (payments sends a separate args-derived idempotency key; ERP sends only run_id). Unclear results cannot be matched to the destination's records via it. Timeouts are logged only as a generic tool_error."
+      }
+    ],
+    "violates": [
+      "each operation gets an ID before it is sent, so unclear results can be matched to the destination's records"
+    ],
+    "note": "R13.4 fails because the operation ID exists only in the local audit log and is never sent to the destination."
+  },
+  "R14": {
+    "verdict": "upheld",
+    "applicability": "absent",
+    "evidence": "app/main.py:159",
+    "quote": "    asyncio.create_task(request.app.state.agent.run(ident, task))",
+    "note": "Searched all of agent/ for replay, checkpoint, retry, resume, recover, idempotency, backoff, requeue, restart, and for any read of the audit table or a startup scan of unfinished runs. Runs start only from POST /runs (main.py:159) as an in-memory asyncio task, and the loop (loop.py:125-186) keeps messages in memory with no persisted checkpoint. The audit table is write-only: audit.record is called but nothing selects from it to drive recovery. The only background job is expire_approvals_forever (main.py:68), which marks pending approvals expired and does not replay anything. Approvals are consulted by find_valid only when the model makes a fresh tool call in a new run. A pending approval returns 'do not retry until approved' (loop.py:75) and there is no automatic re-execution. The pay_invoice tool sends an Idempotency-Key (payments.py:33), but it is a single call with no retry loop. Nothing is resumed after a crash, so no logs or checkpoints drive recovery and no automatic replay exists. The N/A condition holds.",
+    "checks": [
+      {
+        "id": "R14.1",
+        "result": "holds",
+        "evidence": "app/main.py:159",
+        "quote": "    asyncio.create_task(request.app.state.agent.run(ident, task))",
+        "note": "N/A: no checkpoints or audit records are used for recovery; the audit table is write-only."
+      },
+      {
+        "id": "R14.2",
+        "result": "holds",
+        "evidence": "app/main.py:159",
+        "quote": "    asyncio.create_task(request.app.state.agent.run(ident, task))",
+        "note": "N/A: no recovery code loads checkpoints."
+      },
+      {
+        "id": "R14.3",
+        "result": "holds",
+        "evidence": "app/main.py:159",
+        "quote": "    asyncio.create_task(request.app.state.agent.run(ident, task))",
+        "note": "N/A: no stored chain or checkpoint is verified because none drives recovery."
+      },
+      {
+        "id": "R14.4",
+        "result": "holds",
+        "evidence": "app/tools/payments.py:33",
+        "quote": "                    \"Idempotency-Key\": idempotency_key(ident, args),",
+        "note": "N/A: no automatic replay exists. The payment call is single-shot and carries an idempotency key anyway."
+      },
+      {
+        "id": "R14.5",
+        "result": "holds",
+        "evidence": "app/loop.py:75",
+        "quote": "                return _error(use.id, f\"approval requested ({decision.approval_id}); do not retry until approved\")",
+        "note": "N/A: no replay or retry on timeout or unclear results. Tool errors are logged and returned to the model, with no automatic resend."
+      }
+    ]
+  }
+}

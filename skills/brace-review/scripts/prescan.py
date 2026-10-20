@@ -28,7 +28,7 @@ MAX_LINE_CHARS = 2_000  # longer lines are usually minified or generated
 
 SKIP_DIRS = {".git", "node_modules", "venv", ".venv", "__pycache__", "brace-challenges"}
 SKIP_DIR_PREFIXES = ("brace-findings",)
-SKIP_FILE_PREFIXES = ("brace-findings", "brace-prescan")
+SKIP_FILE_PREFIXES = ("brace-findings", "brace-prescan", "brace-inventory", "brace-coverage", "brace-attempts", "brace-deviations")
 SKIP_FILE_GLOBS = ("*.min.js", "*.bundle.js", "*.bundled.js", "*.min.css", "*.map", "*.lock",
                    "package-lock.json", "pnpm-lock.yaml")
 COMMENT_LINE = re.compile(r"^\s*(#|//|/\*|\*(\s|/|$))")

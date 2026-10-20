@@ -1,0 +1,34 @@
+{
+  "verdict": "unclear",
+  "checks": [
+    {
+      "id": "A01.1",
+      "result": "holds",
+      "evidence": "agent/infra/terraform/iam.tf:15, agent/infra/terraform/iam.tf:16, agent/k8s/deployment.yaml:17",
+      "quote": "              \"system:serviceaccount:clinic-agent:clinic-agent\",\n              \"system:serviceaccount:clinic-agent:clinic-agent-reminders\",\n    eks.amazonaws.com/role-arn: arn:aws:iam::418295730611:role/clinic-agent-runtime",
+      "note": "The runtime role trusts only the agent service and its reminder workload; repository-wide identity searches found no unrelated workload using it. Kubernetes binds the service accounts to this credential-bearing role."
+    },
+    {
+      "id": "A01.2",
+      "result": "unclear",
+      "evidence": "agent/src/integrations/payments.ts:13, agent/src/integrations/sms.ts:25, agent/src/agent/loop.ts:15",
+      "quote": "  return JSON.parse(s.SecretString ?? \"{}\").restricted_key;\n  return { token: v.api_token, from: v.from_number };\nconst anthropic = new Anthropic({ maxRetries: 1 });",
+      "note": "EHR, payments and SMS obtain credentials from agent-namespaced Secrets Manager entries; eligibility exchanges the workload token, and AWS clients use their default credential chain. Incoming webchat credentials are verified rather than forwarded. However, secret values and provider grants are provisioned outside this repo, so exclusive agent ownership of the static provider credentials cannot be established. The model client also has no explicit workload credential acquisition here. No line proves a shared credential, so this is uncertainty rather than a demonstrated failure."
+    },
+    {
+      "id": "A01.3",
+      "result": "holds",
+      "evidence": "agent/src/routes/webchat.ts:50, agent/src/agent/identity.ts:100, agent/src/agent/identity.ts:109, agent/src/agent/identity.ts:112",
+      "quote": "      subject: { kind: claims.role === \"staff\" ? \"staff\" : \"patient\", id: claims.sub },\n    subject: init.subject,\n      agentInstanceId: AGENT_INSTANCE_ID,\n    workloadToken: async () => readFileSync(WORKLOAD_TOKEN_PATH, \"utf8\").trim(),",
+      "note": "Run starters carry the user in a separate subject field; the agent instance identity and workload token remain independent of that subject. This satisfies the separate delegated-subject alternative without requiring externally issued act/sub claims."
+    },
+    {
+      "id": "A01.4",
+      "result": "holds",
+      "evidence": "agent/infra/terraform/iam.tf:27, agent/infra/terraform/iam.tf:34, agent/infra/terraform/iam.tf:35",
+      "quote": "  role = aws_iam_role.runtime.id\n        Action   = [\"secretsmanager:GetSecretValue\"]\n        Resource = \"arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:clinic-agent/*\"",
+      "note": "The defined runtime permissions for secrets, agent state and audit attach to the dedicated workload role rather than the launching user. Removing this binding removes those AWS grants independently of human access; lifetime of already acquired provider credentials is not established by this IAM binding."
+    }
+  ],
+  "note": "No A01 failure is demonstrated, but exclusive ownership of every API credential cannot be verified from this repository."
+}

@@ -1,0 +1,34 @@
+{
+  "verdict": "upheld",
+  "checks": [
+    {
+      "id": "B07.1",
+      "result": "holds",
+      "evidence": "config/budgets.yaml:3",
+      "quote": "maxTurns: 8                 # model calls per run",
+      "note": "All six limits have finite values in budgets.yaml:3-10: turns, wall time, tokens, cost, tool calls with a per-minute rate, and peer calls. The loop is for(;;) but budget.turn() caps it."
+    },
+    {
+      "id": "B07.2",
+      "result": "holds",
+      "evidence": "src/agent/loop.ts:56",
+      "quote": "budget.turn();",
+      "note": "RunBudget in the harness checks every limit, aborts its AbortController and throws BudgetExceeded. The executor rethrows it (executor.ts:92) and loop.ts:95 stops the run with a staff handoff. Quota keys use ctx.tenantId, not the model-supplied clinicId. The model cannot change any limit."
+    },
+    {
+      "id": "B07.3",
+      "result": "holds",
+      "evidence": "config/budgets.yaml:10",
+      "quote": "maxPeerCalls: 2             # calls to the eligibility agent; this agent starts no sub-agents",
+      "note": "No sub-agent spawning exists in src. The only peer call is insurance__check_eligibility, which is counted and capped at budget.ts:154-157 and shares the run's abort signal."
+    },
+    {
+      "id": "B07.4",
+      "result": "holds",
+      "evidence": "src/agent/budget.ts:139",
+      "quote": "await this.shared(\"subject_daily_cost\", `cost#subject#${this.scope.subjectId}#${day()}`, callCost, q.perSubjectDailyUsd, 86400);",
+      "note": "Per-subject, per-tenant and fleet cost quotas plus tenant and fleet tool-rate quotas use an atomic DynamoDB conditional counter (budget.ts:32-55, 139-141, 160-161), shared across runs and pods. Residual gap: the classifier call (classifier.ts:45) is not counted against run or quota budgets, but it is capped at max_tokens 64 and a 4s timeout."
+    }
+  ],
+  "note": "Every limit is finite and enforced by the harness, and the shared quotas persist across runs. The only gap I found is the small uncounted classifier model call."
+}

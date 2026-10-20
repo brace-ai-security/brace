@@ -105,6 +105,13 @@ def main():
                 sys.exit(f"The quote isn't in {a.evidence} (within 3 lines). Copy the exact code text.")
         if a.met == "yes" and len(norm(a.counter).split()) < 4:
             sys.exit("A yes needs --counter: what you searched for that would make it false, and what you found.")
+        if a.met == 'yes':
+            from review_coverage import inventory, ledger_problems
+            canonical = next(x for x in load(CHECKS_FILE)[item]['checks'] if x['id'] == a.target)
+            if canonical.get('coverage_required'):
+                problems = ledger_problems({**c, 'note': a.note}, canonical, repo, inventory(repo)['sites'])
+                if problems:
+                    sys.exit('Record coverage with review_coverage.py ledger before yes: ' + '; '.join(problems))
         c.update(met=a.met, evidence=a.evidence, quote=a.quote, counter_search=a.counter, note=a.note)
         save(path, doc)
         print(f"Saved {a.target} = {a.met}. " + next_open(doc))

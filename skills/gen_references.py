@@ -16,6 +16,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent / "brace-review/scripts"))
+from review_coverage import spec as coverage_spec
+
+
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -79,9 +83,10 @@ def bullets(values):
     return "\n".join(f"- {v}" for v in values or []) or "- (none listed)"
 
 
-def render(letter, items, recipes, roles, with_heuristics, must_show=None, not_covered=None):
+def render(letter, items, recipes, roles, with_heuristics, must_show=None, not_covered=None, na_when=None):
     must_show = {} if must_show is None else must_show
     not_covered = {} if not_covered is None else not_covered
+    na_when = {} if na_when is None else na_when
     slug, name = ASPECTS[letter]
     heur = load_heuristics(slug) if with_heuristics else {}
     ids = sorted(i for i in items if i[0] == letter)
@@ -106,6 +111,7 @@ def render(letter, items, recipes, roles, with_heuristics, must_show=None, not_c
             h = heur.get(iid)
             if not h:
                 raise SystemExit(f"Missing heuristics for {iid} in heuristics/{slug}.yaml")
+            na_when[iid] = h.get("na_when", "never")
             provable = h.get("provable_from_code")
             # YAML 1.1 reads unquoted yes/no as booleans.
             provable = {True: "yes", False: "no"}.get(provable, provable)
@@ -117,7 +123,7 @@ def render(letter, items, recipes, roles, with_heuristics, must_show=None, not_c
             for c in checks:
                 if not str(c.get("id", "")).startswith(iid + ".") or not c.get("check"):
                     raise SystemExit(f"{iid}: each must_show entry needs an id like {iid}.1 and a check")
-            must_show[iid] = [{"id": c["id"], "check": c["check"], **({"verify": c["verify"]} if c.get("verify") else {}),
+            must_show[iid] = [{"id": c["id"], "check": c["check"], **coverage_spec(c["id"]), **({"verify": c["verify"]} if c.get("verify") else {}),
                                **({"doc_ok": True} if c.get("doc_ok") else {})} for c in checks]
             if checks:
                 ms = "\n".join(f"- **{c['id']}** {c['check']}" + (" *(A document can show this.)*" if c.get("doc_ok") else "")
@@ -148,19 +154,19 @@ def main():
     items, recipes, roles = parse_checklist(), parse_recipes(), parse_roles()
     if len(items) != 53 or len(recipes) != 53 or len(roles) != 53:
         raise SystemExit(f"Expected 53 items; found checklist={len(items)} recipes={len(recipes)} roles={len(roles)}")
-    stale, must_show, not_covered = [], {}, {}
+    stale, must_show, not_covered, na_when = [], {}, {}, {}
     outputs = []
     for skill, with_h in (("brace-review", True), ("brace-tests", False)):
         for letter, (slug, _) in ASPECTS.items():
             path = ROOT / "skills" / skill / "references" / f"{slug}.md"
-            outputs.append((path, render(letter, items, recipes, roles, with_h, must_show, not_covered)))
+            outputs.append((path, render(letter, items, recipes, roles, with_h, must_show, not_covered, na_when)))
     role_key = {"Agent team": "agent_team", "Operations": "operations", "Security": "security",
                 "Infrastructure": "infrastructure", "Governance": "governance", "Business owner": "business_owner",
                 "Data and privacy": "data_privacy", "Model team": "model_team", "Vendors": "vendors",
                 "Independent audit": "independent_audit"}
     table = {iid: {"gate": items[iid]["gate"], "title": items[iid]["title"],
                    "lead_role": role_key[roles[iid][0]], "requirement": items[iid]["requirement"],
-                   "not_covered": not_covered.get(iid, []), "checks": must_show[iid]}
+                   "not_covered": not_covered.get(iid, []), "na_when": na_when[iid], "checks": must_show[iid]}
              for iid in sorted(must_show)}
     outputs.append((ROOT / "skills" / "brace-review" / "references" / "checks.json",
                     json.dumps(table, indent=1) + "\n"))

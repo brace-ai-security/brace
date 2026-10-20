@@ -1,0 +1,31 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Compare running images, harness settings, prompts, MCP server lists, permissions, network policies, and self-hosted model weights against their approved baseline.",
+    "Check that each one raises an alert and gets the documented response \u2014 block, quarantine, or rollback \u2014 within a set time."
+  ],
+  "checks": [
+    {
+      "id": "C04.1",
+      "result": "fails",
+      "evidence": "src/agent/identity.ts:24, src/agent/loop.ts:14",
+      "quote": "    .filter((f) => f.endsWith(\".txt\"))\nconst SYSTEM_TEMPLATE = readFileSync(join(ROOT, \"prompts/system.md\"), \"utf8\");",
+      "note": "The running identity comparison excludes the system prompt because it hashes only .txt prompts. Editing system.md before startup changes the consumed prompt without changing the identity hash. CI separately checks prompt digests but does not compare running deployments. The complete hash input list also omits MCP server definitions, effective permissions, and network policies; harness version is taken from the baseline itself. Models are provider hosted, so self-hosted weights are not applicable, but the prompt omission alone falsifies full coverage."
+    },
+    {
+      "id": "C04.2",
+      "result": "unclear",
+      "evidence": "src/server.ts:27, src/server.ts:89, k8s/deployment.yaml:117",
+      "quote": "const typeId = computeAgentTypeId({\nkillSwitch.startWatcher();\n  name: clinic-agent-reminders",
+      "note": "The supplied comparison executes once at HTTP service startup. Searches for drift, baseline, identity, schedule, cron, setInterval, alerts, and rollback across agent/ found no periodic or change-event running-deployment drift observer. The periodic watcher reads operator halt flags; the CronJob sends reminders and computes identity without comparing it. CI checks repository prompts on push/PR and deployment is manually triggered. External scheduling cannot be determined from this repository."
+    },
+    {
+      "id": "C04.3",
+      "result": "fails",
+      "evidence": "src/server.ts:34, src/server.ts:36, src/server.ts:90",
+      "quote": "  metrics.increment(\"identity.mismatch\");\nsetAgentTypeId(typeId);\nawait app.listen({ host: \"0.0.0.0\", port: 8080 });",
+      "note": "A detected identity mismatch logs and emits a stdout metric, then unconditionally sets the mismatching identity and starts serving. This branch neither blocks, quarantines, nor rolls back, and defines no response deadline. No drift response configuration or alarm wiring was found. The two-second kill-switch polling interval applies to operator halt flags and is not connected to identity mismatch."
+    }
+  ],
+  "note": "C04 fails because the running comparison excludes the active system prompt and detected identity drift allows startup without a configured containment response or deadline."
+}

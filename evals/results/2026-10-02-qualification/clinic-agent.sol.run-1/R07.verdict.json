@@ -1,0 +1,38 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Each action record includes the model's context size in tokens at decision time.",
+    "The value is carried across tool handoffs and stored with the action's identity, result, and trace ID."
+  ],
+  "checks": [
+    {
+      "id": "R07.1",
+      "result": "fails",
+      "evidence": "src/agent/loop.ts:42, src/agent/classifier.ts:76",
+      "quote": "    await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });\n  return { ...base, servedModel: res.model, ...parsed, route, failure: null };",
+      "note": "The helper model makes a routing decision, including routing urgent or complaint messages to staff before the main loop runs. Its action record has no context field, and the classifier returns neither context size nor response usage. Main-loop tool records do not cover this separate decision path."
+    },
+    {
+      "id": "R07.2",
+      "result": "holds",
+      "evidence": "src/agent/context-size.ts:38",
+      "quote": "    return { tokens: null, status: \"unavailable\", method: COUNT_METHOD, cachedInputTokens: null, compacted: false };",
+      "note": "Recorded context sizes have measured, estimated, or unavailable status; an unavailable total is null. The zero defaults in completeFromUsage apply to optional cache components of an existing usage response, not an unavailable context total. The separate omission of classifier context is covered by R07.1."
+    },
+    {
+      "id": "R07.3",
+      "result": "holds",
+      "evidence": "src/agent/context-size.ts:26, src/agent/context-size.ts:45, src/agent/context-size.ts:16",
+      "quote": "export const USAGE_METHOD = \"anthropic.messages.usage(input+cache_read+cache_creation)\";\n  const total = usage.input_tokens + cacheRead + (usage.cache_creation_input_tokens ?? 0);\n// This harness never compacts, summarizes, or truncates history inside a run, so compacted is",
+      "note": "The stated method sums uncached input, cache reads, and cache creation for the decision prompt, with a pre-call count_tokens fallback. Inspection of the loop found history appended without compaction; compacted=false matches that implementation."
+    },
+    {
+      "id": "R07.4",
+      "result": "fails",
+      "evidence": "src/workflows/eligibility-check.ts:26, src/integrations/eligibility-a2a.ts:70, src/tools/executor.ts:89",
+      "quote": "    { workloadToken: await opts.ctx.workloadToken(), traceparent: opts.ctx.traceparent, signal: opts.signal },\n          parts: [{ kind: \"data\", data: { type: \"eligibility.check\", ...req } }],\n    await audit.record({ ...base, event: \"tool.executed\", approvalId, detail: { clinicId } });",
+      "note": "The local peer/refund audits preserve the original context, but the A2A call options and request payload do not carry it to the peer. Independently, successful generic tool audits store context and identity/trace through base but omit the tool result; the result is logged separately without those fields or an explicit trace link."
+    }
+  ],
+  "note": "The review fails because classifier routing records omit decision context and the peer handoff and successful tool records do not preserve all required context/result linkage."
+}

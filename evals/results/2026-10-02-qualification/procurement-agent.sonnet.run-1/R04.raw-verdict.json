@@ -1,0 +1,41 @@
+{
+  "verdict": "failed",
+  "applicability": "present",
+  "evidence": "agent/app/tools/memory.py:44",
+  "quote": "business_unit = args.get(\"business_unit\") or ident.tenant",
+  "note": "The manifest's 'retrieval: none' is true only for embeddings or a vector store. I searched agent/app, config, prompts, migrations and release for embedding, vector, chunk, search, index, FTS and tsvector. The hits were only audit, approval, document and note B-tree indexes, plus a vendor.search ERP tool. The agent does have a persistent corpus that it reads back into model context. dept_notes is written by memory_write and read by memory_read (app/tools/memory.py, migrations/001_init.sql:91). documents is written by /ingest/mail and read by read_document (app/ingest.py:142, app/tools/documents.py:20). These are keyed lookups, not similarity search, but they are stored documents the agent consults for context, so the N/A condition does not hold. Evaluating the controls, memory_read takes the tenant from a model-supplied argument (R04.3 fails). memory_write accepts writes from any run with no named writer or source list (R04.1 fails). I found no quarantine, revoke or cache-invalidation code, only a read-time filter (R04.4 unclear).",
+  "violates": [
+    "Enforce the requesting tenant's access when searching",
+    "Limit which identities and sources can add or change content there"
+  ],
+  "checks": [
+    {
+      "id": "R04.1",
+      "result": "fails",
+      "evidence": "agent/app/tools/memory.py:70",
+      "quote": "async def memory_write(args: dict[str, Any], ident: RunIdentity) -> Any:",
+      "note": "memory_write only validates the note kind and body content (lines 71-73). It does not check the writer identity or source against a named list. Any agent run can add a note, including one derived from untrusted documents through source_doc_id. /ingest/mail does verify an HMAC, but it is a single shared key and does not name allowed senders, so the memory write path is the failing one."
+    },
+    {
+      "id": "R04.2",
+      "result": "holds",
+      "evidence": "agent/app/tools/memory.py:78-83",
+      "quote": "verified, quarantined, expires_at,",
+      "note": "Both stores record the fields. dept_notes keeps business_unit (access), created_at (time added), verified (trust), and writer_instance, run_id and source_doc_id (source). documents keeps source, status, received_at and business_unit. source_doc_id is optional on notes, but writer_instance is always set."
+    },
+    {
+      "id": "R04.3",
+      "result": "fails",
+      "evidence": "agent/app/tools/memory.py:44",
+      "quote": "business_unit = args.get(\"business_unit\") or ident.tenant",
+      "note": "memory_read takes the tenant from the model-supplied business_unit argument and falls back to the caller's tenant only when it is absent. The tool description invites this: 'shared-services staff may look up another unit's notes'. Neither gate.py nor policy.yaml enforces a check on the argument. The model, or injected content, can therefore read another tenant's notes. read_document does correctly filter by ident.tenant."
+    },
+    {
+      "id": "R04.4",
+      "result": "unclear",
+      "evidence": "agent/app/tools/memory.py:51-52",
+      "quote": "AND NOT quarantined\n  AND (verified OR expires_at > now())",
+      "note": "memory_read excludes quarantined and expired notes at query time, and documents has a quarantined status. I found no code that quarantines, expires or revokes chunks after the fact, and no cache layer to invalidate. The admin UI mentioned in the memory.py docstring is not in the repo."
+    }
+  ]
+}

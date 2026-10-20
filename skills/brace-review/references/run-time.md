@@ -433,13 +433,13 @@ Capture decisions with short and long contexts, and a tool handoff. Compare the 
 Rate likely_pass only if every check below is true, with a file and line for each:
 
 - **R07.1** Each action record includes the model's context size in tokens at decision time.
-  - *How to verify:* 1) Find action or tool-call records (trace spans, audit logs). 2) Check each has context size in tokens at decision time. 3) Answer no if the field is missing or recorded only per run, not per action.
+  - *How to verify:* 1) Inventory every model call, including classifiers and helpers, and every action/audit write. 2) Trace available decision-time context into each record. 3) Answer no when an available measure is dropped; NULL/unavailable is not permission to omit a value that exists. Do not exclude routing decisions or delegate start/result events merely by calling them lifecycle events.
 - **R07.2** Each value is labeled measured, estimated, or unavailable, and a missing value is stored as unknown, never as zero.
   - *How to verify:* 1) Find where context size is recorded. 2) Check a label of measured, estimated, or unavailable, and how missing values are stored. 3) Answer no if there is no label, or a missing value defaults to `0` (`or 0`, `?? 0`, `.get(..., 0)`).
 - **R07.3** The count comes from a stated method that handles cached input and compaction, not a copied per-call billing total.
   - *How to verify:* 1) Find how context size is counted. 2) Check a stated method covers cached input and compaction. 3) Answer no if it copies `usage.input_tokens` or a billing total with no stated method that matches it, or ignores cache and compaction.
 - **R07.4** The value is carried across tool handoffs and stored with the action's identity, result, and trace ID.
-  - *How to verify:* 1) Trace context size through tool handoffs and sub-agent calls. 2) Check it is stored with action identity, result, and trace ID. 3) Answer no if it is lost on handoff, or stored separately with no link to the action.
+  - *How to verify:* 1) Inventory parent-to-child calls, tool calls, child returns and their audit records. 2) Trace the producer, call arguments, callee and result record for each path. 3) Answer no when available parent or child context is dropped on either direction; correct logging inside one leaf tool is not proof of handoff coverage.
 
 ### Not covered here
 
@@ -814,8 +814,8 @@ Rate likely_pass only if every check below is true, with a file and line for eac
   - *How to verify:* 1) Find authorization decision code. 2) Check both allow and deny are logged with the policy version. 3) Answer no if denials are not logged, or no policy version is recorded.
 - **R13.3** Approved actions record their approval ID.
   - *How to verify:* 1) Find where approved actions are logged. 2) Answer no if the approval ID is not recorded with the action.
-- **R13.4** Tool errors, timeouts, and retries are recorded, and each operation gets an ID before it is sent, so unclear results can be matched to the destination's records.
-  - *How to verify:* 1) Find error, timeout, and retry handling. 2) Check each is logged and each operation gets an ID before sending. 3) Answer no if `except`/`catch` blocks skip logging, retries are not logged, or the ID is created after the response.
+- **R13.4** Tool errors, timeouts, and retry attempts are recorded as linked execution steps, so failed actions can be rebuilt.
+  - *How to verify:* 1) Find error, timeout and retry branches. 2) Trace their records into the execution graph, including failed attempts and timestamps. 3) Answer no if errors or retry steps are omitted or cannot be linked to the run. Evaluate the core execution-graph requirement here; destination operation IDs are fallback/recovery evidence, not an additional core clause.
 - **R13.5** Records are written by the harness or gateway, not by the model, and do not depend on the run's final answer.
   - *How to verify:* 1) Find who writes records. 2) Answer no if the model writes them via a tool, records are built from the final answer, or logging runs only if the run completes.
 

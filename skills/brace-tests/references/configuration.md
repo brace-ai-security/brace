@@ -10,7 +10,7 @@ Use this file to write tests and drills for each item. Each recipe gives the pro
 
 ### Verification recipe
 
-Export the deployed artifacts and settings, and match them field by field against the manifest. Fill in the provenance fields above for every model role. For each training job you ran, follow its output digest to the served checkpoint or adapter. Separate fields the provider doesn't share from records your team is missing. Check each requested model ID's snapshot-or-alias label against the cited provider doc.
+Export the deployed artifacts and settings, and match them field by field against the manifest. Check MCP protocol/extension versions, approved tool-publication and policy/config versions, issuer/audience bindings, and cache/task isolation against deployment. Fill in the provenance fields above for every model role. For each training job you ran, follow its output digest to the served checkpoint or adapter. Separate fields the provider doesn't share from records your team is missing. Check each requested model ID's snapshot-or-alias label against the cited provider doc.
 
 **Evidence to keep:** Manifest-vs-deployment diff, model registry records, training jobs, dataset versions.
 

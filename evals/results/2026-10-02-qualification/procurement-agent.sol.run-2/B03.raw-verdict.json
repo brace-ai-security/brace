@@ -1,0 +1,34 @@
+{
+  "verdict": "unclear",
+  "checks": [
+    {
+      "id": "B03.1",
+      "result": "unclear",
+      "evidence": "agent/app/identity.py:104, agent/app/main.py:96",
+      "quote": "                    \"subject_token\": self._workload_token(),\n    client = AsyncAnthropic()",
+      "note": "ERP, payments and Slack proxy credentials are obtained at runtime by workload token exchange, with failures propagated rather than a static-key fallback. Anthropic credential issuance is unspecified, and the repository does not establish whether its configured provider offers short-lived or federated credentials; default SDK construction alone does not prove a prohibited fixed-key deployment."
+    },
+    {
+      "id": "B03.2",
+      "result": "unclear",
+      "evidence": "agent/deploy/k8s/deployment.yaml:107, agent/app/identity.py:97, agent/app/identity.py:115, agent/deploy/k8s/deployment.yaml:113",
+      "quote": "                  expirationSeconds: 600\n        if cached and cached.expires_at - 30 > time.time():\n        token = _CachedToken(body[\"access_token\"], time.time() + int(body[\"expires_in\"]))\n            secretName: procurement-mail-gateway-hmac",
+      "note": "The projected workload token has a bounded 600-second lifetime, and exchanged tokens are refreshed 30 seconds before the STS-reported expiry. The STS lifetime policy, Anthropic credential lifetime, and Slack signing/mail HMAC rotation policies are outside the supplied implementation. No bounded values or lifetime rationale for those credentials are documented, but their absence here does not prove that externally managed credentials never expire or rotate."
+    },
+    {
+      "id": "B03.3",
+      "result": "holds",
+      "evidence": "agent/deploy/k8s/deployment.yaml:110, agent/deploy/k8s/deployment.yaml:113, agent/Dockerfile:18, agent/app/main.py:107, agent/app/loop.py:101",
+      "quote": "            secretName: procurement-slack-signing\n            secretName: procurement-mail-gateway-hmac\nCOPY config /app/config\n        client=client, deps=deps, system_prompt=(settings.prompt_dir / \"system.md\").read_text()\n        return {\"type\": \"tool_result\", \"tool_use_id\": use.id, \"content\": redact_for_model(output)}",
+      "note": "Inspection of hidden files, prompts, application code, Dockerfile, deployment/configuration, manifest and CI found no checked-in long-lived credential literal or build-time secret injection. Secret names refer to runtime mounts; prompts are read from secret-free templates and do not interpolate credential environment values. This assesses the supplied source and build recipe, not unseen published image layers."
+    },
+    {
+      "id": "B03.4",
+      "result": "unclear",
+      "evidence": "agent/app/mcp_client.py:77, agent/app/tools/payments.py:32, agent/app/tools/slack.py:38, agent/release/manifest.yaml:86",
+      "quote": "                headers={\"Authorization\": f\"Bearer {token}\", \"Mcp-Protocol-Version\": \"2025-06-18\"},\n                    \"Authorization\": f\"Bearer {token}\",\n                headers={\"Authorization\": f\"Bearer {await self._token()}\"},\n  spiffe_id: \"spiffe://example-corp.test/ns/procurement-prod/sa/procurement-agent\"",
+      "note": "Integration clients send bearer tokens without a configured client certificate or DPoP proof. A SPIFFE identifier and audience-bound workload exchange do not themselves demonstrate holder binding. The repository does not state whether these external services support holder binding or show their validation policies, so the conditional requirement cannot be conclusively failed or upheld."
+    }
+  ],
+  "note": "No check is conclusively false in the supplied repository; credential issuance, external lifetime and rotation policies, and service support for holder binding remain unclear."
+}

@@ -20,9 +20,9 @@ Export the tools, programs, and file permissions the running agent can see. Comp
 
 ### Verification recipe
 
-Use the agent's real test credentials. Try an allowed read, a forbidden write or admin action, and a request from tenant A for tenant B's data. The read must work and the rest must fail. Present the token to a second service. It must be rejected as meant for a different audience. Check the destination for side effects.
+Use the real test access token and verify its acting-agent and delegated-subject bindings, if delegation applies. Try an allowed read, forbidden write/admin action, and tenant A accessing tenant B. Only the read succeeds. Present the token to another audience and confirm rejection. Exercise both machine and delegated-user flows where enabled; neither may inherit broader user permissions. Check destination state.
 
-**Evidence to keep:** Token scope details (no token values), authorization logs, resource-state checks.
+**Evidence to keep:** Redacted identity/audience/scope metadata, authorization logs, tenant tests, resource-state checks; never token values.
 
 ## B03 · G2 · C2 — Credential lifetime and handling
 
@@ -30,9 +30,9 @@ Use the agent's real test credentials. Try an allowed read, a forbidden write or
 
 ### Verification recipe
 
-Issue a short-lived test credential. Call before and after it expires, rotate it, and try the old one again. The expired credential fails. The replaced credential fails once any allowed overlap ends, measured against policy. If tokens are bound to their holder, replay a copied token from another machine or key. It must be rejected. Check image layers, prompt files, and repository secret-scan results for long-lived secrets.
+Obtain a short-lived API access token from the destination's trusted issuer using the configured machine or delegated-user flow. Call before and after expiry, rotate, and retry the old credential. Expired tokens fail; replaced credentials fail after documented overlap. Replay a holder-bound token from a different machine/key where supported. Distinguish token issuance from backing-secret storage. For static-key-only services, demonstrate enforcement-layer isolation and record the expiry/revocation gap. Scan prompts, image layers, and config for long-lived secrets.
 
-**Evidence to keep:** Issue and expiry times, rotation policy, request results, redacted scan results.
+**Evidence to keep:** Issuer and grant details without secrets, issue/expiry times, overlap policy, replay results, static-key exceptions, redacted scans.
 
 ## B04 · G1 · C2 — Independent revocation
 

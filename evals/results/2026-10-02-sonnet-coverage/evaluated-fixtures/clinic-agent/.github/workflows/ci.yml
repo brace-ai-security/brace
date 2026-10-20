@@ -1,0 +1,78 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22.11"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  manifest-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - name: Prompt digests match the release manifest
+        run: |
+          node -e '
+            const fs = require("fs"), crypto = require("crypto");
+            const m = JSON.parse(fs.readFileSync("release/manifest.json", "utf8"));
+            let bad = 0;
+            for (const p of m.prompts) {
+              const got = crypto.createHash("sha256").update(fs.readFileSync(p.path)).digest("hex");
+              if (got !== p.sha256) { console.error(`${p.path}: manifest ${p.sha256} != file ${got}`); bad++; }
+            }
+            const ver = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
+            if (m.harness.version !== ver) { console.error(`harness version ${m.harness.version} != package ${ver}`); bad++; }
+            process.exit(bad ? 1 : 0);
+          '
+
+  image:
+    if: github.ref == 'refs/heads/main'
+    needs: [test, manifest-check]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 # v5.0.0
+        with:
+          role-to-assume: arn:aws:iam::418295730611:role/clinic-agent-image-build
+          aws-region: us-west-2
+      - uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+        id: ecr
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        id: build
+        with:
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/clinic-agent:${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+        with:
+          cosign-release: v2.6.2
+      - name: Sign image
+        run: cosign sign --yes ${{ steps.ecr.outputs.registry }}/clinic-agent@${{ steps.build.outputs.digest }}
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-name: ${{ steps.ecr.outputs.registry }}/clinic-agent
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

@@ -10,7 +10,7 @@ Use this file to rate each item from the code and configuration. The requirement
 
 ### Requirement
 
-Give the agent its own non-human identity. Keep it separate from the user who launched it and from unrelated agents. Show that permissions and revocation belong to that identity, even when a user starts the run.
+Give the agent its own verifiable non-human identity, separate from the user who launched it and from unrelated agents. Preserve any explicitly delegated user/system subject separately and bound the authority used. Show that operators can revoke the agent's access independently of that subject, even when a user starts the run.
 
 ### Verification recipe
 
@@ -24,12 +24,12 @@ Rate likely_pass only if every check below is true, with a file and line for eac
 
 - **A01.1** The agent runs under its own workload principal (service account, IAM role, SPIFFE ID, or agent ID) that no other service or unrelated agent uses.
   - *How to verify:* 1) Find the agent's identity: pod `serviceAccountName`, IAM role, SPIFFE ID, or agent ID in IaC or deploy config. 2) Search other deployments, services, and agents in the repo for the same name or role. 3) Answer no if it is shared, `default`, the main backend's identity, or only a string label with no credential. Answer unknown if identity is assigned outside this repo.
-- **A01.2** Tool and API clients get credentials from the agent's own principal, not from the launching user's forwarded token or session cookie.
-  - *How to verify:* 1) Find every place tool and API clients get a token or key. 2) Trace where each comes from: workload identity or token exchange, versus the incoming request's `Authorization` header or session cookie. 3) Check every client, not just the main one. 4) Answer no if any client forwards the user's token or cookie as-is, or uses a shared static key.
-- **A01.3** When a user starts a run, the user is carried as a delegated subject (for example a token exchange with separate act and sub), while the agent keeps its own principal.
-  - *How to verify:* 1) Find the code that starts a run for a user. 2) Look for token exchange (RFC 8693, `subject_token`, `actor_token`, `act`/`sub` claims) or a separate delegated-subject field. 3) Check the agent's own principal is still the actor. 4) Answer no if the user's token is used directly or the user replaces the agent identity. Answer unknown if the exchange happens in an outside identity service.
+- **A01.2** Tool and API clients use short-lived credentials with a verified acting-agent identity and any separately bounded user/system delegation; they do not copy a login session or reuse a gateway token at a different backend audience.
+  - *How to verify:* 1) Trace every client credential to its issuer, audience, acting principal and delegated subject. 2) Accept authorized OAuth delegation and supported exchange when agent identity and bounded grants survive. 3) Reject copied sessions, shared static keys, or cross-audience token reuse. 4) Mark issuer/downstream guarantees unknown if only external evidence can show them.
+- **A01.3** For user-initiated runs, the original user is a verified delegated subject while the acting agent retains its own principal.
+  - *How to verify:* 1) Trace user-started runs and credential issuance, including OAuth delegation and token exchange where supported. 2) Check original subject, acting agent and granted task/tenant/resource limits independently. 3) Reject a user label from model-controlled input or replacement of agent identity with a human session. 4) For machine-only operation, cite the configuration showing there is no delegated user; do not invent one.
 - **A01.4** Permissions are bound to the agent principal in IaC or RBAC, so revoking that principal alone removes the agent's access without disabling the user.
-  - *How to verify:* 1) Find IAM policies, RoleBindings, or grants in Terraform, Helm, or Kubernetes YAML. 2) Check they bind to the agent principal, not to a user, group, or shared role. 3) Check that removing that binding alone would cut the agent's access. 4) Answer no if access depends on the user's grants or a shared credential. Answer unknown if permissions are not defined in this repo.
+  - *How to verify:* 1) Find IAM policies, RoleBindings, or grants in Terraform, Helm, or Kubernetes YAML. 2) Check they bind to the agent principal, not to a user, group, or shared role. 3) Check that removing that binding alone would cut the agent's access. 4) Answer no if revoking the agent cannot remove its access independently, or authority uses a shared credential. User grants may legitimately bound an explicitly delegated flow. Answer unknown if permissions are not defined in this repo.
 
 ### Not covered here
 

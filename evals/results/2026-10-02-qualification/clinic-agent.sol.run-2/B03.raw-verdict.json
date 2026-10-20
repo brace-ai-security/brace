@@ -1,0 +1,38 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Show that credentials expire and rotate, and explain why you chose their lifetime.",
+    "Where the service supports it, bind tokens to their holder (mTLS, DPoP, or workload proof tokens)."
+  ],
+  "checks": [
+    {
+      "id": "B03.1",
+      "result": "unclear",
+      "evidence": "agent/src/integrations/payments.ts:13, agent/src/integrations/sms.ts:25, agent/infra/terraform/iam.tf:11",
+      "quote": "  return JSON.parse(s.SecretString ?? \"{}\").restricted_key;\n  return { token: v.api_token, from: v.from_number };\n      Action    = \"sts:AssumeRoleWithWebIdentity\"",
+      "note": "AWS uses federated runtime identity and integration secrets are read at runtime. Payments and SMS use fixed provider keys, but this repository does not establish whether those providers offer short-lived or federated alternatives. The default Anthropic client also has no explicit managed credential setup."
+    },
+    {
+      "id": "B03.2",
+      "result": "fails",
+      "evidence": "agent/src/integrations/ehr-mcp.ts:45, agent/src/integrations/ehr-mcp.ts:34",
+      "quote": "  tokens.set(cacheKey, { value: body.access_token, exp: Date.now() + body.expires_in * 1000 });\n  if (hit && hit.exp - 30_000 > Date.now()) return hit.value;",
+      "note": "The EHR cache accepts any provider-supplied expires_in without validation or a configured maximum and reuses the credential until that computed expiry. The five-minute lifetime in the comment is not enforced: an arbitrarily long expires_in permits arbitrarily long reuse, including across the four-minute MCP session recreations. AWS and projected workload tokens have bounds, but no secret rotation configuration or lifetime rationale appears in the inspected config and Terraform. Actual external provider expiry and rotation policies remain unknown."
+    },
+    {
+      "id": "B03.3",
+      "result": "unclear",
+      "evidence": "agent/Dockerfile:17, agent/src/agent/loop.ts:49",
+      "quote": "COPY --chown=65532:65532 prompts ./prompts\n    const system = SYSTEM_TEMPLATE.replace(\"{{clinicName}}\", clinic.name);",
+      "note": "Inspection of prompts, Dockerfile, checked-in config, manifests, Terraform, hidden files and prompt-building code found no literal credential or explicit credential insertion into prompts. Docker copies enumerated source/config paths rather than an env file. Actual image layers and external base images are unavailable for inspection, so the whole check cannot be established in every case."
+    },
+    {
+      "id": "B03.4",
+      "result": "fails",
+      "evidence": "agent/README.md:20, agent/src/integrations/ehr-mcp.ts:20, agent/src/integrations/ehr-mcp.ts:58",
+      "quote": "| EHR | `src/integrations/ehr-mcp.ts` | MCP over streamable HTTP with mTLS, per-clinic OAuth client |\n      checkServerIdentity: (_host: string, cert: PeerCertificate) => {\n      headers: { authorization: `Bearer ${token}`, \"x-clinic-id\": clinicId },",
+      "note": "The repository explicitly describes the EHR connection as supporting/using mTLS, but its complete dispatcher config provides only server certificate fingerprint verification, with no client certificate or key. The OAuth request and MCP transport use no DPoP or workload holder proof and send a plain bearer token. Server pinning and clinic scoping do not bind a copied token to its holder. Other providers' binding support is undocumented."
+    }
+  ],
+  "note": "EHR token caching has no enforced maximum credential lifetime, and the documented mTLS EHR connection implements server pinning with bearer authentication instead of holder binding."
+}

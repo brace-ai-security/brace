@@ -1,0 +1,41 @@
+{
+  "verdict": "failed",
+  "checks": [
+    {
+      "id": "A07.1",
+      "result": "holds",
+      "evidence": "agent/release/manifest.yaml:50, agent/app/extractor.py:74",
+      "quote": "  extractor:\n                response = await self.client.messages.create(**request)",
+      "note": "The repository-wide model-call search found the primary agent and extraction helper, both inventoried; token counting uses the same requested model. No additional helper model call was found."
+    },
+    {
+      "id": "A07.2",
+      "result": "holds",
+      "evidence": "agent/release/manifest.yaml:54, agent/deploy/k8s/deployment.yaml:43, agent/release/manifest.yaml:22",
+      "quote": "    model_id: \"claude-haiku-4-5-20251001\"\n              value: \"claude-haiku-4-5-20251001\"\n  extractor:",
+      "note": "The supplied deployment resolves EXTRACTOR_MODEL_ID to the inventoried dated snapshot. The manifest records the extractor prompt digest and policy/tools configuration digests; the call records max_tokens in code. No alias or alias fallback is supplied. Startup mismatch handling does not enforce these pins, but that alone does not establish an alias in the supplied configuration."
+    },
+    {
+      "id": "A07.3",
+      "result": "fails",
+      "evidence": "agent/app/extractor.py:75, agent/app/budget.py:100, agent/app/extractor.py:78",
+      "quote": "                budget.charge_model(self.settings.extractor_model_id, response.usage)\n            raise BudgetExceeded(\"max_tokens\", self.tokens, self.max_tokens)\n                decision = await audit.record(",
+      "note": "After a successful helper response, charge_model can raise BudgetExceeded for token or cost limits before the model_decision audit call executes. Thus the decision that crosses a budget limit is never logged with requested_model and served_model. This is a concrete skipped logging branch even with the supplied pinned model."
+    },
+    {
+      "id": "A07.4",
+      "result": "holds",
+      "evidence": "agent/app/extractor.py:106, agent/app/gate.py:34",
+      "quote": "        raise ExtractionFailed(\"extractor returned non-JSON output\") from exc\n    async def authorize(self, ident: RunIdentity, tool, args: dict[str, Any]) -> Decision:",
+      "note": "Not applicable to a model-dependent security checker: the only helper extracts data, and authorization is implemented by deterministic policy and approval checks. Extraction JSON errors raise. Startup artifact checking is not a helper-model checker."
+    }
+  ],
+  "violates": [
+    "Each helper model's decisions are logged with that model's identity."
+  ],
+  "applicability": "A07.4: N/A; no model-dependent security checker was found.",
+  "evidence": "agent/app/extractor.py:4, agent/app/gate.py:34",
+  "quote": "model. The child runs under its own instance id, links to its parent in the\n    async def authorize(self, ident: RunIdentity, tool, args: dict[str, Any]) -> Decision:",
+  "search_explanation": "Searched all agent files for provider names, model identifiers, embeddings, reranking, judges, moderation, guardrails and verifiers; inspected extractor, main, settings, startup, loop, budget, gate, manifest and deployment. Only primary generation, extraction generation and same-model token counting were found; the authorization gate does not call a model.",
+  "note": "The review fails because a helper response that exceeds the budget bypasses the model-identity decision audit."
+}

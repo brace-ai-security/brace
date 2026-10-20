@@ -1,0 +1,444 @@
+{
+  "A01": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "A01.1",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:60",
+        "quote": "serviceAccountName: clinic-agent",
+        "note": "Dedicated SA, not default. Only clinic-agent-reminders (the agent's own CronJob, same image) shares the IRSA role. No other service uses it."
+      },
+      {
+        "id": "A01.2",
+        "result": "holds",
+        "evidence": "src/integrations/eligibility-a2a.ts:56",
+        "quote": "const token = await exchangeToken(opts.workloadToken, req.clinicId, req.patientId);",
+        "note": "Peer token comes from exchanging the workload token. EHR, payments and SMS use per-clinic service credentials from Secrets Manager. No client forwards the user's Authorization header or cookie; the webchat JWT is verified and only its claims are used."
+      },
+      {
+        "id": "A01.3",
+        "result": "holds",
+        "evidence": "src/agent/identity.ts:70",
+        "quote": "subject: Subject;",
+        "note": "The user is a separate subject field on RunContext, set from verified claims and used in audit and budgets. The agent's identity() and workload token stay its own. Weakness: the token exchange sends no actor_token and puts the patient only in the scope string, so the subject is not cryptographically delegated. The how-to accepts a separate delegated-subject field."
+      },
+      {
+        "id": "A01.4",
+        "result": "holds",
+        "evidence": "infra/terraform/iam.tf:3",
+        "quote": "resource \"aws_iam_role\" \"runtime\" {",
+        "note": "Trust is limited to the two agent service accounts. Grants attach to this role only, and users hold no AWS credentials."
+      }
+    ],
+    "note": "I found no failing control; the only soft spot is that the eligibility token exchange does not carry the user as a cryptographic actor/subject pair."
+  },
+  "A07": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "A07.1",
+        "result": "holds",
+        "evidence": "release/manifest.json:27",
+        "quote": "\"role\": \"intent_classifier\",",
+        "note": "Only two messages.create sites exist (loop.ts agent, classifier.ts classifier); no embedding/rerank/moderation/judge calls; both models are in the manifest. The eligibility peer is a remote agent, not a model called by this code."
+      },
+      {
+        "id": "A07.2",
+        "result": "holds",
+        "evidence": "src/config.ts:50",
+        "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";",
+        "note": "Dated snapshot hard-coded as a constant (no env override or alias fallback); the classifier ID hashes model, prompt and config; the manifest records the same snapshot and prompt hash."
+      },
+      {
+        "id": "A07.3",
+        "result": "holds",
+        "evidence": "src/agent/loop.ts:42",
+        "quote": "await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });",
+        "note": "Recorded before the route branch, so success and failure are both logged. The detail includes classifierId, requestedModel and servedModel. The agent turn is logged with servedModel at loop.ts:71."
+      },
+      {
+        "id": "A07.4",
+        "result": "holds",
+        "evidence": "src/agent/classifier.ts:60",
+        "quote": "if (res.model !== CLASSIFIER_MODEL) {",
+        "note": "Timeout, API error, model mismatch, invalid output and low confidence all return route staff; there is no retry (maxRetries 0) and no path to the agent on failure."
+      }
+    ],
+    "note": "I could not find a failing check: the classifier is the only helper model, it is inventoried and pinned, every decision is audited, and every failure routes to staff."
+  },
+  "B07": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "B07.1",
+        "result": "holds",
+        "evidence": "config/budgets.yaml:3",
+        "quote": "maxTurns: 8                 # model calls per run",
+        "note": "All six limits have finite values in budgets.yaml:3-10: turns, wall time, tokens, cost, tool calls with a per-minute rate, and peer calls. The loop is for(;;) but budget.turn() caps it."
+      },
+      {
+        "id": "B07.2",
+        "result": "holds",
+        "evidence": "src/agent/loop.ts:56",
+        "quote": "budget.turn();",
+        "note": "RunBudget in the harness checks every limit, aborts its AbortController and throws BudgetExceeded. The executor rethrows it (executor.ts:92) and loop.ts:95 stops the run with a staff handoff. Quota keys use ctx.tenantId, not the model-supplied clinicId. The model cannot change any limit."
+      },
+      {
+        "id": "B07.3",
+        "result": "holds",
+        "evidence": "config/budgets.yaml:10",
+        "quote": "maxPeerCalls: 2             # calls to the eligibility agent; this agent starts no sub-agents",
+        "note": "No sub-agent spawning exists in src. The only peer call is insurance__check_eligibility, which is counted and capped at budget.ts:154-157 and shares the run's abort signal."
+      },
+      {
+        "id": "B07.4",
+        "result": "holds",
+        "evidence": "src/agent/budget.ts:139",
+        "quote": "await this.shared(\"subject_daily_cost\", `cost#subject#${this.scope.subjectId}#${day()}`, callCost, q.perSubjectDailyUsd, 86400);",
+        "note": "Per-subject, per-tenant and fleet cost quotas plus tenant and fleet tool-rate quotas use an atomic DynamoDB conditional counter (budget.ts:32-55, 139-141, 160-161), shared across runs and pods. Residual gap: the classifier call (classifier.ts:45) is not counted against run or quota budgets, but it is capped at max_tokens 64 and a 4s timeout."
+      }
+    ],
+    "note": "Every limit is finite and enforced by the harness, and the shared quotas persist across runs. The only gap I found is the small uncounted classifier model call."
+  },
+  "B08": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "B08.1",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:168",
+        "quote": "podSelector: {}",
+        "note": "Selects all pods in clinic-agent, policyTypes Egress+Ingress; ingress only from the ingress namespace on 8080; egress only to kube-dns, the platform egress-proxy on 3128, and 10.60.12.0/28 on 443. No 0.0.0.0/0. Which hosts the proxy allows is outside this repo."
+      },
+      {
+        "id": "B08.2",
+        "result": "holds",
+        "evidence": "infra/terraform/main.tf:69",
+        "quote": "http_put_response_hop_limit = 1",
+        "note": "Egress is limited to the proxy, DNS and the /28, so 169.254.169.254 is not reachable from pods. IMDSv2 is required with hop limit 1, hostNetwork/hostPID/hostIPC are false, there is no hostPath or docker.sock, the EKS endpoint is private, and the runtime IAM is scoped to clinic-agent-* resources. The runtime role can also write the control table, but that is outside this check."
+      },
+      {
+        "id": "B08.3",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:163",
+        "quote": "kind: NetworkPolicy",
+        "note": "Isolation is set in NetworkPolicy, namespace Pod Security labels (restricted), VPC and IAM, not in the prompt or harness code."
+      }
+    ],
+    "note": "No bypass found: egress is default-deny with named peers, no broad CIDR, no host mounts, and IMDS is hardened."
+  },
+  "B11": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "B11.1",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:92",
+        "quote": "drop: [\"ALL\"]",
+        "note": "Both pod specs set runAsNonRoot and RuntimeDefault seccomp at pod level (inherited by containers, no per-container override); both containers set allowPrivilegeEscalation false and drop ALL; no init or sidecar containers; namespace enforces restricted; Dockerfile uses USER 65532."
+      },
+      {
+        "id": "B11.2",
+        "result": "holds",
+        "evidence": "Dockerfile:10",
+        "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:9b2e4c6a8d0f1e3c5a7b9d1f3e5c7a9b1d3f5e7c9a1b3d5f7e9c1a3b5d7f9e1c",
+        "note": "Final stage is distroless and installs nothing; the build stage with npm is not in the final image."
+      },
+      {
+        "id": "B11.3",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:88",
+        "quote": "privileged: false",
+        "note": "No hostPath, docker.sock, hostNetwork true, or privileged true anywhere in the repo; hostNetwork, hostPID and hostIPC are false on the Deployment and unset (default false) on the CronJob."
+      },
+      {
+        "id": "B11.4",
+        "result": "holds",
+        "evidence": "src/agent/loop.ts:91",
+        "quote": "results.push(await executeTool(registry, ctx, call, { contextSize, budget }));",
+        "note": "Searching src for child_process, exec, spawn, eval, new Function, vm and for sandbox, shell, python and code interpreter found no code execution; tools run through the fixed executor and registry."
+      }
+    ],
+    "note": "No failing control found: the pod and container security settings, distroless final image, absence of host access, and absence of code execution all check out."
+  },
+  "B12": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "B12.1",
+        "result": "holds",
+        "evidence": "src/agent/loop.ts:14",
+        "quote": "const SYSTEM_TEMPLATE = readFileSync(join(ROOT, \"prompts/system.md\"), \"utf8\");",
+        "note": "System prompt, classifier prompt, config and manifest are all read from files under ROOT (/app in the image). The Dockerfile copies prompts, config and release into the image. No URL, database or flag fetch overrides them. The only env var is CLINIC_AGENT_ROOT, which the Dockerfile sets to /app."
+      },
+      {
+        "id": "B12.2",
+        "result": "holds",
+        "evidence": ".github/CODEOWNERS:3",
+        "quote": "*                    @northbay-clinics/clinic-agent-devs",
+        "note": "/prompts/, /config/, /release/, /src/tools/, /src/control/, /src/audit/, /.github/, /infra/ and /k8s/ are owned by platform leads. The harness in src/agent/ falls under the * catch-all, so it is covered by a code owner, and branch protection requires code-owner review plus 2 approvals. The platform leads do not own src/agent/, which is weaker coverage but not an uncovered path."
+      },
+      {
+        "id": "B12.3",
+        "result": "holds",
+        "evidence": ".github/workflows/deploy.yml:76, infra/terraform/github.tf:46",
+        "quote": "northbay.example/git-sha=\"$GITHUB_SHA\" \\\n    protected_branches     = true",
+        "note": "The deploy runs only as a workflow_dispatch workflow in the production or production-emergency environment, with required lead reviewers. Production is limited to protected branches, and emergency deploys to hotfix/* only. The AWS role can only be assumed from those two environments. The image signature must come from ci.yml on main, and the git SHA, release and run are annotated on the deployment."
+      },
+      {
+        "id": "B12.4",
+        "result": "holds",
+        "evidence": "infra/terraform/github.tf:19",
+        "quote": "allows_force_pushes             = false",
+        "note": "Force pushes and deletions are blocked on main, enforce_admins is on, and signed commits and linear history are required. No bypass is configured."
+      }
+    ],
+    "note": "No check could be shown false: prompts and config load from files baked into the image, CODEOWNERS plus branch protection cover the paths, deploys are gated by environments with a recorded SHA and digest, and force-push is blocked."
+  },
+  "C02": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "C02.1",
+        "result": "holds",
+        "evidence": "infra/terraform/github.tf:26",
+        "quote": "required_approving_review_count = 2",
+        "note": "config, prompts, release manifest and k8s are in the repo and loaded from local paths baked in by the Dockerfile. CODEOWNERS covers /prompts/, /config/, /release/, /infra/, /k8s/ and /.github/. Branch protection requires code owner review, 2 approvals and last-push approval, with enforce_admins on."
+      },
+      {
+        "id": "C02.2",
+        "result": "holds",
+        "evidence": "infra/terraform/github.tf:42, infra/terraform/github.tf:82",
+        "quote": "teams = [data.github_team.leads.id]\n\"repo:northbay-clinics/clinic-agent:environment:production\",",
+        "note": "The deploy role is assumable only from the production and production-emergency environments, both of which need leads reviewers. The only cluster write access is the deploy role, and the agent runtime role has no deploy or EKS permissions. The * catch-all owner only reaches application source, since every config, prompt, release, infra and k8s path has a more specific leads owner."
+      },
+      {
+        "id": "C02.3",
+        "result": "holds",
+        "evidence": ".github/workflows/deploy.yml:48, .github/workflows/deploy.yml:82",
+        "quote": "test -n \"$OWNER\" || { echo \"owner is required\"; exit 1; }\n- name: Open follow-up review for emergency change",
+        "note": "The emergency path fails closed without owner, reason, a parseable end date and a hotfix/* branch. It runs in a reviewer-gated environment and opens an issue assigned to the owner with the reason, end date and a review request. Weaknesses I noticed: the issue step runs only if the rollout succeeds, and the end date is not checked to be in the future."
+      }
+    ],
+    "note": "I found no failing control: review, ownership and emergency-record controls are all backed by code in the repo."
+  },
+  "C04": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "C04.1",
+        "result": "fails",
+        "evidence": "src/server.ts:32",
+        "quote": "if (typeId !== manifest.agentTypeId) {",
+        "note": "The only comparison is a one-time start-up id check by the agent about itself. It covers image digest, harness version/sha and config files. No drift job compares running network policies, MCP server lists, permissions or self-hosted weights against the approved baseline, and none compares the live cluster state at all."
+      },
+      {
+        "id": "C04.2",
+        "result": "fails",
+        "evidence": ".github/workflows/deploy.yml:6",
+        "quote": "workflow_dispatch:",
+        "note": "No scheduled, admission-webhook or change-event drift check exists. The only trigger is a manual deploy workflow. The only CronJob is the reminders job, which does no drift detection."
+      },
+      {
+        "id": "C04.3",
+        "result": "fails",
+        "evidence": "src/server.ts:34",
+        "quote": "metrics.increment(\"identity.mismatch\");",
+        "note": "A mismatch only logs an error and increments a metric, then start-up continues with setAgentTypeId(typeId). There is no block, quarantine or rollback, no response configured, and no time limit."
+      }
+    ],
+    "violates": [
+      "Compare running images, harness settings, prompts, MCP server lists, permissions, network policies, and self-hosted model weights against their approved baseline",
+      "gets the documented response \u2014 block, quarantine, or rollback \u2014 within a set time"
+    ],
+    "note": "Drift detection is limited to a start-up identity check that only logs on mismatch; there is no scheduled drift check, no coverage of network policies, permissions, MCP lists or weights, and no enforced response or time limit."
+  },
+  "C05": {
+    "verdict": "failed",
+    "checks": [
+      {
+        "id": "C05.1",
+        "result": "fails",
+        "evidence": "Dockerfile:4",
+        "quote": "COPY package.json package-lock.json ./",
+        "note": "Dockerfile, CI and README rely on npm ci with package-lock.json, but no package-lock.json (or any lockfile) exists in the repo, so transitive dependencies are not pinned by version or hash and the build cannot reproduce them."
+      },
+      {
+        "id": "C05.2",
+        "result": "holds",
+        "evidence": "src/config.ts:50",
+        "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";",
+        "note": "Both model IDs are dated snapshots hardcoded with no env fallback; no adapter is used."
+      },
+      {
+        "id": "C05.3",
+        "result": "holds",
+        "evidence": "release/manifest.json:23",
+        "quote": "\"adapter\": null,",
+        "note": "Models are provider-hosted; nothing self-hosted is loaded."
+      },
+      {
+        "id": "C05.4",
+        "result": "holds",
+        "evidence": "package.json:17",
+        "quote": "\"@anthropic-ai/sdk\": \"0.65.0\",",
+        "note": "No pickle-capable loaders or ML dependencies; only SDK clients."
+      },
+      {
+        "id": "C05.5",
+        "result": "holds",
+        "evidence": "src/agent/loop.ts:71",
+        "quote": "servedModel: res.model,",
+        "note": "Served model from the response is recorded separately; classifier also records res.model and refuses on mismatch."
+      }
+    ],
+    "violates": [
+      "Pin dependency versions."
+    ],
+    "note": "The lockfile referenced by the Dockerfile and CI (package-lock.json) is missing, so dependency pinning (C05.1) fails; the other checks hold."
+  },
+  "E04": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "E04.1",
+        "result": "holds",
+        "evidence": "src/tools/registry.ts:114",
+        "quote": "scan = scanServer(meta, this.bareNamesExcept(serverId));",
+        "note": "The only MCP load path is server.ts:49 registerMcp, which calls scanServer before add(). scanServer covers instructions, prompts, resource templates, and each tool's name, title, description, input and output schemas, and annotations. Native tools are the repo's own code. Only the prompt argument names go unscanned, and prompts never reach the model."
+      },
+      {
+        "id": "E04.2",
+        "result": "holds",
+        "evidence": "src/tools/metadata-scan.ts:56",
+        "quote": "{ rule: \"url\", re: /\\b(?:https?|ftp|wss?|file|data):\\/?\\/?[^\\s\"'<>]+/i },",
+        "note": "Rules cover control and invisible characters, role overrides and markers, concealment, base64, hex and escaped unicode, URLs, emails, phones, other-server tool names, and length limits. Weakness, not a missing rule: `.{0,40}` does not match newlines, so a multi-line phrasing may evade the override rules."
+      },
+      {
+        "id": "E04.3",
+        "result": "holds",
+        "evidence": "src/tools/registry.ts:119",
+        "quote": "if (scan.serverRejected) {",
+        "note": "Server findings return before any add(). Flagged tools go to rejected and only acceptedTools are registered. definitions() is built from the registry only."
+      },
+      {
+        "id": "E04.4",
+        "result": "holds",
+        "evidence": "src/tools/registry.ts:116",
+        "quote": "this.rejected.push({ serverId, reason: `metadata scan error: ${(err as Error).message}` });",
+        "note": "A scanner throw returns without registering anything. A catalog failure at server.ts:50 disables the EHR tools. There is no flag that disables scanning."
+      }
+    ],
+    "note": "Every MCP metadata field is scanned before registration, flagged items are rejected, and scanner errors fail closed; I found no bypass path."
+  },
+  "E05": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "E05.1",
+        "result": "holds",
+        "evidence": "src/tools/registry.ts:128",
+        "quote": "key: `${serverId}__${t.name}`,",
+        "note": "Key uses manifest-assigned serverId; serverInfo.name is only logged. add() rejects an existing key instead of overwriting (registry.ts:138-142). server.ts:49 passes the literal 'ehr' id."
+      },
+      {
+        "id": "E05.2",
+        "result": "holds",
+        "evidence": "src/tools/registry.ts:151",
+        "quote": "if (editDistanceAtMostOne(canonical(existing.name), c)) {",
+        "note": "Cross-server exact bare-name duplicates and canonicalised (case, homoglyph, separator, rn/m) edit-distance-1 lookalikes are rejected and recorded as conflicts. Native tools are registered first so MCP tools are checked against them. No silent overwrite."
+      },
+      {
+        "id": "E05.3",
+        "result": "holds",
+        "evidence": "src/tools/registry.ts:107",
+        "quote": "const cfg = this.servers.find((s) => s.id === serverId);",
+        "note": "Only manifest servers can register. Allowlist and approvals use the namespaced key (call.name, e.g. ehr__x) via executor.ts:55 and approvals.ts:75. A new server cannot take an approved key because duplicates are rejected."
+      }
+    ],
+    "note": "Tools are keyed by manifest serverId plus tool name, duplicates and lookalikes across servers are rejected, and allowlist and approval use the namespaced key, so I found no way to break any of the three checks."
+  },
+  "R04": {
+    "verdict": "upheld",
+    "applicability": "absent",
+    "evidence": "release/manifest.json:62",
+    "quote": "  \"retrieval\": \"none\",",
+    "note": "Searched all of agent/ (src, config, prompts, infra, k8s, README, tests) for retrieval, vector, embed, index, search, corpus, knowledge, chunk, upsert, document and cache terms. Only hits: ehr__search_slots, a live EHR MCP query for appointment slots (not an agent-owned corpus, no write path); DynamoDB used for approvals, budgets and kill-switch state; an S3 audit log bucket (write-only log); token and prompt caches. The tool allowlist (config/tools.allowlist.yaml) has no document, knowledge or index tools, and the peer eligibility agent only returns coverage answers. README.md:26 states there is no vector store. No retrieval corpus or search index exists, so the N/A condition holds.",
+    "checks": [
+      {
+        "id": "R04.1",
+        "result": "holds",
+        "evidence": "release/manifest.json:62",
+        "quote": "  \"retrieval\": \"none\",",
+        "note": "No index write path found."
+      },
+      {
+        "id": "R04.2",
+        "result": "holds",
+        "evidence": "release/manifest.json:62",
+        "quote": "  \"retrieval\": \"none\",",
+        "note": "No chunks stored."
+      },
+      {
+        "id": "R04.3",
+        "result": "holds",
+        "evidence": "release/manifest.json:62",
+        "quote": "  \"retrieval\": \"none\",",
+        "note": "No search over a corpus; ehr__search_slots queries the EHR with per-clinic credentials."
+      },
+      {
+        "id": "R04.4",
+        "result": "holds",
+        "evidence": "release/manifest.json:62",
+        "quote": "  \"retrieval\": \"none\",",
+        "note": "No chunks to quarantine, expire or revoke."
+      }
+    ]
+  },
+  "R14": {
+    "verdict": "upheld",
+    "applicability": "N/A",
+    "evidence": "src/audit/recorder.ts:65",
+    "quote": "          Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+    "search": "Searched agent/ (excluding docs) case-insensitively for replay, retry, checkpoint, recover, resume, idempot, hmac, sign, attempt. Read audit/recorder.ts and workers/reminders.ts. Audit records are only written to a Firehose stream and never read back. No code loads checkpoints, logs or audit records to drive recovery or automatic replay. The only matches are an HTTP-level idempotency key on refunds, the inbound SMS HMAC check, DynamoDB point-in-time recovery in Terraform, and image signing. The requirement applies only if logs or checkpoints drive recovery, so it does not apply here.",
+    "checks": [
+      {
+        "id": "R14.1",
+        "result": "holds",
+        "evidence": "src/audit/recorder.ts:65",
+        "quote": "          Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+        "note": "N/A: audit records are write-only and not used for recovery. There is no checkpoint store."
+      },
+      {
+        "id": "R14.2",
+        "result": "holds",
+        "evidence": "src/workers/reminders.ts:24",
+        "quote": "for (const clinic of directory) {",
+        "note": "N/A: no recovery code loads checkpoints or logs."
+      },
+      {
+        "id": "R14.3",
+        "result": "holds",
+        "evidence": "src/audit/recorder.ts:65",
+        "quote": "          Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+        "note": "N/A: there is no recovery chain to truncate, roll back or replace."
+      },
+      {
+        "id": "R14.4",
+        "result": "holds",
+        "evidence": "src/integrations/payments.ts:6",
+        "quote": "// The provider enforces Idempotency-Key for 24 hours.",
+        "note": "N/A: no automatic replay exists. The refund call sends a key to a provider that documents enforcing it."
+      },
+      {
+        "id": "R14.5",
+        "result": "holds",
+        "evidence": "src/agent/classifier.ts:53",
+        "quote": "      { timeout: CLASSIFIER_CONFIG.timeoutMs, maxRetries: 0 },",
+        "note": "N/A: no replay path exists. The classifier call does not retry on timeout."
+      }
+    ],
+    "note": "No logs or checkpoints drive recovery and there is no automatic replay, so R14 does not apply to this codebase."
+  }
+}

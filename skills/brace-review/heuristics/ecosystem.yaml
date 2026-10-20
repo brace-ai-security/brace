@@ -103,8 +103,8 @@ E03:
   na_when: "The agent loads no external tools or MCP servers; all tools are built in and fixed in the release."
   must_show:
     - id: E03.1
-      check: "A fingerprint of each approved tool's description and schema is stored."
-      verify: "1) Find where tool definitions are loaded (MCP `tools/list`, tool registry). 2) Look for a stored hash of each approved tool's description and schema. 3) Answer no if no fingerprint is stored, or it covers only the name and not the description and schema."
+      check: "New tools start disabled, an owner approves versioned definitions and grants before enablement, and approved descriptions/schemas have stored fingerprints."
+      verify: "1) Trace discovery, approval and enablement on startup and dynamic registration. 2) Check the owner-approved version includes permissions and implementation references and has a stored description/schema hash. 3) Reject auto-enable on discovery, self-approval from untrusted metadata, or fingerprints covering only names. 4) Use unknown for approval service behavior not visible in this repo."
     - id: E03.2
       check: "The fingerprint is re-checked on every tool load, cache refresh, and list-changed notice from the server."
       verify: "1) List every path that loads tool definitions: startup, cache refresh, reconnect, and the `notifications/tools/list_changed` handler. 2) Check each recomputes the fingerprint and compares it with the stored one. 3) Answer no if any path skips the compare, or both sides of the compare are computed from the new definition."
@@ -114,6 +114,9 @@ E03:
     - id: E03.4
       check: "The implementation version is pinned or attested where it can be seen, and recorded separately from the metadata fingerprint."
       verify: "1) Check how each tool server implementation is referenced: package version, image digest, or attestation. 2) Check that version is recorded in its own field, apart from the metadata fingerprint. 3) Answer no if a visible implementation is unpinned, or only the metadata hash is recorded."
+    - id: E03.6
+      check: "Tool quarantine, bounded config propagation, recorded execution config versions, and rollback preserve revocations."
+      verify: "1) Trace control-plane config to all executors, caches and reload paths. 2) Check a propagation bound and version in execution records. 3) Verify quarantine blocks calls and rollback cannot resurrect revoked grants. 4) Answer no for stale permissions surviving the bound or unsafe rollback; use unknown for runtime guarantees lacking evidence."
   not_covered:
     - problem: "Hidden instructions in a tool's metadata when first approved"
       owner: E04
@@ -145,10 +148,10 @@ E04:
   must_show:
     - id: E04.1
       check: "A scanner runs on server instructions, tool names, titles, descriptions, input and output schemas, annotations, and prompt and resource templates before the model sees them."
-      verify: "1) Find where server instructions and tool metadata reach the model's context. 2) Check a scanner runs before that on every field: server instructions, names, titles, descriptions, input and output schemas, annotations, prompt and resource templates. 3) Answer no if any field, or a second load path, skips the scanner."
+      verify: "1) Inventory every model-visible metadata field and loading path. 2) Build a field-by-rule matrix: names, titles, descriptions, schemas, annotations, instructions, prompts and resource templates. 3) For each field, trace the actual scanner rules applied before serialization to the model. A syntax regex alone is not proof that payload/instruction rules ran. 4) Try the same suspicious string in different fields; answer no for an unscanned required surface."
     - id: E04.2
       check: "The scanner checks for hidden instructions, references to other servers' tools, invisible or control characters, role overrides, encoded payloads, and data-sending targets, and enforces length limits."
-      verify: "1) Open the scanner rules. 2) Check for each: hidden instructions, references to other servers' tools, invisible or control characters (zero-width, bidi), role overrides, encoded payloads (base64), data-sending targets (URLs, emails), and length limits. 3) Answer no if any one is missing."
+      verify: "1) Trace rule application, not just rule declarations. 2) Attempt encoded strings and multi-line role overrides; record input, exact code path and outcome. 3) Verify hidden instructions, cross-tool references, control/invisible characters, role overrides, encoded payloads, data-sending targets and length limits. 4) Answer no when a required rule is absent or a demonstrated suspicious input bypasses it."
     - id: E04.3
       check: "Metadata the scanner flags is cleaned or rejected, not just logged."
       verify: "1) Open the scanner's result handling. 2) Check flagged metadata is cleaned, or the tool rejected, before the model sees it. 3) Answer no if flagged items are only logged or warned about and passed through."
@@ -187,7 +190,7 @@ E05:
       verify: "1) Find the tool registry or lookup map. 2) Check its key is a verified endpoint, credential, or registry namespace plus tool name. 3) Answer no if tools are keyed by bare tool name or the server's self-reported name (`serverInfo.name`), or a later server overwrites an earlier entry with the same tool name."
     - id: E05.2
       check: "The registry flags duplicate and lookalike tool names across servers."
-      verify: "1) Open tool registration code. 2) Look for a check that compares new tool names across servers for duplicates and lookalikes (case, homoglyphs, separators). 3) Answer no if registration silently overwrites or accepts duplicates."
+      verify: "1) Trace name comparison across servers. 2) Construct repeated confusable substitutions, multiple edits and normalization-boundary examples, starting from an existing tool name; record canonical outputs, comparison result and registration outcome. 3) Answer no if a duplicate or demonstrated lookalike is accepted without a conflict flag. The existence of normalization/edit-distance code is insufficient; namespacing and approval binding do not satisfy this separate check."
     - id: E05.3
       check: "Approval is bound to the verified server identity, so a new server with a matching tool name or self-reported name does not inherit approval or replace the approved tool."
       verify: "1) Find where tool approval is stored and checked. 2) Check approval is keyed by verified server identity, not tool name or self-reported server name. 3) Answer no if a new server with a matching tool name or server name would count as approved or replace the approved tool."
@@ -214,7 +217,7 @@ E06:
     - "Agent config lists MCP server URLs directly, bypassing the gateway, with egress open."
     - "Gateway forwards the incoming bearer token unchanged to downstream servers."
     - "Policy or scanner outage handled with fail-open (`on_error: allow`, catch and continue)."
-    - "Cached tool lists shared across callers or tenants."
+    - "Private cached tool lists/results or task handles shared across authorization contexts or tenants, including after policy changes."
     - "stdio servers launched on the host with full environment variables and network access."
   where_to_look:
     - "gateway config (route, auth, policy, rate-limit rules)"
@@ -225,23 +228,26 @@ E06:
   na_when: "The agent uses no MCP servers or similar external tool servers."
   must_show:
     - id: E06.1
-      check: "The agent can reach MCP servers only through the gateway: network policy blocks direct routes, the agent holds no server credentials, and any local stdio servers are launched by the host or sandbox with limited files, credentials, and network."
-      verify: "1) Find how the agent reaches MCP servers: URLs in `*.mcp.json` and client config. 2) Check all go to the gateway, and NetworkPolicy or egress rules block direct routes. 3) Check the agent holds no server credentials and stdio servers run in a restricted sandbox. 4) Answer no if any tool call bypasses the gateway. Answer unknown if network policy lives outside this repo."
+      check: "Every governed tool path uses an enforced boundary suited to its internal HTTP, public third-party, or local stdio deployment; agent-controlled code cannot bypass it or obtain backend credentials."
+      verify: "1) Inventory HTTP, dynamic, CLI/code-mode, wrapper and local-process paths. 2) Trace effective egress, backend credential custody and process/file/env/network restrictions. 3) Internal private networking/mTLS is one option; public services can use agent-side egress and broker-held credentials. 4) Reject any usable unmediated path; do not require operator control of a public provider's network. Use unknown for enforcement outside this repo."
     - id: E06.2
-      check: "The gateway checks each token's issuer, audience, expiry, and scopes, and uses its own separately authorized credentials downstream instead of passing the caller's token through."
-      verify: "1) Open the gateway's token validation. 2) Check issuer, audience, expiry, and scopes are each verified. 3) Check downstream calls use the gateway's own credentials. 4) Answer no if any claim is unchecked, signature verification is disabled, or the caller's `Authorization` header is forwarded downstream."
+      check: "The gateway validates its own incoming token audience, issuer, expiry and scopes, and obtains separately authorized, backend-specific credentials while preserving agent and delegated-subject identity."
+      verify: "1) Trace client-to-gateway and gateway-to-backend credentials independently. 2) Check trusted issuer, audience, grants, expiry and supported exchange/grant. 3) Reject tokens meant for other resources or unchanged incoming-token forwarding used instead of backend authorization. 4) A scoped delegated-user token is valid when the acting agent is verified separately; a vault alone does not create expiring tokens."
     - id: E06.3
-      check: "The gateway authorizes each action, validates requests and responses, enforces rate limits, and logs every decision."
-      verify: "1) Open the gateway's request handling. 2) Check per-action authorization, request and response validation, rate limits, and a log entry for every decision. 3) Answer no if any is missing, authorization happens only once per connection, or denials are not logged."
+      check: "Every direct, dynamic, CLI/code-mode and wrapper call receives action/resource/tenant/argument authorization, request/response validation, rate limits and decision logging."
+      verify: "1) Enumerate every execution path, not only tools/call. 2) Trace the same authorization, validation, quota and logging policy in each. 3) Reject alternate paths that invoke a disabled or denied tool, authorize only a tool name, or change tenant/resource authority. Use unknown for unavailable implementation evidence."
     - id: E06.4
       check: "If a required check (policy engine, scanner, token check) errors or times out, the call is blocked."
       verify: "1) Read every `try/except`, `catch`, and timeout around the policy engine, scanner, and token check. 2) Check each error blocks the call. 3) Answer no if any error branch allows the call or logs and continues, or a config flag defaults to fail-open."
     - id: E06.5
-      check: "Requests whose routing headers (such as Mcp-Name) don't match the body are rejected before policy, and cached tool lists and responses are stored per authorization context."
-      verify: "1) Find where routing or policy reads headers such as `Mcp-Name`. 2) Check the header is compared with the body before policy runs, and mismatches are rejected. 3) Check tool-list and response caches are keyed by authorization context. 4) Answer no if headers are trusted without the compare, or a cache is shared across callers."
+      check: "Under MCP 2026-07-28, relevant header/body mismatches are rejected before routing or policy relies on them, and private caches/state/task handles are isolated by verified authorization context, tenant, resource and policy version."
+      verify: "1) Identify supported protocol versions. 2) For 2026-07-28, trace version/method/name/parameter header validation before affected routing/policy decisions. 3) Trace cache keys/invalidation and every task/state-handle operation, including status/results and cancellation where present. 4) Reject cross-tenant/caller reads or stale grants after revocation; permit shared cache entries only when explicitly public. 5) Do not require removed protocol sessions for 2026-07-28; test legacy session binding only when that version is enabled."
     - id: E06.6
       check: "If the gateway is itself an OAuth client, it checks the authorization server's issuer (iss, RFC 9207) and blocks private and metadata addresses in discovery URLs. Answer yes with the code line, or yes citing the config that shows it isn't an OAuth client."
-      verify: "1) Check whether the gateway acts as an OAuth client (gets tokens, follows discovery or metadata URLs). 2) If so, check it verifies the `iss` parameter (RFC 9207) and blocks private, loopback, and metadata addresses (169.254.169.254) in discovery URLs. 3) Answer no if either is missing. If it is not an OAuth client, answer yes citing the config that shows that."
+      verify: "1) Check whether the gateway acts as an OAuth client (gets tokens, follows discovery or metadata URLs). 2) If so, check RFC 9207 issuer-response comparison and rejection when an advertised required iss is missing; do not require an absent iss when the selected protocol permits it. Check it blocks unauthorized private, loopback, and metadata destinations, including on redirects and DNS resolution. Explicitly approved internal issuer endpoints may be allowed by trusted configuration; untrusted discovery must not widen that allowlist. 3) Answer no if either is missing. If it is not an OAuth client, answer yes citing the config that shows that."
+    - id: E06.7
+      check: "Enabled MCP extensions have recorded versions and enforced boundaries, including Tasks ownership/cancellation and Apps sandbox/CSP/bridge/tool-call authorization where present."
+      verify: "1) Inventory enabled extensions and versions from client/server/host configuration. 2) Trace extension-specific authorization, task ownership/status/results/cancellation, and Apps host sandbox, CSP, bridge-message validation and UI-triggered tool policy. 3) Reject a bypass or missing required boundary. 4) Answer yes for absent extensions only with configuration evidence; answer unknown for external host behavior not visible here."
   not_covered:
     - problem: "Tool inventory missing a task-based reason for each tool"
       owner: B01

@@ -4,7 +4,7 @@ Three AI skills for applying the [BRACE checklist](../CHECKLIST.md) to an agent'
 
 | Skill | Use it to |
 |---|---|
-| [brace-review](brace-review/SKILL.md) | Review an agent's code against all 53 items and write `brace-findings.json` and a report. Use a strong model, such as Claude Sonnet or Opus. |
+| [brace-review](brace-review/SKILL.md) | Review all 53 items with static inventories, quoted coverage/deviation ledgers, bypass attempts, bounded batches and independent discovery-first challenges. Sonnet is good enough; prefer Opus if your team can afford it, since subtler bugs are more likely to slip past a smaller model. Haiku and Luna are unsupported. See [results and limits](../evals/README.md#model-qualification). |
 | [brace-tests](brace-tests/SKILL.md) | Write tests and drills that produce evidence, based on the verification recipes. |
 | [brace-record](brace-record/SKILL.md) | Keep the `.brace/` record and draft exceptions and N/A decisions for approval. |
 

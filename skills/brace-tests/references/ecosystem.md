@@ -30,9 +30,9 @@ For each approved dependency, including model files, adapters, and datasets, fin
 
 ### Verification recipe
 
-Load an approved tool. Then, on a test server, change its description, schema, or implementation version, and refresh. Unexpected changes must block use until reviewed. That includes when a cached definition would otherwise be used after a failed re-check. Confirm that a metadata hash doesn't claim to catch changed remote code when the metadata stays the same. Record implementation pinning and visibility separately. Query which deployments use the affected dependency.
+Discover a new tool and confirm it is disabled until its owner approves it. Change an approved description, schema, permission, or visible implementation reference; refresh and exercise cached and dynamic reload paths. Unreviewed changes and failed re-checks block use. Measure config propagation and record the version used by each executor. Quarantine the tool, then roll back an approved config without restoring revoked permissions. A metadata hash must not claim to attest hidden remote code. Query affected deployments.
 
-**Evidence to keep:** Approved and new fingerprints, load denials, affected-deployment query.
+**Evidence to keep:** Owner approvals, old/new fingerprints, publication and rollback records, config versions, propagation times, denials and affected-deployment query.
 
 ## E04 · G2 · C5 — Inspect tool metadata
 
@@ -60,9 +60,9 @@ Register a second test server with a duplicate or lookalike tool name. The regis
 
 ### Verification recipe
 
-Make allowed calls through the gateway. Then try going around it straight to the server, tokens for the wrong audience or that have expired, broken responses, and a scanner or policy outage. Send a `tools/call` whose `Mcp-Name` header names a different tool than the body. Request a cached tool list using a second caller's token. Test that downstream credentials are separate, that the issuer (`iss`) is checked where the gateway is an OAuth client, and that local stdio launches are restricted, where these apply. Unapproved and unchecked traffic must fail closed. Allowed traffic must still be logged, and rate limits must work.
+List each enabled transport, protocol/extension version, and execution path. An allowed call must work and be logged. Attempt direct backend access from the agent, expired/wrong-issuer/wrong-audience tokens, unapproved tool arguments/resources, cross-tenant calls, malformed/oversized responses, and required policy/scanner/audit outages. Test direct tools, dynamic tools, CLI/code mode, and wrappers for identical denials. Check separate gateway/backend token audiences; local stdio process/file/env/network limits; discovery SSRF and OAuth issuer validation where applicable. Under 2026-07-28, mismatch method/name/parameter/version headers against the body and require rejection before routing/policy. Retry private cached lists/results and explicit task/state handles as a second tenant or lower-privilege caller, including after revocation or policy change; require denial. Check task cancellation/stop and enabled Apps sandbox/CSP/bridge/tool-call boundaries. Do not demand deprecated protocol-session behavior from 2026-07-28. Public third-party backends need effective agent egress/credential restrictions, not operator control of their network.
 
-**Evidence to keep:** Route and policy settings, request and response fixtures, gateway decisions.
+**Evidence to keep:** Transport/path inventory, policy/config versions, redacted front/back token metadata, tenant/cache/handle fixtures, bypass and outage denials, extension tests, allowed-call logs and rate-limit results.
 
 ## E07 · G2 · C2/C5 — Untrusted peer messages
 
@@ -80,9 +80,9 @@ Send valid, broken, fake-sender, replayed, and cross-tenant peer requests. Reuse
 
 ### Verification recipe
 
-Give parent A a read-only task, and ask it to hand a forbidden write to a more powerful peer. The handed-off write must be denied without its own valid approval. A legitimate handed-off task that is clearly approved must still work. Present the parent's token to the child's service. It must be rejected.
+Give parent A a read-only task, then request a forbidden write through a more powerful peer. Deny it without separate valid approval; an explicitly authorized handoff still works. Verify original subject and current actor at every hop, with reduced task/tenant/resource grants and the correct destination audience. A parent's token cannot be reused at a different audience. Add a powerful prior nested actor to a valid test chain: it must grant no extra access. Check destination state.
 
-**Evidence to keep:** Parent and child grants, delegation decisions, destination state.
+**Evidence to keep:** Parent/child grants, verified subject/actor records, exchange and authorization decisions, negative tests and destination state.
 
 ## E09 · G1 · C8 — Recursive shutdown
 

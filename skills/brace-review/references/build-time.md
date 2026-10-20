@@ -78,13 +78,13 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Limit credentials to named operations and resources, including tenant boundaries. Test that an allowed read works. Test that an out-of-scope write, an admin action, and a request for another tenant's data all fail. Limit each token to its intended audience, so other services reject it. Remove wildcard permissions and permissions inherited from people.
+Limit credentials to named operations and resources, including tenant boundaries. Identify the acting agent separately from the original user or system whose authority it uses. Explicitly authorized, narrowly scoped user delegation is valid; copying a login session or inheriting a person's full permissions is not. Test that an allowed read works and an out-of-scope write, an admin action, and another tenant's data all fail. Limit each access token to its intended audience, so other services reject it. Remove wildcard grants.
 
 ### Verification recipe
 
-Use the agent's real test credentials. Try an allowed read, a forbidden write or admin action, and a request from tenant A for tenant B's data. The read must work and the rest must fail. Present the token to a second service. It must be rejected as meant for a different audience. Check the destination for side effects.
+Use the real test access token and verify its acting-agent and delegated-subject bindings, if delegation applies. Try an allowed read, forbidden write/admin action, and tenant A accessing tenant B. Only the read succeeds. Present the token to another audience and confirm rejection. Exercise both machine and delegated-user flows where enabled; neither may inherit broader user permissions. Check destination state.
 
-**Evidence to keep:** Token scope details (no token values), authorization logs, resource-state checks.
+**Evidence to keep:** Redacted identity/audience/scope metadata, authorization logs, tenant tests, resource-state checks; never token values.
 
 ### Checks for likely_pass
 
@@ -95,9 +95,9 @@ Rate likely_pass only if every check below is true, with a file and line for eac
 - **B02.2** Tenant scope is enforced in the credential or the data layer (token claim, row-level security, or per-tenant account), not by the prompt or by code the model's output controls.
   - *How to verify:* 1) Find how queries and API calls pick a tenant (search `tenant`, `org_id`, row-level security, `CREATE POLICY`, per-tenant credentials). 2) Trace where the tenant value comes from. 3) Answer no if one shared login or key reaches all tenants and the tenant ID comes from the prompt, a tool argument the model fills, or app code filtering after the query.
 - **B02.3** Tokens are issued with a set audience, and receiving services reject tokens whose audience does not match.
-  - *How to verify:* 1) Find token requests (`audience`, `aud`, `resource`, `scope`, token client setup). 2) Find token validation in receiving services (`verify`, `jwt.decode`, middleware). 3) Answer no if tokens are requested without an audience, validation skips `aud` (`verify_aud=False`, no audience option), or accepts a list or wildcard. Answer unknown if receiving services are outside this repo.
-- **B02.4** The agent uses its own service identity, not a human user's token, a copied session, or an admin key.
-  - *How to verify:* 1) Find where the agent loads credentials (env vars, `credentials`, `token`, `Authorization`, service account settings). 2) Check they belong to a service or workload identity for the agent. 3) Answer no if it uses a user's OAuth or session token, a personal access token, an admin or root key, or forwards the calling user's token to tools.
+  - *How to verify:* 1) Find token requests (`audience`, `aud`, `resource`, `scope`, token client setup). 2) Find token validation in receiving services (`verify`, `jwt.decode`, middleware). 3) Answer no if tokens are requested without an audience, validation skips `aud` (`verify_aud=False`, no audience option), or accepts an unrelated audience or wildcard. Answer unknown if receiving services are outside this repo.
+- **B02.4** The acting agent is verifiably identified separately from any explicitly delegated user/system authority; it does not copy a login session or inherit a person's unrestricted permissions.
+  - *How to verify:* 1) Trace each API credential to its issuer, acting identity, original subject, grants and destination. 2) Accept explicitly authorized user-delegation flows with a separately verified agent and bounded permissions. 3) Answer no for copied login sessions, personal/admin keys or inherited broad user access; a delegated OAuth access token is not by itself a failure. Answer unknown when external issuer/enforcement evidence is unavailable.
 
 ### Not covered here
 
@@ -117,12 +117,12 @@ File these problems under their owning item, not this one, unless this item's ow
 - IAM policies that name specific actions and resources, for example Terraform `aws_iam_policy` with listed `Action` and `Resource` ARNs, GCP roles bound to one resource, or Kubernetes `Role` (not `ClusterRole`) with listed verbs.
 - Tenant scope enforced in the credential or the data layer, for example a tenant claim in the token, row-level security, or per-tenant service accounts.
 - Tokens requested with a set audience (`aud`) or resource indicator, and services that check `aud` on receipt.
-- A dedicated service account or workload identity for the agent, separate from any human user's credentials.
+- A verified acting-agent identity with an independently recorded delegated subject where applicable, including properly authorized OAuth user-delegation flows.
 - Tests that call an allowed read, a forbidden write, an admin action, and another tenant's data with the agent's credentials.
 
 **Red flags:**
 - `"Action": "*"`, `"Resource": "*"`, `s3:*`, `roles/owner`, `roles/editor`, or `cluster-admin` bound to the agent's identity.
-- Agent runs with a user's personal token, an admin key, or a credential copied from a human's session (inherited human permissions).
+- Agent copies a human login session or uses a personal/admin key without independently verified agent identity and bounded delegation.
 - One database login or API key shared across all tenants, with tenant separation done only in the prompt or in app code the model can influence.
 - Tokens issued without an audience, or services that accept any valid token from the issuer.
 - Kubernetes `automountServiceAccountToken` left on with a broad role the agent doesn't need.
@@ -143,13 +143,13 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Issue short-lived credentials from a managed identity or secrets service. Keep long-lived secrets out of prompts, images, and checked-in config. Where the service supports it, bind tokens to their holder (mTLS, DPoP, or workload proof tokens). Then a copied token won't work from another machine. Don't use fixed API keys when short-lived or federated credentials are available. Show that credentials expire and rotate, and explain why you chose their lifetime.
+Issue short-lived credentials from a trusted issuer or managed identity service. For API calls, use expiring access tokens with a specific destination audience, identifying the agent and any explicitly delegated user or system authority, rather than static API keys or personal access tokens. A secrets vault stores backing secrets; it does not itself make a static key into an expiring access token. Keep long-lived secrets out of prompts, images, and checked-in config. Where supported, bind tokens to their holder (mTLS, DPoP, or workload proof tokens). Don't use fixed API keys when short-lived or federated credentials are available. If only static keys are supported, isolate them at the enforcement layer, limit their permissions, and record the lifetime and revocation gap. Show expiry and rotation, including allowed overlap, and explain the chosen lifetime.
 
 ### Verification recipe
 
-Issue a short-lived test credential. Call before and after it expires, rotate it, and try the old one again. The expired credential fails. The replaced credential fails once any allowed overlap ends, measured against policy. If tokens are bound to their holder, replay a copied token from another machine or key. It must be rejected. Check image layers, prompt files, and repository secret-scan results for long-lived secrets.
+Obtain a short-lived API access token from the destination's trusted issuer using the configured machine or delegated-user flow. Call before and after expiry, rotate, and retry the old credential. Expired tokens fail; replaced credentials fail after documented overlap. Replay a holder-bound token from a different machine/key where supported. Distinguish token issuance from backing-secret storage. For static-key-only services, demonstrate enforcement-layer isolation and record the expiry/revocation gap. Scan prompts, image layers, and config for long-lived secrets.
 
-**Evidence to keep:** Issue and expiry times, rotation policy, request results, redacted scan results.
+**Evidence to keep:** Issuer and grant details without secrets, issue/expiry times, overlap policy, replay results, static-key exceptions, redacted scans.
 
 ### Checks for likely_pass
 
@@ -414,11 +414,11 @@ Rate likely_pass only if every check below is true, with a file and line for eac
 - **B07.1** Limits on loop count, run time, tokens, cost, tool-call rate, and number of sub-agents started are set in code or config.
   - *How to verify:* 1) Search for `max_turns`, `recursion_limit`, `max_iterations`, `timeout`, `max_tokens`, cost or budget caps, rate limits, sub-agent caps. 2) Check each of the six limits has a value. 3) Answer no if any is missing, set to unlimited (`None`, `0`, `-1`, `inf`), or the loop is `while True` with no cap.
 - **B07.2** The harness or a gateway outside the model enforces each limit and stops or escalates the run when it is hit; the model cannot raise, reset, or skip them.
-  - *How to verify:* 1) For each limit, find the code that enforces it and what happens when hit. 2) Check it runs in the harness or gateway. 3) Answer no if a limit is only in the prompt, can be changed by a tool argument or model output, is caught and the run continues, or hitting it has no stop or escalation.
+  - *How to verify:* 1) Inventory every main/helper model invocation, tool call and retry. 2) For each, locate token/cost/rate enforcement and the stop/escalation branch. 3) Trace a boundary case: enforcement/reservation before work, or a documented finite overshoot bound with enforcement. 4) Answer no for unmetered helpers, uncounted retries, unbounded overshoot, model-controlled limits or catches that continue. Small max_tokens and timeouts do not substitute for shared token/cost accounting.
 - **B07.3** Budgets apply to nested sub-agents, so their usage counts against the limits.
   - *How to verify:* 1) Find sub-agent spawning (`spawn`, `Task`, `handoff`, `create_agent`). 2) Check child runs share or deduct from the parent budget and depth is capped. 3) Answer no if each child gets a fresh budget, nested spawns are uncounted, or depth and count are unlimited.
 - **B07.4** Spend and rate quotas also apply per user or service, per tenant, and across the fleet, counted across runs, not only within one run.
-  - *How to verify:* 1) Search gateway, LLM proxy (LiteLLM budgets), and provider config for per-user, per-tenant, and fleet quotas. 2) Check counts persist across runs (shared store, not process memory). 3) Answer no if only per-run limits exist. Answer unknown if quotas would live in a provider console or gateway outside this repo.
+  - *How to verify:* 1) Trace every model/tool path into persistent per-user/service, per-tenant and fleet spend/rate quotas. 2) Trace concurrent small runs and charging order; distinguish shared counters from enforcement. 3) Answer no if required calls escape accounting or quotas can be exceeded without a finite bound and stop. Answer unknown when the relevant gateway/provider is outside the repo.
 
 ### Not covered here
 

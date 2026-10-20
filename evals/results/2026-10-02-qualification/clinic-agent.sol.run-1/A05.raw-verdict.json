@@ -1,0 +1,30 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Find the team responsible, the current operator, the deployment manifest, and the live instance."
+  ],
+  "checks": [
+    {
+      "id": "A05.1",
+      "result": "fails",
+      "evidence": "agent/src/server.ts:33, agent/src/server.ts:34, agent/src/server.ts:36, agent/src/agent/identity.ts:108, agent/src/config.ts:47",
+      "quote": "  app.log.error({ expected: manifest.agentTypeId, actual: typeId }, \"agent type id does not match release manifest\");\n  metrics.increment(\"identity.mismatch\");\nsetAgentTypeId(typeId);\n      agentTypeId: AGENT_TYPE_ID,\nexport const manifest = JSON.parse(readFileSync(join(ROOT, \"release/manifest.json\"), \"utf8\"));",
+      "note": "The audit schema requires both IDs, but the mismatch branch only logs and increments a metric, then installs the mismatching computed type ID into audit identities and continues serving. The only stored deployment manifest is loaded from a fixed file and contains its own different agentTypeId; no code stores or indexes a manifest under the mismatching ID. Thus records from this permitted startup path cannot resolve by their type ID to the stored manifest. Searches across source, release, Kubernetes, Terraform, and workflows also found no instance registry or explicit UUID-to-pod mapping."
+    },
+    {
+      "id": "A05.2",
+      "result": "holds",
+      "evidence": "agent/src/config.ts:64, agent/infra/terraform/iam.tf:69, agent/README.md:73",
+      "quote": "  operationalOwner: \"team:agent-platform\",\n          StringLike = { \"aws:PrincipalArn\" = \"arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_AgentPlatformOnCall_*\" }\n- Operational owner: agent-platform team, `#agent-platform-oncall`",
+      "note": "The single configured agent has a code-defined operational team, a named on-call rotation, and an IAM trust condition linking that on-call group to the operator role; ownership is supported by configuration rather than only prose."
+    },
+    {
+      "id": "A05.3",
+      "result": "holds",
+      "evidence": "agent/src/control/kill-switch.ts:57, agent/src/config.ts:54, agent/infra/terraform/iam.tf:82, agent/infra/terraform/iam.tf:83, agent/infra/terraform/iam.tf:15, agent/infra/terraform/iam.tf:16",
+      "quote": "    if (halted.has(\"global\")) throw new Halted(\"global\");\n  controlTable: process.env.CONTROL_TABLE ?? \"clinic-agent-control\",\n      Action   = [\"dynamodb:PutItem\", \"dynamodb:UpdateItem\", \"dynamodb:GetItem\"]\n      Resource = aws_dynamodb_table.control.arn\n            \"system:serviceaccount:clinic-agent:clinic-agent\",\n            \"system:serviceaccount:clinic-agent:clinic-agent-reminders\",",
+      "note": "The global flag is scoped to this dedicated agent's control table, so it contains the deployed agent type across its service and reminder workloads. The on-call role can set that flag, and the agent's workload principal is separate from patient or staff credentials. Single-instance containment is not implemented, but the check permits containment of a single agent type."
+    }
+  ],
+  "note": "A05 fails because a manifest identity mismatch is allowed to continue into audit records without storing a deployment manifest under the recorded type ID."
+}

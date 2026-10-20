@@ -1,0 +1,46 @@
+{
+  "verdict": "failed",
+  "checks": [
+    {
+      "id": "B04.1",
+      "result": "holds",
+      "evidence": "infra/terraform/iam.tf:3",
+      "quote": "resource \"aws_iam_role\" \"runtime\" {",
+      "note": "The agent runs under its own IRSA role (clinic-agent-runtime), and users never hold AWS credentials. The operator halt flag in the control table targets the agent (global or tenant) and leaves user identities untouched."
+    },
+    {
+      "id": "B04.2",
+      "result": "fails",
+      "evidence": "src/control/kill-switch.ts:57",
+      "quote": "if (halted.has(\"global\")) throw new Halted(\"global\");",
+      "note": "The only revocation control in the repo is a halt flag that the agent process reads and enforces on itself, in assertRunning and in a watcher inside the agent. It is not enforced at a gateway, IdP or target service, so cutoff depends on the agent cooperating.",
+      "violates": [
+        "The agent must not need to cooperate",
+        "A trusted enforcement point must block later calls"
+      ]
+    },
+    {
+      "id": "B04.3",
+      "result": "fails",
+      "evidence": "src/routes/webchat.ts:32, src/integrations/ehr-mcp.ts:34",
+      "quote": "maxTokenAge: \"30m\",\nif (hit && hit.exp - 30_000 > Date.now()) return hit.value;",
+      "note": "No revocation time limit is stated or measured anywhere in the repo. Chat JWTs are checked by signature and age only, with no introspection, deny list or CAEP, so they stay valid for up to 30 minutes. EHR access tokens are cached for about 5 minutes and EHR sessions are reused for 4 minutes. None of these are checked against a revocation signal.",
+      "violates": [
+        "Set and measure the longest time before the cutoff takes effect",
+        "If tokens live longer than that limit, push the revocation to each service"
+      ]
+    },
+    {
+      "id": "B04.4",
+      "result": "fails",
+      "evidence": "src/integrations/ehr-mcp.ts:53-54",
+      "quote": "const existing = sessions.get(clinicId);\nif (existing) return existing;",
+      "note": "Halting only sets a flag. It revokes no access tokens, sessions or the EHR OAuth client. Cached EHR tokens and open MCP sessions stay valid at the EHR, and issued chat JWTs stay valid at the agent. The halt covers none of them.",
+      "violates": [
+        "Revoking only the refresh token is not enough",
+        "Count cached tokens, self-contained tokens, and open sessions"
+      ]
+    }
+  ],
+  "note": "Revocation is an in-process halt flag with no stated time limit and no revocation of cached tokens or open sessions, so B04 fails on B04.2, B04.3 and B04.4 even though the agent has its own IAM identity."
+}

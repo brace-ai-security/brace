@@ -1,0 +1,37 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Check that a vendor boundary doesn't leave any action untraceable to the agent and instance that did it."
+  ],
+  "checks": [
+    {
+      "id": "E10.1",
+      "result": "unclear",
+      "evidence": "app/audit.py:105, app/mcp_client.py:125",
+      "quote": "        ident.trace_id,\n                \"_meta\": {\"business_unit\": ident.tenant, \"run_id\": ident.run_id},",
+      "note": "The local audit writer inserts and validates all six identity fields; delegated children retain the parent's trace_id. The ERP call explicitly carries only tenant and run_id in metadata. External gateway and tool-service audit writers and token claims are absent, so their six-field records and shared trace cannot be verified."
+    },
+    {
+      "id": "E10.2",
+      "result": "holds",
+      "evidence": "migrations/001_init.sql:120, migrations/001_init.sql:121, deploy/k8s/deployment.yaml:45",
+      "quote": "REVOKE ALL ON ALL TABLES IN SCHEMA public FROM procurement_agent;\nGRANT SELECT, INSERT ON audit_events TO procurement_agent;\n              value: \"postgresql://procurement_agent@procurement-db.procurement-data.svc.cluster.local:5432/procurement?sslmode=verify-full\"",
+      "note": "The configured runtime connects as procurement_agent. Its audit-table privileges are SELECT and INSERT after REVOKE ALL, with no UPDATE, DELETE or TRUNCATE grant; the primary key prevents INSERT from overwriting existing records."
+    },
+    {
+      "id": "E10.3",
+      "result": "unclear",
+      "evidence": "app/mcp_client.py:110, app/gate.py:37",
+      "quote": "        self._tools = {t[\"name\"]: t for t in tools}\n            return Decision(True, \"erp read operation\", self.version)",
+      "note": "The local registry offers document, extraction, ERP, payment, Slack and memory tools, with no local audit-management operation. Refreshed ERP operations are accepted without pin verification and prefix-matching generic ERP calls bypass approval, but the external server's implementation and privileges are absent; an ability to rewrite audit records cannot be established or excluded."
+    },
+    {
+      "id": "E10.4",
+      "result": "fails",
+      "evidence": "app/tools/slack.py:45, app/tools/slack.py:52, app/approvals.py:61",
+      "quote": "        return {\"channel\": body[\"channel\"], \"ts\": body[\"ts\"]}\n        await self.post(\n        await self.notifier.post_approval_request(",
+      "note": "Slack post returns its vendor receipt (channel and ts), but post_approval_request awaits and discards that return value, returns None, and ApprovalStore.request stores no receipt. This reachable vendor call occurs inside authorization rather than tool.invoke, so the normal tool_result audit does not capture it. An approval ID in the message and database is not a stored mapping to Slack's receipt and the verified run identity/correlation ID. Budget-stop notifications also discard Slack receipts at agent/app/loop.py:180."
+    }
+  ],
+  "note": "E10 fails because approval notifications cross the Slack boundary without storing the returned vendor receipt linked to the initiating run identity and correlation ID."
+}

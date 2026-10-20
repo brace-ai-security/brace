@@ -1,0 +1,38 @@
+{
+  "verdict": "failed",
+  "checks": [
+    {
+      "id": "B07.1",
+      "result": "holds",
+      "evidence": "config/budgets.yaml:3",
+      "quote": "maxTurns: 8",
+      "note": "Turns, wall time, tokens, cost, tool-call rate and peer calls all have finite values; the agent starts no sub-agents (peer calls capped at 2)."
+    },
+    {
+      "id": "B07.2",
+      "result": "holds",
+      "evidence": "src/agent/budget.ts:102",
+      "quote": "if (used > max) {",
+      "note": "RunBudget runs in the harness: it aborts the signal and throws BudgetExceeded. loop.ts catches it, stops the run and hands off to staff. executor.ts:92 rethrows BudgetExceeded. The model cannot change the limits."
+    },
+    {
+      "id": "B07.3",
+      "result": "holds",
+      "evidence": "src/agent/budget.ts:154, config/budgets.yaml:10",
+      "quote": "if (tool.startsWith(\"insurance__\")) {\nmaxPeerCalls: 2",
+      "note": "No sub-agents are spawned. Peer calls to the eligibility agent are counted against the run budget."
+    },
+    {
+      "id": "B07.4",
+      "result": "fails",
+      "evidence": "src/agent/loop.ts:41, src/agent/budget.ts:139",
+      "quote": "const intent = await classifyIntent(anthropic, patientText);\nawait this.shared(\"subject_daily_cost\", `cost#subject#${this.scope.subjectId}#${day()}`, callCost, q.perSubjectDailyUsd, 86400);",
+      "note": "Per-subject, per-tenant and fleet quotas are in DynamoDB, but they are charged only inside recordUsage and toolCall. The classifier model call runs on every run before any budget call, so its cost is never counted against the quotas. The count_tokens call (loop.ts:60) is not counted either. Nothing rate limits run starts in the routes (sms-webhook.ts:72, webchat.ts:56). Many short runs routed to staff therefore consume model capacity with no per-subject, per-tenant or fleet limit."
+    }
+  ],
+  "violates": [
+    "set spend and rate quotas per user or service, per tenant, and across the whole fleet",
+    "many small runs can't use up shared capacity"
+  ],
+  "note": "The per-run limits hold, but the classifier call that runs on every request is outside all cost and rate quotas, and run starts are not rate limited, so many small runs can use shared capacity."
+}

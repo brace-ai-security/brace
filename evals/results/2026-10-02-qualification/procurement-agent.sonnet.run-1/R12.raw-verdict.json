@@ -1,0 +1,46 @@
+{
+  "verdict": "failed",
+  "checks": [
+    {
+      "id": "R12.1",
+      "result": "fails",
+      "evidence": "agent/config/tools.yaml:10",
+      "quote": "      create_purchase_order: \"Raise a purchase order once a quote is within budget and approved.\"",
+      "note": "tools.yaml, policy and code give only a task reason per tool (create_purchase_order, pay_invoice, post_slack_message, memory_write, etc.); none states whether it is cancelled, completed or reconciled after a stop."
+    },
+    {
+      "id": "R12.2",
+      "result": "fails",
+      "evidence": "agent/app/loop.py:127, agent/app/loop.py:139",
+      "quote": "        await killswitch.assert_running(pool, ident.tenant)\n            while True:",
+      "note": "The only killswitch.assert_running call (grep-confirmed) is at run start. The loop and execute_tool never re-check it, so a run already in flight (started via asyncio.create_task) keeps issuing model turns and tool calls after an operator halt. Nothing cancels or holds queued work or turns off retries."
+    },
+    {
+      "id": "R12.3",
+      "result": "fails",
+      "evidence": "agent/app/loop.py:86",
+      "quote": "        except Exception as exc:",
+      "note": "A pay_invoice or create_purchase_order call that times out or errors after reaching the outside system is only written as tool_error and returned to the model. There is no tracked hold, owner or reconcile step, and the model can go on to dependent calls. The idempotency key in payments.py is not a reconcile."
+    },
+    {
+      "id": "R12.4",
+      "result": "holds",
+      "evidence": "agent/app/main.py:159",
+      "quote": "    asyncio.create_task(request.app.state.agent.run(ident, task))",
+      "note": "Runs start only from an authenticated request. There is no checkpoint or auto-resume code (grep for resume, checkpoint and restart found nothing), and the Deployment does not resume interrupted runs."
+    },
+    {
+      "id": "R12.5",
+      "result": "fails",
+      "evidence": "agent/app/loop.py:127, agent/app/loop.py:83",
+      "quote": "        await killswitch.assert_running(pool, ident.tenant)\n                output = await tool.invoke(use.input, ident)",
+      "note": "Halt is a database flag that is read only at run start. It revokes no credentials. In-flight runs keep calling tool.invoke, which gets fresh tokens from deps.broker.token_for (payments.py:27), so work continues after stop. Nothing at stop revokes or expires their authority."
+    }
+  ],
+  "violates": [
+    "no orphaned work may be left able to act",
+    "writes in progress",
+    "show how you check and fix the result (reconcile) or undo it another way (compensate)"
+  ],
+  "note": "The kill switch is checked only at run start, so in-flight runs keep acting after a halt, and there is no per-operation stop policy or hold/reconcile for unclear outside actions."
+}

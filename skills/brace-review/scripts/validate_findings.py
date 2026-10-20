@@ -17,6 +17,7 @@ Usage:
 Exit 0 if valid, 1 if not, 2 on bad usage.
 """
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -29,7 +30,7 @@ RATINGS = {"likely_pass", "gap", "needs_evidence", "na_candidate"}
 CONFIDENCE = {"high", "medium", "low"}
 ROLES = {"agent_team", "operations", "security", "infrastructure", "governance",
          "business_owner", "data_privacy", "model_team", "vendors", "independent_audit"}
-TOP = {"brace_checklist", "repo", "commit", "reviewed_at", "scope", "findings", "injection_attempts"}
+TOP = {"brace_checklist", "repo", "commit", "reviewed_at", "scope", "findings", "injection_attempts", "review_protocol"}
 MET = {"yes", "no", "unknown"}
 CHECKS_FILE = Path(__file__).resolve().parent.parent / "references" / "checks.json"
 REF = re.compile(r"([\w./-]*[\w-]):(\d+)(?:-(\d+))?")
@@ -51,7 +52,7 @@ def refs(evidence):
 def _windows(repo, evidence):
     for path, start, end in refs(evidence):
         f = repo / path
-        if f.is_file():
+        if f.resolve().is_relative_to(repo.resolve()) and f.is_file():
             lines = f.read_text(errors="replace").splitlines()
             yield norm(" ".join(lines[max(0, start - 4):min(len(lines), end + 3)]))
 
@@ -62,6 +63,8 @@ def quote_found(repo, evidence, quote):
     A quote joined from several places with newlines or "..." also counts when every
     piece is found near one of the cited lines.
     """
+    if not isinstance(quote, str):
+        return False
     q = norm(quote)
     if len(q) < 4:
         return False
@@ -88,6 +91,8 @@ def yes_problem(repo, c, doc_ok):
 
 def fix(doc, table, repo, conservative):
     changes = []
+    from review_coverage import inventory, ledger_problems, failure_rows
+    sites = inventory(repo)['sites']
     for f in doc.get("findings", []):
         item = f.get("item")
         meta = table.get(item)
@@ -95,10 +100,24 @@ def fix(doc, table, repo, conservative):
             continue
         doc_ok = {c["id"]: c.get("doc_ok", False) for c in meta["checks"]}
         for c in f.get("checks", []) or []:
+            declared = failure_rows(c)
+            for row in declared:
+                if quote_found(repo, row.get('evidence'), row.get('quote')):
+                    c.update(met='unknown' if row.get('status') == 'unclear' or row.get('outcome') == 'unclear' else 'no',
+                             evidence=row['evidence'], quote=row['quote'],
+                             note='[coverage] ' + (row.get('note') or row.get('trace') or 'Required control has an unresolved coverage deviation.'))
+                    if c['met'] == 'no':
+                        f['violates'] = list(dict.fromkeys((f.get('violates') if isinstance(f.get('violates'), list) else []) + [meta['requirement']]))
+                        break
             if c.get("met") == "yes" and c.get("id") in doc_ok:
                 why = yes_problem(repo, c, doc_ok[c["id"]])
                 if not why and len(norm(c.get("counter_search", "")).split()) < 4:
                     why = "has no counter_search"
+                canonical = next(x for x in meta['checks'] if x['id'] == c['id'])
+                if not why and canonical.get('coverage_required'):
+                    problems = ledger_problems(c, canonical, repo, sites)
+                    if problems:
+                        why = '; '.join(problems)
                 if why:
                     c["met"] = "unknown"
                     c["note"] = f"[fix: was yes; {why}] " + str(c.get("note", ""))
@@ -122,7 +141,7 @@ def fix(doc, table, repo, conservative):
     return changes
 
 
-def check_item(item, f, meta, repo):
+def check_item(item, f, meta, repo, sites=()):
     errors = []
     want = [c["id"] for c in meta["checks"]]
     doc_ok = {c["id"]: c.get("doc_ok", False) for c in meta["checks"]}
@@ -151,6 +170,10 @@ def check_item(item, f, meta, repo):
             elif len(norm(c.get("counter_search", "")).split()) < 4:
                 errors.append(f"{item}: check {cid} is yes but counter_search is empty; say what you looked for that "
                               f"would make it false (the last step of 'verify') and what you found")
+            canonical = next(x for x in meta['checks'] if x['id'] == cid)
+            if canonical.get('coverage_required'):
+                from review_coverage import ledger_problems
+                errors += [f'{item}: check {cid} is yes but {p}' for p in ledger_problems(c, canonical, repo, sites)]
     if errors:
         return errors
     met = [got[c]["met"] for c in want]
@@ -169,6 +192,20 @@ def check_item(item, f, meta, repo):
         if (f.get("challenge") or {}).get("verdict") != "upheld":
             errors.append(f"{item}: likely_pass needs a challenge that upheld it; run scripts/challenge.py make, have a "
                           f"fresh reviewer fill in verdicts.json, then run challenge.py apply")
+        elif any(c.get('coverage_required') for c in meta['checks']):
+            challenge = f['challenge']
+            discovery = challenge.get('discovery')
+            if (challenge.get('protocol') != 'coverage-first-v1' or not isinstance(discovery, dict)
+                    or discovery.get('applicability') != 'present'
+                    or challenge.get('discovery_sha256') != hashlib.sha256(json.dumps(discovery, sort_keys=True).encode()).hexdigest()):
+                errors.append(f'{item}: upheld needs a sealed independent coverage-first discovery')
+            else:
+                answers = {c.get('id'): c for c in discovery.get('checks', [])}
+                from review_coverage import ledger_problems
+                for canonical in meta['checks']:
+                    c = answers.get(canonical['id'])
+                    if not c or c.get('result') != 'holds' or ledger_problems(c, canonical, repo, sites):
+                        errors.append(f'{item}: independent discovery did not establish {canonical["id"]}')
     elif rating == "gap":
         if not flags and "no" not in met:
             errors.append(f"{item}: a gap must name a red flag in red_flags_found or a check answered no")
@@ -188,6 +225,14 @@ def check_item(item, f, meta, repo):
         if failed or flags:
             why = f"checks answered no: {', '.join(failed)}" if failed else "red flags were found"
             errors.append(f"{item}: {why}, so the rating must be gap, not needs_evidence")
+    elif rating == "na_candidate" and meta["gate"] in ("G1", "G2"):
+        challenge = f.get("challenge") or {}
+        if (challenge.get("verdict") != "upheld" or challenge.get("applicability") != "absent"
+                or not quote_found(repo, challenge.get("evidence"), challenge.get("quote"))
+                or len(str(challenge.get("note", "")).split()) < 6):
+            errors.append(f"{item}: G1/G2 N/A needs a fresh challenge establishing absence with quoted code and a search explanation")
+        if meta.get("na_when") == "never":
+            errors.append(f"{item}: this item's N/A condition is never; use an applicable rating")
     return errors
 
 
@@ -232,7 +277,7 @@ def prescan_rules(doc, seen, repo):
     errors = []
     for hid, h in hits.items():
         r = res.get(hid)
-        if h["item"][0] not in {i[0] for i in seen} and r is None:
+        if h["item"] not in seen and r is None:
             continue  # other aspect, in per-aspect files
         where = f"{h['file']}:{h['line']}"
         if not r:
@@ -263,7 +308,11 @@ def validate(doc, table, repo, ids=IDS):
     if not isinstance(doc, dict):
         return ["The file must contain a JSON object."]
     errors = [f"Missing top-level field: {k}" for k in sorted(TOP - set(doc))]
+    if doc.get('review_protocol') != 'coverage-first-v1':
+        errors.append('review_protocol must be coverage-first-v1; historical files use their archived validator')
     seen = {}
+    from review_coverage import inventory
+    sites = inventory(repo)['sites']
     for n, f in enumerate(doc.get("findings") or []):
         item = f.get("item")
         if item not in ids:
@@ -295,7 +344,7 @@ def validate(doc, table, repo, ids=IDS):
         step = norm(f.get("next_step", ""))
         if not step or step.upper().startswith("TODO"):
             errors.append(f"{item}: next_step is empty")
-        errors += check_item(item, f, table[item], repo)
+        errors += check_item(item, f, table[item], repo, sites)
     # Checks on items rated na_candidate don't count: the feature doesn't exist, so there is nothing to answer.
     answers = [c.get("met") for f in seen.values() if f.get("rating") != "na_candidate"
                for c in (f.get("checks") or []) if isinstance(c, dict)]
@@ -319,6 +368,8 @@ def main():
     ap.add_argument("--fix", action="store_true")
     ap.add_argument("--conservative", action="store_true")
     ap.add_argument("--aspect", choices=list("BRACE"))
+    ap.add_argument("--batch", help="Validate only these comma-separated completed item IDs")
+    ap.add_argument("--before-challenges", action="store_true", help="Suppress only expected unchallenged-rating errors")
     args = ap.parse_args()
     path = Path(args.findings)
     try:
@@ -335,7 +386,19 @@ def main():
         more = f"\n  ... and {len(changes) - 40} more" if len(changes) > 40 else ""
         print(f"Fixed {len(changes)} thing(s)." + (f"\n  {shown}{more}" if changes else ""))
     ids = [i for i in IDS if not args.aspect or i[0] == args.aspect]
+    if args.batch:
+        ids = args.batch.split(',')
+        if not ids or any(i not in IDS for i in ids) or len(ids) != len(set(ids)):
+            ap.error('--batch must contain unique checklist IDs')
+        doc = {**doc, 'findings': [f for f in doc['findings'] if f['item'] in ids]}
     errors = validate(doc, table, repo, ids)
+    if args.before_challenges:
+        errors = [e for e in errors if 'likely_pass needs a challenge that upheld it' not in e
+                  and 'G1/G2 N/A needs a fresh challenge establishing absence' not in e]
+    if args.batch:
+        # A bounded batch may contain mostly external/governance checks. Keep
+        # per-check notes/completeness strict; apply the unknown ratio globally.
+        errors = [e for e in errors if 'checks are unknown. Go back' not in e]
     if errors:
         print(f"{len(errors)} problem(s):")
         for e in errors:

@@ -1,0 +1,38 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Each action record includes the model's context size in tokens at decision time.",
+    "The value is carried across tool handoffs and stored with the action's identity, result, and trace ID."
+  ],
+  "checks": [
+    {
+      "id": "R07.1",
+      "result": "fails",
+      "evidence": "agent/src/agent/loop.ts:42",
+      "quote": "    await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });",
+      "note": "The helper model makes a routing decision in classifier.ts, but its action record contains neither context nor a token count. ClassifierDecision has no context field and classifyIntent discards response usage; staff routing can end the run before any measured model.decision record exists."
+    },
+    {
+      "id": "R07.2",
+      "result": "holds",
+      "evidence": "agent/src/agent/context-size.ts:38, agent/src/agent/context-size.ts:46",
+      "quote": "    return { tokens: null, status: \"unavailable\", method: COUNT_METHOD, cachedInputTokens: null, compacted: false };\n  return { tokens: total, status: \"measured\", method: USAGE_METHOD, cachedInputTokens: cacheRead, compacted: false };",
+      "note": "Context values that are recorded carry a status; failed counting stores null and unavailable, and successful pre-call counts are labeled estimated. Optional cache counters default to zero, but an absent overall context count does not. The omitted classifier context is addressed under R07.1."
+    },
+    {
+      "id": "R07.3",
+      "result": "holds",
+      "evidence": "agent/src/agent/context-size.ts:45, agent/src/agent/context-size.ts:26",
+      "quote": "  const total = usage.input_tokens + cacheRead + (usage.cache_creation_input_tokens ?? 0);\nexport const USAGE_METHOD = \"anthropic.messages.usage(input+cache_read+cache_creation)\";",
+      "note": "The stated method sums uncached, cache-read, and cache-creation input for the current decision. Inspection of loop.ts found history accumulation rather than compaction, consistent with the documented compacted=false behavior."
+    },
+    {
+      "id": "R07.4",
+      "result": "fails",
+      "evidence": "agent/src/workflows/eligibility-check.ts:26, agent/src/tools/executor.ts:89",
+      "quote": "    { workloadToken: await opts.ctx.workloadToken(), traceparent: opts.ctx.traceparent, signal: opts.signal },\n    await audit.record({ ...base, event: \"tool.executed\", approvalId, detail: { clinicId } });",
+      "note": "The eligibility sub-agent handoff forwards traceparent but no context size; the peer API options and request body also omit it. The workflow preserves a local copy in its own audit record, which does not carry the value across the peer handoff. Additionally, the successful executor audit record stores context and identity but only clinicId as detail; the actual result is emitted separately by ctx.log.info at line 87 without context or traceparent."
+    }
+  ],
+  "note": "The main tool path records labeled decision context, but classifier decisions omit it and the eligibility peer handoff does not carry it."
+}

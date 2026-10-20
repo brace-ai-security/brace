@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: procurement-agent
+  namespace: procurement-prod
+  labels:
+    app: procurement-agent
+    owner: team-procurement-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: procurement-agent
+  template:
+    metadata:
+      labels:
+        app: procurement-agent
+    spec:
+      serviceAccountName: procurement-agent
+      automountServiceAccountToken: false
+      hostUsers: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: registry.example-corp.test/procurement/agent@sha256:7c1e4a0f9b3d2e85a6c4f1b0d9e8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: IMAGE_DIGEST
+              value: "sha256:7c1e4a0f9b3d2e85a6c4f1b0d9e8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0"
+            - name: MODEL_ID
+              value: "claude-sonnet-4-5-20250929"
+            - name: EXTRACTOR_MODEL_ID
+              value: "claude-haiku-4-5-20251001"
+            - name: DATABASE_URL
+              value: "postgresql://procurement_agent@procurement-db.procurement-data.svc.cluster.local:5432/procurement?sslmode=verify-full"
+            - name: ERP_MCP_URL
+              value: "https://erp-mcp-gateway.erp-mcp-gateway.svc.cluster.local:8443/mcp"
+            - name: PAYMENTS_API_URL
+              value: "https://api.payments.example-pay.test"
+            - name: SLACK_API_URL
+              value: "https://slack-proxy.egress.svc.cluster.local:8443/api"
+            - name: STS_URL
+              value: "https://sts.identity.svc.cluster.local/oauth2/token"
+            - name: OIDC_ISSUER
+              value: "https://login.example-corp.test"
+            - name: OIDC_JWKS_URL
+              value: "https://login.example-corp.test/.well-known/jwks.json"
+            - name: HTTPS_PROXY
+              value: "http://egress-proxy.egress.svc.cluster.local:3128"
+            - name: NO_PROXY
+              value: ".svc.cluster.local"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.observability.svc.cluster.local:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "procurement-agent"
+            - name: OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT
+              value: "false"
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          volumeMounts:
+            - name: workload-token
+              mountPath: /var/run/secrets/tokens
+              readOnly: true
+            - name: slack-signing
+              mountPath: /var/run/secrets/slack
+              readOnly: true
+            - name: mail-hmac
+              mountPath: /var/run/secrets/mail
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: workload-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: procurement-agent
+                  audience: sts.identity.example-corp.test
+                  expirationSeconds: 600
+        - name: slack-signing
+          secret:
+            secretName: procurement-slack-signing
+        - name: mail-hmac
+          secret:
+            secretName: procurement-mail-gateway-hmac
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi

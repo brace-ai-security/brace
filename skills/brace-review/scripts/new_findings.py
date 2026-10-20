@@ -24,17 +24,22 @@ def main():
     ap.add_argument("--repo", default="")
     ap.add_argument("--commit", default=None)
     ap.add_argument("--aspect", choices=list("BRACE"))
+    ap.add_argument('--items', help='Only these comma-separated items, at most five for a bounded batch')
     args = ap.parse_args()
     out = Path(args.out)
     if out.exists():
         sys.exit(f"{out} already exists; refusing to overwrite it.")
     items = json.loads(CHECKS_FILE.read_text())
+    selected = args.items.split(',') if args.items else None
+    if selected and (len(selected)>5 or len(set(selected))!=len(selected) or any(i not in items for i in selected)):
+        ap.error('--items requires one to five unique checklist IDs')
     doc = {
         "brace_checklist": "2026-10-01",
         "repo": args.repo,
         "commit": args.commit,
         "reviewed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "scope": "TODO: what was reviewed and what wasn't.",
+        "review_protocol": "coverage-first-v1",
         "findings": [
             {
                 "item": iid,
@@ -47,7 +52,8 @@ def main():
                 "evidence": [],
                 "checks": [
                     {"id": c["id"], "check": c["check"], "verify": c.get("verify", ""), "met": "unknown",
-                     "evidence": "", "quote": "", "counter_search": "", "note": ""}
+                     "evidence": "", "quote": "", "counter_search": "", "note": "",
+                     "coverage": [], "deviations": [], "attempts": []}
                     for c in meta["checks"]
                 ],
                 "red_flags_found": [],
@@ -59,6 +65,7 @@ def main():
             }
             for iid, meta in items.items()
             if not args.aspect or iid[0] == args.aspect
+            if selected is None or iid in selected
         ],
         "injection_attempts": [],
         "prescan_resolutions": {},

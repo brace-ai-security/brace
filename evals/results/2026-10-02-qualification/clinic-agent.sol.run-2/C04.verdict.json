@@ -1,0 +1,31 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Compare running images, harness settings, prompts, MCP server lists, permissions, network policies, and self-hosted model weights against their approved baseline.",
+    "Check that each one raises an alert and gets the documented response \u2014 block, quarantine, or rollback \u2014 within a set time."
+  ],
+  "checks": [
+    {
+      "id": "C04.1",
+      "result": "fails",
+      "evidence": "src/agent/identity.ts:24, src/agent/loop.ts:14, src/agent/identity.ts:8",
+      "quote": "    .filter((f) => f.endsWith(\".txt\"))\nconst SYSTEM_TEMPLATE = readFileSync(join(ROOT, \"prompts/system.md\"), \"utf8\");\nconst CONFIG_FILES = [\"config/policy.yaml\", \"config/tools.allowlist.yaml\", \"config/budgets.yaml\"];",
+      "note": "The runtime identity comparison excludes the system.md prompt actually used by the agent. Editing that prompt alone leaves the computed identity unchanged. Its fixed inputs also omit the MCP server list, actual runtime permissions and network policy; image identity is taken from an environment variable rather than observed running image state. CI checks repository prompt digests, but does not compare deployed state. Models are hosted Anthropic snapshots, so self-hosted weights are not applicable to this deployment."
+    },
+    {
+      "id": "C04.2",
+      "result": "unclear",
+      "evidence": "src/server.ts:27, src/server.ts:89, .github/workflows/ci.yml:4, .github/workflows/deploy.yml:6",
+      "quote": "const typeId = computeAgentTypeId({\nkillSwitch.startWatcher();\n  pull_request:\n  workflow_dispatch:",
+      "note": "The supplied runtime comparison is a startup operation. Searches across agent/, including hidden workflows, for drift, baseline, identity, schedule, cron, alarms and timers found no recurring per-deployment drift job or change-event controller. CI checks repository changes; the CronJob sends reminders and the interval polls operator stop flags. Scheduling in an external platform cannot be established from this repository."
+    },
+    {
+      "id": "C04.3",
+      "result": "fails",
+      "evidence": "src/server.ts:33, src/server.ts:34, src/server.ts:36, src/server.ts:90",
+      "quote": "  app.log.error({ expected: manifest.agentTypeId, actual: typeId }, \"agent type id does not match release manifest\");\n  metrics.increment(\"identity.mismatch\");\nsetAgentTypeId(typeId);\nawait app.listen({ host: \"0.0.0.0\", port: 8080 });",
+      "note": "The mismatch branch only logs and emits a metric, then accepts the mismatched identity and starts serving. No configured block, quarantine or rollback, drift alert routing, or response deadline is supplied. The operator-controlled kill switch is not triggered by identity mismatch; its two-second polling interval is not a drift-response deadline."
+    }
+  ],
+  "note": "C04 fails because the runtime comparison excludes an active prompt and detected identity drift does not prevent the agent from serving."
+}

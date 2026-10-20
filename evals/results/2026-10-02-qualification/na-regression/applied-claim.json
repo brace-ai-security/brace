@@ -1,0 +1,110 @@
+{
+  "findings": [
+    {
+      "item": "E07",
+      "gate": "G2",
+      "title": "Untrusted peer messages",
+      "requirement": "Authenticate the sending agent (prove its identity) on every message, even validly signed ones. Validate message types and schemas, and check what that peer is allowed to ask for. Where a replay could repeat an action, check freshness and track nonces or request IDs. Checking the sender alone doesn't stop replays. Test faked identity, replayed requests, requests across tenants, and instructions passed along by a compromised peer. Verify signed agent cards where they exist. A card says who an agent is, not what it may do. Check callback and webhook URLs against SSRF. A valid sender doesn't make a message's content trusted.",
+      "not_covered": [
+        {
+          "problem": "Tool server identified only by its self-reported name",
+          "owner": "E05"
+        },
+        {
+          "problem": "Missing schema or size checks on API responses",
+          "owner": "R01"
+        },
+        {
+          "problem": "Peers or children still running after a stop",
+          "owner": "E09"
+        },
+        {
+          "problem": "Run can't be rebuilt across gateway, tool services, and delegated workers",
+          "owner": "E10"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "README.md",
+          "line": 23,
+          "note": "Agent has no A2A server to receive peer messages; all peer communication is agent-initiated"
+        }
+      ],
+      "checks": [
+        {
+          "id": "E07.1",
+          "check": "Every peer message is authenticated to a specific sending agent, even when the message is validly signed.",
+          "verify": "1) Find the handler for incoming peer messages (A2A server, peer endpoint). 2) Check each message is authenticated to a specific sending agent (mTLS identity, verified token subject). 3) Answer no if any route accepts unauthenticated messages, trusts a self-declared sender field, or accepts any valid signature without mapping it to a known agent.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:81, src/integrations/eligibility-a2a.ts:83, src/integrations/eligibility-a2a.ts:85",
+          "quote": "  const header = decodeProtectedHeader(attestation);\n  const keys = createRemoteJWKSet(new URL(header.jku));\n    issuer: env.eligibilityIssuer,",
+          "counter_search": "Agent only calls eligibility peer via outbound A2A; no A2A server endpoint; no incoming peer messages",
+          "note": "[challenge] Verification keys come from the unverified attestation header jku. An attacker controlling an accessible key endpoint can sign a token with the expected issuer and audience; those claims do not authenticate the configured eligibility agent. No pinned peer key source or verified sender subject is required."
+        },
+        {
+          "id": "E07.2",
+          "check": "Message types and schemas are validated, and each request is checked against what that peer is allowed to ask for, including tenant.",
+          "verify": "1) Open the peer message handler. 2) Check message type and schema validation. 3) Check a per-peer allowlist of request types and tenants, keyed on the authenticated sender. 4) Answer no if schemas are unchecked, any authenticated peer can ask for anything, or tenant is taken from the message body.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:90, src/workflows/eligibility-check.ts:39, src/workflows/eligibility-check.ts:40",
+          "quote": "  return Eligibility.parse(payload.eligibility);\n  if (result.status === \"active\" && result.depositWaived && appt.depositId) {\n    const refund = await payments.refundDeposit(",
+          "counter_search": "No peer message handler; agent only makes outbound A2A calls",
+          "note": "[challenge] RPC and eligibility schemas are checked, but the signed payload is not required to identify the clinic, patient, service, or request, nor compared with req. Its eligibility fields directly authorize settlement of the locally selected appointment, allowing a compromised peer to pass a result from another tenant or patient. Outbound token scope does not bind the inbound attestation or constrain this refund authority."
+        },
+        {
+          "id": "E07.3",
+          "check": "Action requests carry a nonce or request ID and a freshness check, and replays are rejected or do not repeat side effects.",
+          "verify": "1) Find action request handling. 2) Check for a nonce or request ID plus a freshness (timestamp) check, with seen IDs stored. 3) Answer no if no replay check exists, the nonce is never stored or compared, or a repeated ID repeats side effects.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:57, src/integrations/eligibility-a2a.ts:78, src/integrations/eligibility-a2a.ts:87, src/integrations/eligibility-a2a.ts:90, src/workflows/eligibility-check.ts:42",
+          "quote": "  const requestId = randomUUID();\n  const rpc = Rpc.parse(JSON.parse(text));\n    maxTokenAge: \"5m\",\n  return Eligibility.parse(payload.eligibility);\n      { depositId: appt.depositId, reason: \"coverage_confirmed\", idempotencyKey: `deposit-waive-${appt.depositId}` },",
+          "counter_search": "Searched for peer message handlers, A2A server, incoming agent calls; agent only makes outbound calls",
+          "note": "[challenge] A request UUID is generated but neither rpc.id nor a signed nonce/request ID is compared with it or stored. maxTokenAge limits age to five minutes but permits replay within that window. A replayed eligibility attestation can settle a different appointment deposit. The deposit-specific idempotency key mitigates repeat refunds of the same deposit, not reuse of one attestation across different deposits."
+        },
+        {
+          "id": "E07.4",
+          "check": "Peer message content is handled as untrusted data and is not placed into system or instruction prompts.",
+          "verify": "1) Trace peer message content to the prompt builder. 2) Check it goes into user or tool-result content as untrusted data. 3) Answer no if any path places it into the system prompt or an instruction template.",
+          "met": "unknown",
+          "evidence": "README.md:1",
+          "quote": "# clinic-agent",
+          "counter_search": "No incoming peer messages; nothing to place in prompts",
+          "note": "[fix: was yes; cites only documentation or prompt files; a README, doc, or prompt is never enforcement] N/A: agent receives no peer messages"
+        },
+        {
+          "id": "E07.5",
+          "check": "Callback and webhook URLs are checked against SSRF, with private and metadata addresses blocked.",
+          "verify": "1) Find code that calls callback or webhook URLs from peers. 2) Check URL validation blocks private, loopback, link-local, and metadata addresses (169.254.169.254). 3) Answer no if any callback is fetched without the check, or only the hostname text is checked and not the resolved address.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:82, src/integrations/eligibility-a2a.ts:83, src/integrations/eligibility-a2a.ts:84",
+          "quote": "  if (!header.jku) throw new Error(\"attestation missing key set url\");\n  const keys = createRemoteJWKSet(new URL(header.jku));\n  const { payload } = await jwtVerify(attestation, keys, {",
+          "counter_search": "No peer callbacks or webhooks; agent only receives scheduled tasks and user messages",
+          "note": "[challenge] No literal peer callback/webhook handler was found, but the indirect peer-supplied jku URL is handed to the remote JWKS fetcher before authentication. There is no URL allowlist or resolved-address check blocking private, loopback, link-local, or metadata targets. Deployment NetworkPolicy restricts egress, including an allowed private EHR range, but does not validate this URL; the claimed proxy policy is not implemented in the supplied files. Actual exploit reachability is deployment-dependent."
+        }
+      ],
+      "red_flags_found": [
+        "src/integrations/eligibility-a2a.ts:81, src/integrations/eligibility-a2a.ts:83, src/integrations/eligibility-a2a.ts:85 Verification keys come from the unverified attestation header jku. An attacker controlling an accessible key endpoint can sign a token with the expected issuer and audience; those claims do not authenticate the configured eligibility agent. No pinned peer key source or verified sender subject is required.",
+        "src/integrations/eligibility-a2a.ts:90, src/workflows/eligibility-check.ts:39, src/workflows/eligibility-check.ts:40 RPC and eligibility schemas are checked, but the signed payload is not required to identify the clinic, patient, service, or request, nor compared with req. Its eligibility fields directly authorize settlement of the locally selected appointment, allowing a compromised peer to pass a result from another tenant or patient. Outbound token scope does not bind the inbound attestation or constrain this refund authority.",
+        "src/integrations/eligibility-a2a.ts:57, src/integrations/eligibility-a2a.ts:78, src/integrations/eligibility-a2a.ts:87, src/integrations/eligibility-a2a.ts:90, src/workflows/eligibility-check.ts:42 A request UUID is generated but neither rpc.id nor a signed nonce/request ID is compared with it or stored. maxTokenAge limits age to five minutes but permits replay within that window. A replayed eligibility attestation can settle a different appointment deposit. The deposit-specific idempotency key mitigates repeat refunds of the same deposit, not reuse of one attestation across different deposits.",
+        "src/integrations/eligibility-a2a.ts:82, src/integrations/eligibility-a2a.ts:83, src/integrations/eligibility-a2a.ts:84 No literal peer callback/webhook handler was found, but the indirect peer-supplied jku URL is handed to the remote JWKS fetcher before authentication. There is no URL allowlist or resolved-address check blocking private, loopback, link-local, or metadata targets. Deployment NetworkPolicy restricts egress, including an allowed private EHR range, but does not validate this URL; the claimed proxy policy is not implemented in the supplied files. Actual exploit reachability is deployment-dependent."
+      ],
+      "violates": [
+        "Authenticate the sending agent (prove its identity) on every message, even validly signed ones.",
+        "Validate message types and schemas, and check what that peer is allowed to ask for.",
+        "Where a replay could repeat an action, check freshness and track nonces or request IDs.",
+        "Check callback and webhook URLs against SSRF."
+      ],
+      "also_affects": [],
+      "summary": "N/A claim was not upheld: Searched agent/src, agent/config, agent/test, agent/release/manifest.json and agent/k8s/deployment.yaml for peer channels, routes, attestations, schemas, replay controls, prompt flow and peer-controlled URLs; server.ts registers patient routes but nativeTools -> eligibility-check -> eligibility-a2a receives A2A peer messages and can refund deposits, disproving N/A; static inspection found no agent-card flow or tests for forged peer identity, attestation replay, cross-tenant responses or compromised-peer instructions, and no fixture code was executed.",
+      "next_step": "Resolve the challenged feature or exposure and verify the applicable controls.",
+      "lead_role": "agent_team",
+      "challenge": {
+        "verdict": "failed",
+        "note": "Searched agent/src, agent/config, agent/test, agent/release/manifest.json and agent/k8s/deployment.yaml for peer channels, routes, attestations, schemas, replay controls, prompt flow and peer-controlled URLs; server.ts registers patient routes but nativeTools -> eligibility-check -> eligibility-a2a receives A2A peer messages and can refund deposits, disproving N/A; static inspection found no agent-card flow or tests for forged peer identity, attestation replay, cross-tenant responses or compromised-peer instructions, and no fixture code was executed.",
+        "applicability": "present"
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Each action record includes the model's context size in tokens at decision time.",
+    "The value is carried across tool handoffs and stored with the action's identity, result, and trace ID."
+  ],
+  "checks": [
+    {
+      "id": "R07.1",
+      "result": "fails",
+      "evidence": "src/agent/loop.ts:42, src/tools/executor.ts:87",
+      "quote": "    await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });\n    ctx.log.info({ tool: call.name, toolUseId: call.id, clinicId, result: raw }, \"tool result\");",
+      "note": "The helper model decides whether to route to staff or the agent, but ClassifierDecision contains no context measurement and its intent.classified audit record omits context. The separate tool-result log also omits context, despite being an action record. The executor's base field does not cover either record."
+    },
+    {
+      "id": "R07.2",
+      "result": "holds",
+      "evidence": "src/agent/context-size.ts:38, src/agent/context-size.ts:46",
+      "quote": "    return { tokens: null, status: \"unavailable\", method: COUNT_METHOD, cachedInputTokens: null, compacted: false };\n  return { tokens: total, status: \"measured\", method: USAGE_METHOD, cachedInputTokens: cacheRead, compacted: false };",
+      "note": "Existing context values explicitly label measured, estimated, or unavailable; a failed count stores null. Optional cache components default to zero, but the missing total context measurement does not."
+    },
+    {
+      "id": "R07.3",
+      "result": "holds",
+      "evidence": "src/agent/context-size.ts:26, src/agent/context-size.ts:45",
+      "quote": "export const USAGE_METHOD = \"anthropic.messages.usage(input+cache_read+cache_creation)\";\n  const total = usage.input_tokens + cacheRead + (usage.cache_creation_input_tokens ?? 0);",
+      "note": "The stated method sums uncached, cache-read, and cache-creation input for the individual decision. The loop appends history without compacting it, matching the explicit compacted:false field; the pre-call estimate uses the same request."
+    },
+    {
+      "id": "R07.4",
+      "result": "fails",
+      "evidence": "src/tools/executor.ts:87, src/tools/executor.ts:89, src/integrations/eligibility-a2a.ts:54, src/integrations/eligibility-a2a.ts:70",
+      "quote": "    ctx.log.info({ tool: call.name, toolUseId: call.id, clinicId, result: raw }, \"tool result\");\n    await audit.record({ ...base, event: \"tool.executed\", approvalId, detail: { clinicId } });\n  opts: { workloadToken: string; traceparent: string; signal: AbortSignal },\n          parts: [{ kind: \"data\", data: { type: \"eligibility.check\", ...req } }],",
+      "note": "Successful generic tool audit records store context and trace identity but no result; the separate result log omits context. Additionally, the A2A handoff accepts and transmits no ContextSize: its request contains only eligibility inputs and its options carry token, traceparent, and signal. The later local peer.call audit preserves the caller's context, but does not carry it across the actual peer handoff."
+    }
+  ],
+  "note": "The review overlooks the unmeasured classifier routing record, separated tool-result logging, and the context-free A2A handoff."
+}

@@ -1,0 +1,31 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Only named roles in config (CODEOWNERS, IAM, or protected CI environments) can change production configuration.",
+    "An emergency change path exists that records an owner, a reason, an end date, and a follow-up review."
+  ],
+  "checks": [
+    {
+      "id": "C02.1",
+      "result": "unclear",
+      "evidence": "agent/infra/terraform/github.tf:29, agent/.github/CODEOWNERS:5, agent/Dockerfile:18",
+      "quote": "    require_last_push_approval      = true\n/config/             @northbay-clinics/agent-platform-leads\nCOPY --chown=65532:65532 config ./config",
+      "note": "Branch protection requires two approvals, code-owner review, stale-review dismissal and last-push approval; CODEOWNERS covers prompts, config and release. Production packages these files locally. However, the supplied agent snapshot has no Git metadata, so their tracked status cannot be verified. The configurable runtime root alone does not establish an actual untracked production source."
+    },
+    {
+      "id": "C02.2",
+      "result": "fails",
+      "evidence": "agent/infra/terraform/iam.tf:44, agent/infra/terraform/iam.tf:47, agent/infra/terraform/main.tf:123, agent/src/control/kill-switch.ts:36",
+      "quote": "          \"dynamodb:UpdateItem\",\n        Resource = \"arn:aws:dynamodb:${var.region}:${data.aws_caller_identity.current.account_id}:table/clinic-agent-*\"\n  name         = \"clinic-agent-control\"\n    if (item.halted === true) next.add(String(item.pk));",
+      "note": "The agent runtime role grants PutItem and UpdateItem on every clinic-agent-* table, including clinic-agent-control. Its own credentials can therefore change production global or tenant stop flags, including clearing an operator's halt, without the named operator role or protected deploy environment. Namespace access restrictions do not restrict this DynamoDB write path."
+    },
+    {
+      "id": "C02.3",
+      "result": "fails",
+      "evidence": "agent/.github/workflows/deploy.yml:74, agent/.github/workflows/deploy.yml:80, agent/.github/workflows/deploy.yml:83",
+      "quote": "          kubectl apply -f k8s/deployment.yaml\n          kubectl -n clinic-agent rollout status deployment/clinic-agent --timeout=5m\n        if: inputs.emergency",
+      "note": "An emergency change is applied before rollout status and before the follow-up issue is created. If rollout status fails or times out after apply, the subsequent follow-up step is skipped by the default success condition because its condition only tests inputs.emergency. Production configuration has already changed, but no follow-up issue recording owner, reason and end date is created for that change."
+    }
+  ],
+  "note": "The claim fails because runtime credentials can modify production stop controls and an applied emergency change can skip its follow-up record after rollout failure."
+}

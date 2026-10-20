@@ -1,0 +1,40 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Check that a vendor boundary doesn't leave any action untraceable to the agent and instance that did it."
+  ],
+  "checks": [
+    {
+      "id": "E10.1",
+      "result": "unclear",
+      "evidence": "app/audit.py:86, app/audit.py:105, app/identity.py:50, app/mcp_client.py:125",
+      "quote": "    for name in IDENTITY_FIELDS:\n        ident.trace_id,\n    def child(self, role: str) -> \"RunIdentity\":\n                \"_meta\": {\"business_unit\": ident.tenant, \"run_id\": ident.run_id},",
+      "note": "The local audit writer validates and stores all six identity fields, and child identities retain the parent's trace ID. Inspection of agent/app, deployment configuration and the repository file inventory found clients but no external gateway or tool-service audit writers. MCP metadata carries only tenant and run ID, so downstream retention and shared trace context cannot be established from this repository."
+    },
+    {
+      "id": "E10.2",
+      "result": "holds",
+      "evidence": "migrations/001_init.sql:2, migrations/001_init.sql:120, migrations/001_init.sql:121",
+      "quote": "-- procurement_owner role; the running agent connects as procurement_agent.\nREVOKE ALL ON ALL TABLES IN SCHEMA public FROM procurement_agent;\nGRANT SELECT, INSERT ON audit_events TO procurement_agent;",
+      "note": "The supplied schema separates the migration owner from the runtime role and grants the runtime role only SELECT and INSERT on audit_events after revoking all table privileges. Its primary key prevents INSERT from overwriting an existing row; no UPDATE, DELETE or TRUNCATE grant is supplied."
+    },
+    {
+      "id": "E10.3",
+      "result": "unclear",
+      "evidence": "app/tools/__init__.py:64, app/tools/erp.py:27, app/gate.py:37",
+      "quote": "    for module in (documents, erp, memory, payments, slack):\n        return await erp.call(args[\"operation\"], arguments, ident, deps.erp_scope_for(args[\"operation\"]))\n            return Decision(True, \"erp read operation\", self.version)",
+      "note": "Inspection of all registered local tool modules found no audit deletion or rewriting interface. The generic ERP tool reaches remotely supplied operations, and prefix-matching operations are allowed without approval. The remote service's implementation and database/storage authority are absent, so neither an indirect audit rewrite capability nor its absence can be proved."
+    },
+    {
+      "id": "E10.4",
+      "result": "fails",
+      "evidence": "app/tools/slack.py:45, app/tools/slack.py:49, app/tools/slack.py:52, app/approvals.py:61",
+      "quote": "        return {\"channel\": body[\"channel\"], \"ts\": body[\"ts\"]}\n    ) -> None:\n        await self.post(\n        await self.notifier.post_approval_request(",
+      "note": "SlackClient.post returns the vendor message receipt (channel and timestamp), but post_approval_request awaits it without capturing or returning it. ApprovalStore.request consequently stores no receipt or receipt-to-identity/trace mapping for this outbound vendor-service action. Unlike ordinary tool results, this notification occurs inside authorization and its receipt never reaches execute_tool's tool_result audit writer. This is a concrete missing link even though successful ordinary payment and Slack tool calls retain their receipts locally.",
+      "violates": [
+        "Check that a vendor boundary doesn't leave any action untraceable to the agent and instance that did it."
+      ]
+    }
+  ],
+  "note": "E10 fails because outbound Slack approval notifications discard their vendor receipts, preventing a stored receipt-to-initiating-identity and trace mapping."
+}

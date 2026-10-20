@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Challenge every likely_pass with a fresh look at the code.
+"""Challenge every likely_pass and G1/G2 N/A claim with a fresh look at the code.
 
   python challenge.py make  FINDINGS.json [--repo DIR] [--out DIR] [--hunt]
       Writes one sheet per likely_pass item to DIR (default: <repo>/brace-challenges/),
-      and with --hunt also one per G1 or G2 item rated needs_evidence (a gap hunt),
+      plus every G1/G2 na_candidate, and with --hunt every G1/G2 needs_evidence,
       plus a verdicts.json to fill in. Each sheet shows the item's checks, how to
       verify them, and the quoted code with surrounding lines.
 
@@ -21,6 +21,7 @@ each write their answer to <ITEM>.verdict.json next to the sheet; apply reads th
 files as well as verdicts.json.
 """
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -29,6 +30,49 @@ from pathlib import Path
 CHECKS_FILE = Path(__file__).resolve().parent.parent / "references" / "checks.json"
 REF = re.compile(r"([\w./-]*[\w-]):(\d+)(?:-(\d+))?")
 CONTEXT = 12
+
+DISCOVERY_INTRO = """# Independent coverage discovery: {item} — {title}
+
+Establish your own findings from the code before comparing with any earlier
+review. You are not told the earlier rating, answers, citations or exceptions.
+**Requirement:** {requirement}
+**N/A condition:** {na_when}
+
+Inventory all relevant paths/fields, including indirect paths, helpers and both directions of
+handoffs. For each check, record coverage rows (subject, status enforced/missing/
+unclear/not_applicable, evidence, exact quote, note), deviations (required-control
+omissions; empty only if none), and concrete falsification attempts (category,
+input, trace, outcome blocked/accepted/unclear/not_applicable, evidence, quote).
+Small or residual omissions are still omissions. A missing row or unresolved
+coverage cannot support holds. Do not run repository code; derive counterexamples
+by tracing it. A bounded_after budget claim needs a finite overshoot bound, not
+just a shared counter. Exemptions need quoted scope evidence.
+
+Set applicability absent/present/unclear, with top-level evidence, quote and a
+search explanation. Absent must satisfy the exact N/A condition. When present,
+verdict is failed if any required check fails, unclear if any is unresolved,
+otherwise upheld. Copy broken words from the requirement into violates.
+"""
+
+NA_INTRO = """# N/A challenge: {item} — {title}
+
+The reviewer says this item's feature or exposure is absent. **Try to disprove that
+claim.** Trace the harness, tools, integrations, peer messages, and indirect paths;
+names and README claims are not enough. Explain what you searched and found.
+
+**The requirement:** {requirement}
+**N/A when:** {na_when}
+**Reviewer's claim:** {summary}
+**Reviewer's evidence:** {evidence}
+
+Set `applicability` to **absent** only when the N/A condition holds, **present**
+when you find the feature or exposure, or **unclear** when you cannot establish
+absence. Include `evidence` (path:line), `quote` (exact code), and `note` (paths
+searched and why the condition holds or fails) at the top level of your verdict.
+If present, evaluate the checks below: a failed control makes this a gap; if you
+cannot show a failed control, it becomes needs_evidence. Never turn it into a pass.
+If absent, use verdict upheld; if unclear, use verdict unclear.
+"""
 
 HUNT_INTRO = """# Gap hunt: {item} — {title}
 
@@ -88,23 +132,34 @@ def make(doc, table, repo, out, hunt=False):
     for f in doc["findings"]:
         item = f["item"]
         meta = table[item]
+        is_na = f.get("rating") == "na_candidate" and meta["gate"] in ("G1", "G2")
         is_hunt = (hunt and f.get("rating") == "needs_evidence" and meta["gate"] in ("G1", "G2")
                    and meta["checks"])
-        if f.get("rating") != "likely_pass" and not is_hunt:
+        if f.get("rating") != "likely_pass" and not is_hunt and not is_na:
             continue
-        intro = HUNT_INTRO if is_hunt else SHEET_INTRO
-        parts = [intro.format(item=item, title=meta["title"], requirement=meta.get("requirement", ""))]
+        intro = DISCOVERY_INTRO
+        parts = [intro.format(item=item, title=meta["title"], requirement=meta.get("requirement", ""),
+                              na_when=meta.get("na_when", ""), summary=f.get("summary", ""),
+                              evidence=json.dumps(f.get("evidence", [])))]
         verify = {c["id"]: c.get("verify", "") for c in meta["checks"]}
-        for c in f.get("checks", []):
-            parts.append(f"## {c['id']}\n\n**Check:** {c.get('check') or ''}\n\n"
-                         f"**How to verify:** {verify.get(c['id']) or '(none)'}\n\n"
-                         f"**Reviewer's evidence:** {c.get('evidence')} — \"{c.get('quote')}\"\n\n"
-                         f"**Reviewer's note:** {c.get('note')}\n\n" + excerpt(repo, c.get("evidence")))
+        claim = {'item': item, 'rating': f.get('rating'), 'summary': f.get('summary'),
+                 'checks': f.get('checks'), 'evidence': f.get('evidence')}
+        (out / f'{item}.claim.json').write_text(json.dumps(claim, indent=2) + '\n')
+        from review_coverage import inventory
+        sites = inventory(repo)['sites']
+        for canonical in meta["checks"]:
+            parts.append(f"## {canonical['id']}\n\n**Check:** {canonical.get('check') or ''}\n\n"
+                         f"**How to verify:** {verify.get(canonical['id']) or '(none)'}\n\n"
+                         '**Coverage policy:** ' + json.dumps({k: canonical[k] for k in
+                          ('inventory_kinds', 'fields', 'rules', 'attempt_categories') if k in canonical}) + '\n\n'
+                         '**Candidate sites (trace aliases and missed paths manually):** ' + json.dumps([
+                          s for s in sites if s['kind'] in canonical.get('inventory_kinds', [])]))
         parts.append("## Your answer\n\nWrite this JSON to " + item + ".verdict.json in this folder (or put it in verdicts.json under \"" + item + "\"):\n"
                      "```json\n{\"verdict\": \"upheld | failed | unclear\",\n"
-                     " \"checks\": [{\"id\": \"" + (f["checks"][0]["id"] if f.get("checks") else item + ".1") +
+                     " \"checks\": [{\"id\": \"" + (meta["checks"][0]["id"] if meta.get("checks") else item + ".1") +
                      "\", \"result\": \"holds | fails | unclear\", \"evidence\": \"path:line\", "
-                     "\"quote\": \"exact code\", \"note\": \"why\"}],\n \"note\": \"one sentence\"}\n```\n"
+                     "\"quote\": \"exact code\", \"note\": \"why\", \"coverage\": [], \"deviations\": [], \"attempts\": []}],\n"
+                     " \"applicability\": \"absent | present | unclear\", \"evidence\": \"path:line\", \"quote\": \"exact code\",\n \"note\": \"one sentence\"}\n```\n"
                      "Verdict is **failed** if any check fails, **unclear** if none fails but any is unclear, "
                      "otherwise **upheld**. A failed check needs the quoted line that makes it false: `evidence` is "
                      "path:line, and `quote` is the exact text of that line. To cite two places, list both refs in "
@@ -112,6 +167,8 @@ def make(doc, table, repo, out, hunt=False):
                      "fails, add `\"violates\": [\"words copied exactly from the requirement\"]`.")
         (out / f"{item}.md").write_text("\n\n".join(parts) + "\n")
         verdicts[item] = {"verdict": "TODO", "checks": [], "note": "", "hunt": is_hunt}
+        if is_na:
+            verdicts[item].update(applicability="TODO", evidence="", quote="")
     (out / "verdicts.json").write_text(json.dumps(verdicts, indent=2) + "\n")
     print(f"Wrote {len(verdicts)} challenge sheet(s) to {out}. Fill in {out / 'verdicts.json'}.")
 
@@ -119,23 +176,91 @@ def make(doc, table, repo, out, hunt=False):
 def apply(doc, verdicts, repo):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from validate_findings import quote_found  # same quote check as the validator
+    from review_coverage import inventory, ledger_problems, failure_rows, ADMISSION
+    table = json.loads(CHECKS_FILE.read_text())
+    sites = inventory(repo)['sites']
     changes, problems = [], []
     by_item = {f["item"]: f for f in doc["findings"]}
+    def record(v):
+        result = {k: v.get(k) for k in ('verdict', 'note', 'applicability', 'evidence', 'quote') if k in v}
+        if doc.get('review_protocol') == 'coverage-first-v1':
+            discovery = json.loads(json.dumps(v))
+            result.update(protocol='coverage-first-v1', discovery=discovery,
+                          discovery_sha256=hashlib.sha256(json.dumps(discovery, sort_keys=True).encode()).hexdigest())
+        return result
     for item, v in verdicts.items():
         f = by_item.get(item)
         hunting = bool(v.get("hunt")) or (f is not None and f.get("rating") == "needs_evidence")
-        if not f or f.get("rating") not in ("likely_pass", "needs_evidence"):
+        if not f or f.get("rating") not in ("likely_pass", "needs_evidence", "na_candidate"):
             continue
+        was_na = f.get("rating") == "na_candidate"
         verdict = v.get("verdict")
         results = {c.get("id"): c for c in v.get("checks", [])}
         checks = {c["id"]: c for c in f.get("checks", [])}
-        if verdict == "upheld" and not any(r.get("result") in ("fails", "unclear") for r in results.values()):
-            if f.get("rating") == "likely_pass":
-                f["challenge"] = {"verdict": "upheld", "note": v.get("note", "")}
-            changes.append(f"{item}: {'hunt found nothing' if hunting else 'challenge upheld'}")
-            continue
         if verdict not in ("failed", "unclear", "upheld"):
             problems.append(f"{item}: verdict must be upheld, failed, or unclear")
+            continue
+        # An independent discovery cannot uphold an admitted omission, even when
+        # its label says holds. Invalid positives lower confidence, never pass.
+        if doc.get('review_protocol') == 'coverage-first-v1' and v.get('applicability') == 'absent' and not was_na:
+            verdict = 'unclear'
+            for r in results.values():
+                r['result'] = 'unclear'
+            v = {**v, 'verdict': verdict}
+        if doc.get('review_protocol') == 'coverage-first-v1' and v.get('applicability') != 'absent':
+            for canonical in table[item]['checks']:
+                r = results.get(canonical['id'])
+                if r is None:
+                    if verdict != 'failed':
+                        verdict = 'unclear'
+                    continue
+                failures = failure_rows(r)
+                demonstrated = next((x for x in failures if quote_found(repo, x.get('evidence'), x.get('quote'))
+                                     and x.get('status') != 'unclear' and x.get('outcome') != 'unclear'), None)
+                if demonstrated:
+                    r.update(result='fails', evidence=demonstrated['evidence'], quote=demonstrated['quote'],
+                             note=demonstrated.get('note') or demonstrated.get('trace'))
+                    v.setdefault('violates', [table[item]['requirement']])
+                    verdict = 'failed'
+                elif r.get('result') == 'holds' and ledger_problems(r, canonical, repo, sites):
+                    r['result'] = 'unclear'
+                    if verdict != 'failed':
+                        verdict = 'unclear'
+            if ADMISSION.search(str(v.get('note', ''))) and verdict == 'upheld':
+                verdict = 'unclear'
+            if verdict == 'upheld' and v.get('applicability') != 'present':
+                verdict = 'unclear'
+                for r in results.values():
+                    r['result'] = 'unclear'
+            v = {**v, 'verdict': verdict}
+        if was_na:
+            applicability = v.get("applicability")
+            if applicability not in ("absent", "present", "unclear"):
+                problems.append(f"{item}: N/A challenge needs applicability absent, present, or unclear")
+                continue
+            if applicability == "absent":
+                if (verdict != "upheld" or any(r.get("result") in ("fails", "unclear") for r in results.values())
+                        or not quote_found(repo, v.get("evidence"), v.get("quote"))
+                        or len(str(v.get("note", "")).split()) < 6):
+                    problems.append(f"{item}: upholding N/A needs an upheld verdict, quoted code and a search explanation")
+                    continue
+                if table[item].get('na_when') == 'never':
+                    problems.append(f'{item}: canonical N/A condition is never; absence cannot uphold')
+                    continue
+                f["challenge"] = record(v)
+                changes.append(f"{item}: N/A challenge upheld")
+                continue
+            # An unproven absence must not hide a potentially applicable control.
+            f["rating"] = "needs_evidence"
+        if not was_na and verdict == "upheld" and not any(r.get("result") in ("fails", "unclear") for r in results.values()):
+            if f.get("rating") == "likely_pass":
+                for cid, r in results.items():
+                    if cid in checks:
+                        for field in ('coverage', 'deviations', 'attempts'):
+                            if field in r:
+                                checks[cid][field] = r[field]
+                f["challenge"] = record(v)
+            changes.append(f"{item}: {'hunt found nothing' if hunting else 'challenge upheld'}")
             continue
         for cid, r in results.items():
             c = checks.get(cid)
@@ -151,6 +276,9 @@ def apply(doc, verdicts, repo):
                 f.setdefault("red_flags_found", []).append(f"{r.get('evidence')} {r.get('note', '')}".strip())
             elif r.get("result") == "unclear":
                 c.update(met="unknown", note=f"[challenge: unclear] {r.get('note', '')}")
+            for field in ('coverage', 'deviations', 'attempts'):
+                if field in r:
+                    c[field] = r[field]
         met = [c.get("met") for c in checks.values()]
         if "no" in met and v.get("violates"):
             # A challenger may write one phrase as a string; list("...") would split it into letters.
@@ -159,7 +287,11 @@ def apply(doc, verdicts, repo):
             old = [old] if isinstance(old, str) else old
             f["violates"] = list(dict.fromkeys(old + new))
         f["rating"] = "gap" if ("no" in met or f.get("red_flags_found")) else "needs_evidence"
-        f["challenge"] = {"verdict": verdict, "note": v.get("note", "")}
+        f["challenge"] = record(v)
+        if was_na:
+            f["challenge"]["applicability"] = v["applicability"]
+            f["summary"] = f"N/A claim was not upheld: {v.get('note') or 'feature absence could not be established from the code'}"
+            f["next_step"] = "Resolve the challenged feature or exposure and verify the applicable controls."
         changes.append(f"{item}: challenge {verdict} -> {f['rating']}")
     return changes, problems
 

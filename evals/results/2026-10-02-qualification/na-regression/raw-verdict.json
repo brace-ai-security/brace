@@ -1,0 +1,62 @@
+{
+  "verdict": "failed",
+  "applicability": "present",
+  "evidence": "agent/src/integrations/eligibility-a2a.ts:65, agent/src/integrations/eligibility-a2a.ts:78, agent/src/integrations/eligibility-a2a.ts:80, agent/src/workflows/eligibility-check.ts:39, agent/src/workflows/eligibility-check.ts:40",
+  "quote": "      method: \"message/send\",\n  const rpc = Rpc.parse(JSON.parse(text));\n  const attestation = rpc.result.parts[0]!.data.attestation;\n  if (result.status === \"active\" && result.depositWaived && appt.depositId) {\n    const refund = await payments.refundDeposit(",
+  "checks": [
+    {
+      "id": "E07.1",
+      "result": "fails",
+      "evidence": "agent/src/integrations/eligibility-a2a.ts:81, agent/src/integrations/eligibility-a2a.ts:83, agent/src/integrations/eligibility-a2a.ts:85",
+      "quote": "  const header = decodeProtectedHeader(attestation);\n  const keys = createRemoteJWKSet(new URL(header.jku));\n    issuer: env.eligibilityIssuer,",
+      "note": "Verification keys come from the unverified attestation header jku. An attacker controlling an accessible key endpoint can sign a token with the expected issuer and audience; those claims do not authenticate the configured eligibility agent. No pinned peer key source or verified sender subject is required.",
+      "violates": [
+        "Authenticate the sending agent (prove its identity) on every message, even validly signed ones."
+      ]
+    },
+    {
+      "id": "E07.2",
+      "result": "fails",
+      "evidence": "agent/src/integrations/eligibility-a2a.ts:90, agent/src/workflows/eligibility-check.ts:39, agent/src/workflows/eligibility-check.ts:40",
+      "quote": "  return Eligibility.parse(payload.eligibility);\n  if (result.status === \"active\" && result.depositWaived && appt.depositId) {\n    const refund = await payments.refundDeposit(",
+      "note": "RPC and eligibility schemas are checked, but the signed payload is not required to identify the clinic, patient, service, or request, nor compared with req. Its eligibility fields directly authorize settlement of the locally selected appointment, allowing a compromised peer to pass a result from another tenant or patient. Outbound token scope does not bind the inbound attestation or constrain this refund authority.",
+      "violates": [
+        "Validate message types and schemas, and check what that peer is allowed to ask for."
+      ]
+    },
+    {
+      "id": "E07.3",
+      "result": "fails",
+      "evidence": "agent/src/integrations/eligibility-a2a.ts:57, agent/src/integrations/eligibility-a2a.ts:78, agent/src/integrations/eligibility-a2a.ts:87, agent/src/integrations/eligibility-a2a.ts:90, agent/src/workflows/eligibility-check.ts:42",
+      "quote": "  const requestId = randomUUID();\n  const rpc = Rpc.parse(JSON.parse(text));\n    maxTokenAge: \"5m\",\n  return Eligibility.parse(payload.eligibility);\n      { depositId: appt.depositId, reason: \"coverage_confirmed\", idempotencyKey: `deposit-waive-${appt.depositId}` },",
+      "note": "A request UUID is generated but neither rpc.id nor a signed nonce/request ID is compared with it or stored. maxTokenAge limits age to five minutes but permits replay within that window. A replayed eligibility attestation can settle a different appointment deposit. The deposit-specific idempotency key mitigates repeat refunds of the same deposit, not reuse of one attestation across different deposits.",
+      "violates": [
+        "Where a replay could repeat an action, check freshness and track nonces or request IDs."
+      ]
+    },
+    {
+      "id": "E07.4",
+      "result": "holds",
+      "evidence": "agent/src/integrations/eligibility-a2a.ts:90, agent/src/tools/executor.ts:25, agent/src/tools/executor.ts:90, agent/src/agent/loop.ts:49, agent/src/agent/loop.ts:93",
+      "quote": "  return Eligibility.parse(payload.eligibility);\n  return { type: \"tool_result\", tool_use_id: id, content: JSON.stringify(content), is_error: isError };\n    return toolResult(call.id, safe);\n    const system = SYSTEM_TEMPLATE.replace(\"{{clinicName}}\", clinic.name);\n      messages.push({ role: \"user\", content: results });",
+      "note": "The peer result is parsed, serialized into tool_result content, and appended in a user message. The system prompt substitutes only clinic.name; the traced eligibility result does not enter a system or instruction template. This does not remedy its separate direct authority over refunds."
+    },
+    {
+      "id": "E07.5",
+      "result": "fails",
+      "evidence": "agent/src/integrations/eligibility-a2a.ts:82, agent/src/integrations/eligibility-a2a.ts:83, agent/src/integrations/eligibility-a2a.ts:84",
+      "quote": "  if (!header.jku) throw new Error(\"attestation missing key set url\");\n  const keys = createRemoteJWKSet(new URL(header.jku));\n  const { payload } = await jwtVerify(attestation, keys, {",
+      "note": "No literal peer callback/webhook handler was found, but the indirect peer-supplied jku URL is handed to the remote JWKS fetcher before authentication. There is no URL allowlist or resolved-address check blocking private, loopback, link-local, or metadata targets. Deployment NetworkPolicy restricts egress, including an allowed private EHR range, but does not validate this URL; the claimed proxy policy is not implemented in the supplied files. Actual exploit reachability is deployment-dependent.",
+      "violates": [
+        "Check callback and webhook URLs against SSRF."
+      ]
+    }
+  ],
+  "violates": [
+    "Authenticate the sending agent (prove its identity) on every message, even validly signed ones.",
+    "Validate message types and schemas, and check what that peer is allowed to ask for.",
+    "Where a replay could repeat an action, check freshness and track nonces or request IDs.",
+    "Check callback and webhook URLs against SSRF."
+  ],
+  "note": "Searched agent/src, agent/config, agent/test, agent/release/manifest.json and agent/k8s/deployment.yaml for peer channels, routes, attestations, schemas, replay controls, prompt flow and peer-controlled URLs; server.ts registers patient routes but nativeTools -> eligibility-check -> eligibility-a2a receives A2A peer messages and can refund deposits, disproving N/A; static inspection found no agent-card flow or tests for forged peer identity, attestation replay, cross-tenant responses or compromised-peer instructions, and no fixture code was executed."
+}

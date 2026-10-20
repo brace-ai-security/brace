@@ -1,0 +1,99 @@
+name: deploy
+
+# Deploys the image digest named in release/manifest.json. The digest reaches the manifest through
+# a reviewed release PR, so what runs is always a reviewed commit.
+on:
+  workflow_dispatch:
+    inputs:
+      emergency:
+        description: Emergency change (hotfix/* branch, production-emergency environment)
+        type: boolean
+        default: false
+      owner:
+        description: Emergency only - person accountable for this change
+        type: string
+        default: ""
+      reason:
+        description: Emergency only - why this cannot wait for a normal release
+        type: string
+        default: ""
+      expires_on:
+        description: Emergency only - date (YYYY-MM-DD) by which it is replaced by a normal release
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.emergency && 'production-emergency' || 'production' }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Emergency change record is complete
+        if: inputs.emergency
+        env:
+          OWNER: ${{ inputs.owner }}
+          REASON: ${{ inputs.reason }}
+          EXPIRES_ON: ${{ inputs.expires_on }}
+        run: |
+          test -n "$OWNER" || { echo "owner is required"; exit 1; }
+          test -n "$REASON" || { echo "reason is required"; exit 1; }
+          date -d "$EXPIRES_ON" +%F >/dev/null || { echo "expires_on must be a date"; exit 1; }
+          [[ "$GITHUB_REF_NAME" == hotfix/* ]] || { echo "emergency deploys come from hotfix/* branches"; exit 1; }
+
+      - uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 # v5.0.0
+        with:
+          role-to-assume: arn:aws:iam::418295730611:role/clinic-agent-deploy
+          aws-region: us-west-2
+
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+        with:
+          cosign-release: v2.6.2
+
+      - name: Verify image signature
+        run: |
+          DIGEST=$(jq -r .image.digest release/manifest.json)
+          REPO=$(jq -r .image.repository release/manifest.json)
+          cosign verify "$REPO@$DIGEST" \
+            --certificate-identity "https://github.com/northbay-clinics/clinic-agent/.github/workflows/ci.yml@refs/heads/main" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          grep -q "$DIGEST" k8s/deployment.yaml || { echo "k8s/deployment.yaml does not use the manifest digest"; exit 1; }
+
+      - name: Apply
+        run: |
+          aws eks update-kubeconfig --name clinic-agent-prod
+          kubectl apply -f k8s/deployment.yaml
+          kubectl -n clinic-agent annotate deployment/clinic-agent --overwrite \
+            northbay.example/git-sha="$GITHUB_SHA" \
+            northbay.example/release="$(jq -r .release release/manifest.json)" \
+            northbay.example/deployed-by="$GITHUB_ACTOR" \
+            northbay.example/run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          kubectl -n clinic-agent rollout status deployment/clinic-agent --timeout=5m
+
+      - name: Open follow-up review for emergency change
+        if: inputs.emergency
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ inputs.owner }}
+          REASON: ${{ inputs.reason }}
+          EXPIRES_ON: ${{ inputs.expires_on }}
+        run: |
+          gh issue create \
+            --title "Follow-up review: emergency deploy ${GITHUB_SHA::8}" \
+            --label emergency-change,needs-review \
+            --assignee "$OWNER" \
+            --body "Owner: $OWNER
+          Reason: $REASON
+          Ends: $EXPIRES_ON
+          Commit: $GITHUB_SHA
+          Approved in environment production-emergency by a required reviewer (see run $GITHUB_RUN_ID).
+          Review and merge to main via normal PR before the end date."

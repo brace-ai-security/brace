@@ -58,11 +58,11 @@ B02:
     - "IAM policies that name specific actions and resources, for example Terraform `aws_iam_policy` with listed `Action` and `Resource` ARNs, GCP roles bound to one resource, or Kubernetes `Role` (not `ClusterRole`) with listed verbs."
     - "Tenant scope enforced in the credential or the data layer, for example a tenant claim in the token, row-level security, or per-tenant service accounts."
     - "Tokens requested with a set audience (`aud`) or resource indicator, and services that check `aud` on receipt."
-    - "A dedicated service account or workload identity for the agent, separate from any human user's credentials."
+    - "A verified acting-agent identity with an independently recorded delegated subject where applicable, including properly authorized OAuth user-delegation flows."
     - "Tests that call an allowed read, a forbidden write, an admin action, and another tenant's data with the agent's credentials."
   red_flags:
     - "`\"Action\": \"*\"`, `\"Resource\": \"*\"`, `s3:*`, `roles/owner`, `roles/editor`, or `cluster-admin` bound to the agent's identity."
-    - "Agent runs with a user's personal token, an admin key, or a credential copied from a human's session (inherited human permissions)."
+    - "Agent copies a human login session or uses a personal/admin key without independently verified agent identity and bounded delegation."
     - "One database login or API key shared across all tenants, with tenant separation done only in the prompt or in app code the model can influence."
     - "Tokens issued without an audience, or services that accept any valid token from the issuer."
     - "Kubernetes `automountServiceAccountToken` left on with a broad role the agent doesn't need."
@@ -82,10 +82,10 @@ B02:
       verify: "1) Find how queries and API calls pick a tenant (search `tenant`, `org_id`, row-level security, `CREATE POLICY`, per-tenant credentials). 2) Trace where the tenant value comes from. 3) Answer no if one shared login or key reaches all tenants and the tenant ID comes from the prompt, a tool argument the model fills, or app code filtering after the query."
     - id: B02.3
       check: "Tokens are issued with a set audience, and receiving services reject tokens whose audience does not match."
-      verify: "1) Find token requests (`audience`, `aud`, `resource`, `scope`, token client setup). 2) Find token validation in receiving services (`verify`, `jwt.decode`, middleware). 3) Answer no if tokens are requested without an audience, validation skips `aud` (`verify_aud=False`, no audience option), or accepts a list or wildcard. Answer unknown if receiving services are outside this repo."
+      verify: "1) Find token requests (`audience`, `aud`, `resource`, `scope`, token client setup). 2) Find token validation in receiving services (`verify`, `jwt.decode`, middleware). 3) Answer no if tokens are requested without an audience, validation skips `aud` (`verify_aud=False`, no audience option), or accepts an unrelated audience or wildcard. Answer unknown if receiving services are outside this repo."
     - id: B02.4
-      check: "The agent uses its own service identity, not a human user's token, a copied session, or an admin key."
-      verify: "1) Find where the agent loads credentials (env vars, `credentials`, `token`, `Authorization`, service account settings). 2) Check they belong to a service or workload identity for the agent. 3) Answer no if it uses a user's OAuth or session token, a personal access token, an admin or root key, or forwards the calling user's token to tools."
+      check: "The acting agent is verifiably identified separately from any explicitly delegated user/system authority; it does not copy a login session or inherit a person's unrestricted permissions."
+      verify: "1) Trace each API credential to its issuer, acting identity, original subject, grants and destination. 2) Accept explicitly authorized user-delegation flows with a separately verified agent and bounded permissions. 3) Answer no for copied login sessions, personal/admin keys or inherited broad user access; a delegated OAuth access token is not by itself a failure. Answer unknown when external issuer/enforcement evidence is unavailable."
   not_covered:
     - problem: "A retrieval search or cache not filtered by the requesting tenant or user"
       owner: R04
@@ -300,13 +300,13 @@ B07:
       verify: "1) Search for `max_turns`, `recursion_limit`, `max_iterations`, `timeout`, `max_tokens`, cost or budget caps, rate limits, sub-agent caps. 2) Check each of the six limits has a value. 3) Answer no if any is missing, set to unlimited (`None`, `0`, `-1`, `inf`), or the loop is `while True` with no cap."
     - id: B07.2
       check: "The harness or a gateway outside the model enforces each limit and stops or escalates the run when it is hit; the model cannot raise, reset, or skip them."
-      verify: "1) For each limit, find the code that enforces it and what happens when hit. 2) Check it runs in the harness or gateway. 3) Answer no if a limit is only in the prompt, can be changed by a tool argument or model output, is caught and the run continues, or hitting it has no stop or escalation."
+      verify: "1) Inventory every main/helper model invocation, tool call and retry. 2) For each, locate token/cost/rate enforcement and the stop/escalation branch. 3) Trace a boundary case: enforcement/reservation before work, or a documented finite overshoot bound with enforcement. 4) Answer no for unmetered helpers, uncounted retries, unbounded overshoot, model-controlled limits or catches that continue. Small max_tokens and timeouts do not substitute for shared token/cost accounting."
     - id: B07.3
       check: "Budgets apply to nested sub-agents, so their usage counts against the limits."
       verify: "1) Find sub-agent spawning (`spawn`, `Task`, `handoff`, `create_agent`). 2) Check child runs share or deduct from the parent budget and depth is capped. 3) Answer no if each child gets a fresh budget, nested spawns are uncounted, or depth and count are unlimited."
     - id: B07.4
       check: "Spend and rate quotas also apply per user or service, per tenant, and across the fleet, counted across runs, not only within one run."
-      verify: "1) Search gateway, LLM proxy (LiteLLM budgets), and provider config for per-user, per-tenant, and fleet quotas. 2) Check counts persist across runs (shared store, not process memory). 3) Answer no if only per-run limits exist. Answer unknown if quotas would live in a provider console or gateway outside this repo."
+      verify: "1) Trace every model/tool path into persistent per-user/service, per-tenant and fleet spend/rate quotas. 2) Trace concurrent small runs and charging order; distinguish shared counters from enforcement. 3) Answer no if required calls escape accounting or quotas can be exceeded without a finite bound and stop. Answer unknown when the relevant gateway/provider is outside the repo."
   not_covered:
     - problem: "Budget or cross-agent abuse alerts not reaching the team that can act"
       owner: E12

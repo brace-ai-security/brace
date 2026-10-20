@@ -1,0 +1,49 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Before it runs, check its digest and signature against an approved signing key, or an approved certificate identity and issuer.",
+    "Show that an unapproved or changed image is rejected."
+  ],
+  "checks": [
+    {
+      "id": "B10.1",
+      "result": "holds",
+      "evidence": "deploy/k8s/deployment.yaml:32",
+      "quote": "          image: registry.example-corp.test/procurement/agent@sha256:7c1e4a0f9b3d2e85a6c4f1b0d9e8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0",
+      "note": "The only production workload image in the repository is digest-pinned; inspection of all files, including hidden CI files, found no tag-only production manifest or fallback template."
+    },
+    {
+      "id": "B10.2",
+      "result": "holds",
+      "evidence": "deploy/k8s/kyverno-verify-images.yaml:43, deploy/k8s/kyverno-verify-images.yaml:44",
+      "quote": "                    issuer: \"https://token.actions.githubusercontent.com\"\n                    subject: \"https://github.com/example-corp/procurement-agent/.github/workflows/ci.yaml@refs/heads/main\"",
+      "note": "Signature and attestation attestors pin the issuer and exact workflow certificate subject without identity wildcards. Coverage is assessed separately in B10.4."
+    },
+    {
+      "id": "B10.3",
+      "result": "holds",
+      "evidence": "deploy/k8s/kyverno-verify-images.yaml:56, deploy/k8s/kyverno-verify-images.yaml:59, deploy/k8s/kyverno-verify-images.yaml:62, deploy/k8s/kyverno-verify-images.yaml:65, deploy/k8s/kyverno-verify-images.yaml:68",
+      "quote": "                    - key: \"{{ buildDefinition.buildType }}\"\n                    - key: \"{{ buildDefinition.externalParameters.workflow.repository }}\"\n                    - key: \"{{ buildDefinition.externalParameters.workflow.ref }}\"\n                    - key: \"{{ buildDefinition.externalParameters.workflow.path }}\"\n                    - key: \"{{ runDetails.builder.id }}\"",
+      "note": "All five conditions use Equals with explicit expected values, covering build type, source repository, external workflow ref/path, and builder."
+    },
+    {
+      "id": "B10.4",
+      "result": "fails",
+      "evidence": "deploy/k8s/kyverno-verify-images.yaml:24, deploy/k8s/kyverno-verify-images.yaml:26, deploy/k8s/kyverno-verify-images.yaml:36",
+      "quote": "            =(initContainers):\n            containers:\n            - \"registry.example-corp.test/procurement/*\"",
+      "note": "Enforce and Fail cover procurement-prod, but the complete registry validation pattern at lines 22\u201327 checks only initContainers and containers, omitting ephemeralContainers. A Pod with compliant regular containers and an ephemeral container using an unsigned, tag-only image from another registry passes that pattern; the foreign image also matches no verifyImages imageReferences. No other admission policy or ephemeral-container prohibition exists in the inspected repository, so unmatched images are not universally denied.",
+      "violates": [
+        "Before it runs, check its digest and signature against an approved signing key, or an approved certificate identity and issuer.",
+        "Show that an unapproved or changed image is rejected."
+      ]
+    },
+    {
+      "id": "B10.5",
+      "result": "unclear",
+      "evidence": ".github/workflows/ci.yaml:52, deploy/k8s/kyverno-verify-images.yaml:7",
+      "quote": "          cosign-release: \"v2.6.2\"\n    kyverno.io/kyverno-version: \"1.15.2\"",
+      "note": "CI pins Cosign at the required 2.x minimum. The Kyverno policy annotation does not pin or prove the installed admission controller or its verification dependencies. No controller deployment, chart pin, or dependency record was found, so the admission verifier's patched status cannot be established."
+    }
+  ],
+  "note": "B10 fails because ephemeral images outside the approved registry escape both the registry guard and signature verification; the deployed admission verifier's version is also unproven."
+}

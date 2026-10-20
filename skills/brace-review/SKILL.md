@@ -5,7 +5,7 @@ description: Review an AI agent's codebase against the 53-item BRACE sign-off ch
 
 # BRACE review
 
-**Use a strong model, such as Claude Sonnet or Claude Opus.** In tests on agent codebases this skill had never seen, strong models found every planted gap and never rated a broken control as likely to pass. Small, fast models (such as Claude Haiku) missed planted gaps that look like working controls, and rated 9 broken controls as likely to pass across eight codebases. Examples: a shell check that validates only the first word, or a sub-agent that receives the parent's full environment. If you only have a small model, run with `--conservative`, review one aspect per sub-agent, and treat the result as a partial list of gaps, not a review. Say in the report which model was used.
+**Sonnet is good enough; prefer Opus if your team can afford it.** The revised coverage-first protocol with `claude-sonnet-5-5` found every keyed gap on the procurement and clinic fixtures in the retest runs completed so far, with no false passes or false gaps, and its findings name the file, the cause and a fix. Opus is preferred when the budget allows because subtler bugs are more likely to slip past a smaller model; this is a judgment, since Opus has not been re-evaluated on the current protocol. `gpt-6.1-sol` passed six repeated reviews with the previous skill. Luna and Haiku are unsupported. Use a capable model for both the reviewer and fresh challengers, and record the served model/version and reasoning setting for each. See [all results and limits](../../evals/README.md#model-qualification).
 
 You review one AI agent's code and configuration against the BRACE checklist. You write a findings report a person can act on. You don't decide whether the agent ships. People do that through the `.brace/` record and its approvals.
 
@@ -31,9 +31,10 @@ Paths to scripts are relative to this skill's folder. `<repo>` is the codebase y
 
    Write down what you found and what you couldn't find. This becomes the `scope`.
 2. **Run the pre-scan:** `python scripts/prescan.py <repo>`. It writes `<repo>/brace-prescan.json`, a list of lines that match patterns where controls often look present but fail, such as a shell call with a string, a prefix path check, or a `catch` that allows. Each hit names a likely item and a question to answer. You must resolve every hit (step 5).
+   **Inventory before rating:** run `python scripts/review_coverage.py inventory <repo>`. It writes `brace-inventory.json` with candidate model calls, tool calls, audit writes, registrations and handoffs. Read every candidate, trace aliases/wrappers and add missed paths to your coverage rows. It is a starting list, not proof of completeness. Never classify a helper as harmless merely because its name or token cap is small.
 3. **Create the starter file:** `python scripts/new_findings.py <repo>/brace-findings.json`. It lists all 53 items with their requirement text, their "Not covered here" list, and every check set to `unknown`. Don't build your own file or rename check IDs.
 
-   **When you can use sub-agents, or with a small model:** review one aspect per sub-agent. For each aspect letter (B, R, A, C, E), run `python scripts/new_findings.py <repo>/brace-findings.<letter>.json --aspect <letter>`, review only that aspect, and validate with `--aspect <letter>`. Then combine the files with `python scripts/merge_findings.py <repo>/brace-findings.json <repo>/brace-findings.?.json`.
+   **When you can use sub-agents:** review one aspect per sub-agent. For each aspect letter (B, R, A, C, E), run `python scripts/new_findings.py <repo>/brace-findings.<letter>.json --aspect <letter>`, review only that aspect, and validate with `--aspect <letter>`. Then combine the files with `python scripts/merge_findings.py <repo>/brace-findings.json <repo>/brace-findings.?.json`.
 4. **Review one aspect at a time.** Read one reference file and answer every item in it before reading the next one:
    - [references/build-time.md](references/build-time.md): B01–B12
    - [references/run-time.md](references/run-time.md): R01–R14
@@ -41,15 +42,23 @@ Paths to scripts are relative to this skill's folder. `<repo>` is the codebase y
    - [references/configuration.md](references/configuration.md): C01–C08
    - [references/ecosystem.md](references/ecosystem.md): E01–E12
 
+   **Use bounded batches of at most five items.** Prefer a fresh isolated session for each batch: create its partial starter with `new_findings.py ... --items B01,B02,B03,B04,B05`, validate that batch, then merge the partial files with `merge_findings.py`. After each completed batch run `python scripts/validate_findings.py <repo>/brace-findings.json --batch B01,B02,B03,B04,B05 --before-challenges` (substitute the actual completed IDs). Resolve every reported error before the next batch. The final full-file validator still enforces coverage and overall completeness.
+
    For each check, follow its `verify` steps on the real code, then record the answer with `scripts/answer.py`, which checks your quote against the file before saving it:
 
    ```
    python scripts/answer.py <repo>/brace-findings.json check B05.2 --met no \
        --evidence src/tools/git.ts:42 --quote "exact code on that line" --note "what the code does"
    ```
+   **Before answering yes, record a coverage ledger** with `python scripts/review_coverage.py ledger <repo>/brace-findings.json B05.2 --rows brace-coverage-B05.2.json --deviations brace-deviations-B05.2.json --attempts brace-attempts-B05.2.json`. Those files contain arrays; use the format below. Every yes needs at least one row. Universal claims must enumerate every relevant path/field, including candidate IDs required by `references/checks.json`; a main-path example does not establish every path. Read each check's compact policy with `python scripts/review_coverage.py policy B05.2 --repo <repo>`. For E04.1, cover all nine metadata fields and all seven scanner rule families on each model-visible field. A syntax regex is not payload scanning.
+
    - **yes** only when the verify steps found the line that makes it true and nothing that makes it false. Add `--counter`: what you searched for that would make it false, and what you found.
    - **no** when any verify step finds the control missing, skipped, bypassed, failing open, or supported only by a prompt, comment, or doc.
    - **unknown** when the control would live outside this repo, or you looked where the steps say and can't tell. Say where you looked in `--note`.
+
+   A coverage row is `{ "subject": "I<id> or path/field", "status": "enforced | missing | unclear | not_applicable", "evidence": "path:line", "quote": "exact code", "note": "what happens on this path, or the evidenced exemption" }`. Do not omit scope exceptions: record them as not_applicable with quoted proof. Missing/unresolved required coverage prevents yes. A required-control omission goes in `deviations`, using the same evidence fields and status missing/unclear. Small or residual omissions are still failures; do not trade away one clause because another control works.
+
+   A falsification attempt is `{ "category": "category from checks.json", "input": "concrete input or operation sequence", "trace": "source transformations, comparisons, and execution/registration outcome", "outcome": "blocked | accepted | unclear | not_applicable", "evidence": "path:line", "quote": "exact code" }`. Derive inputs by reading code; do not execute the repository. Budget checks require unmetered-helper, limit-boundary, concurrent-run and charging-order cases as specified. An enforced budget row needs phase before/reserved_before, or bounded_after with a finite `bound` formula and cited concurrency/per-call bounds. An accounting counter alone is insufficient. Metadata checks require field-differential, encoded-payload and multiline attempts. Name checks require repeated confusables, multiple edits and normalization boundaries; trace canonical outputs and the actual conflict flag separately from approval binding.
 
    Record red flags with `answer.py ... flag B05 --evidence path:line --note "..."`. **Read the code the way the verify steps say, not the way the names suggest.** A function called `hash_all_files` may skip files. A field called `approved` may never be checked.
 5. **Resolve every pre-scan hit** that belongs to the aspect you're reviewing: `answer.py ... prescan H003 --verdict confirmed --item R03 --reason "..."`, or `--verdict dismissed --reason "..."` saying why the hit is safe. A confirmed hit must also appear as a red flag or a failed check under that item.
@@ -60,10 +69,11 @@ Paths to scripts are relative to this skill's folder. `<repo>` is the codebase y
    - **na_candidate** only when the item's "N/A when" condition clearly holds. Governance must still approve it.
 
    If one line of code is the failing evidence for gaps in two items, the validator asks you to confirm both requirements are broken. Then list the other item with `--also-affects`.
-7. **Run the validator with fixes:** `python scripts/validate_findings.py <repo>/brace-findings.json --fix`. It sets the ratings the rules require and never raises a rating. It turns a `yes` it can't confirm into `unknown`. Fix whatever else it reports, such as missing `violates`, unresolved pre-scan hits, or shared evidence. Every likely_pass will still be reported as unchallenged; that's step 8.
-8. **Challenge with fresh eyes:** `python scripts/challenge.py make <repo>/brace-findings.json --hunt`. It writes a sheet to `<repo>/brace-challenges/` for every likely_pass item, and a gap-hunt sheet for every G1 or G2 item rated needs_evidence.
-   - **Give each sheet to a new sub-agent** that hasn't seen your answers. It writes its answer to `<ITEM>.verdict.json` next to the sheet. Without sub-agents, do a fresh pass per sheet: read only that sheet and the repo files it names.
-   - Then run `python scripts/challenge.py apply <repo>/brace-findings.json`. A failed challenge or hunt turns the item into a gap with the counter-evidence quoted. An unclear one turns a likely_pass into needs_evidence. Run the validator with `--fix` again until it prints `Valid`.
+7. **Run the validator with fixes:** `python scripts/validate_findings.py <repo>/brace-findings.json --fix`. It sets the ratings the rules require and never raises a rating. It turns a `yes` it can't confirm into `unknown`. Fix whatever else it reports, such as missing `violates`, unresolved pre-scan hits, or shared evidence. For a partial batch include `--batch` with its completed IDs and `--before-challenges`; for an aspect use `--aspect`. The final combined file must pass full validation. Every unchallenged likely_pass and G1/G2 na_candidate will still be reported without `--before-challenges`; that's step 8.
+8. **Challenge with fresh eyes:** `python scripts/challenge.py make <repo>/brace-findings.json --hunt`. It writes an independent discovery sheet to `<repo>/brace-challenges/` for every likely_pass item, an N/A challenge sheet for every G1 or G2 na_candidate, and a gap-hunt sheet for every G1 or G2 item rated needs_evidence. N/A challengers must trace indirect paths and establish that the feature or exposure is absent, using the exact N/A condition, quoted code, and a search explanation.
+   - **Give only `<ITEM>.md` and pristine code to a new sub-agent**, in an isolated directory with no findings, claim files, previous outputs or other verdicts. The sheet contains the canonical requirement/checks and candidate inventory, not your rating or supporting quotes. The reviewer first establishes independent applicability, path/field coverage, deviations and bypass attempts, then writes `<ITEM>.verdict.json`. Store it before comparison. Do not give the reviewer `<ITEM>.claim.json`; that separate file preserves the original claim for the human audit trail. Without sub-agents, use a fresh isolated session per sheet.
+   - **Compare after discovery:** `challenge.py apply` compares the independently established results with the original findings. It seals the discovery and its digest in the challenge record. Missing coverage or an acknowledged omission cannot uphold a claim, even if the verdict label says upheld. Final repairs must not change sealed discoveries, erase missing paths or raise ratings.
+   - Then run `python scripts/challenge.py apply <repo>/brace-findings.json`. A failed challenge or hunt turns the item into a gap with the counter-evidence quoted. An unclear challenge turns a likely_pass or na_candidate into needs_evidence. If the N/A feature exists, a demonstrated failed control becomes a gap; otherwise the item becomes needs_evidence. Only an upheld absence keeps na_candidate. Run the validator with `--fix` again until it prints `Valid`.
 
    `--conservative` is still available when the user wants a review that reports only gaps and items needing evidence.
 9. **Write `brace-findings.md`**, a report for people, in this order:
@@ -87,6 +97,7 @@ Paths to scripts are relative to this skill's folder. `<repo>` is the codebase y
   "commit": "git commit hash, or null",
   "reviewed_at": "ISO 8601 time",
   "scope": "What was reviewed and what wasn't.",
+  "review_protocol": "coverage-first-v1",
   "findings": [
     {
       "item": "B05",
@@ -95,15 +106,16 @@ Paths to scripts are relative to this skill's folder. `<repo>` is the codebase y
       "evidence": [{"file": "src/tools/refunds.py", "line": 42, "note": "refund() runs with no approval check"}],
       "checks": [
         {"id": "B05.1", "check": "...", "verify": "...", "met": "no", "evidence": "src/tools/refunds.py:42",
-         "quote": "def refund(order_id, amount):", "counter_search": "", "note": "No gate before refund() runs"},
+         "quote": "def refund(order_id, amount):", "counter_search": "", "coverage": [], "deviations": [], "attempts": [], "note": "No gate before refund() runs"},
         {"id": "B05.2", "check": "...", "verify": "...", "met": "yes", "evidence": "src/harness.py:88",
          "quote": "if not gate.allowed(op, target, args):", "counter_search": "Searched for other callers of run_tool(); only harness.py:90 calls it.",
+         "coverage": [{"subject": "refund dispatch", "status": "enforced", "evidence": "src/harness.py:88", "quote": "if not gate.allowed(op, target, args):", "note": "The execution path checks operation target and arguments before refund dispatch."}], "deviations": [], "attempts": [],
          "note": "Gate checks operation, target, and args before running"}
       ],
       "red_flags_found": ["src/agent.py:88 approval is asked of the model in the system prompt"],
       "violates": ["Block them by default in the execution path"],
       "also_affects": [],
-      "challenge": {"verdict": "upheld", "note": "Only on likely_pass items, written by challenge.py apply"},
+      "challenge": null,
       "summary": "One plain sentence.",
       "next_step": "What to fix, or which recipe to run.",
       "lead_role": "agent_team"
@@ -113,11 +125,13 @@ Paths to scripts are relative to this skill's folder. `<repo>` is the codebase y
 }
 ```
 
-`rating` is one of `likely_pass`, `gap`, `needs_evidence`, `na_candidate`. `confidence` is `high`, `medium`, or `low`. `lead_role` is the role key for the item's Lead in ROLES.md: `agent_team`, `operations`, `security`, `infrastructure`, `governance`, `business_owner`, `data_privacy`, `model_team`, `vendors`, or `independent_audit`. `evidence` may be empty only for `needs_evidence`. `checks` has one entry for every check listed for the item, in the reference file and in `references/checks.json`. `met` is `yes`, `no`, or `unknown`. A `yes` needs a `path:line` in `evidence` and the exact text of that line in `quote`. The starter file also includes `gate`, `title`, and each check's text; leave them in. `red_flags_found` is a list, empty if none.
+`rating` is one of `likely_pass`, `gap`, `needs_evidence`, `na_candidate`. `confidence` is `high`, `medium`, or `low`. `lead_role` is the role key for the item's Lead in ROLES.md: `agent_team`, `operations`, `security`, `infrastructure`, `governance`, `business_owner`, `data_privacy`, `model_team`, `vendors`, or `independent_audit`. `evidence` may be empty only for `needs_evidence`. `checks` has one entry for every check listed for the item, in the reference file and in `references/checks.json`. `met` is `yes`, `no`, or `unknown`. A `yes` needs a `path:line` in `evidence` and the exact text of that line in `quote`. `challenge.py apply` writes the sealed independent discovery, protocol and digest; never fabricate them. The starter file also includes `gate`, `title`, and each check's text; leave them in. `red_flags_found` is a list, empty if none.
 
 The validator enforces the rules in steps 4 and 6. It rejects:
 - a `yes` without a quote that appears in the cited file, backed only by docs, or with no `counter_search`;
-- a likely_pass that hasn't survived a challenge;
+- a yes without complete quoted coverage, or one that admits omissions or an accepted/unresolved bypass;
+- a likely_pass without a sealed independent coverage-first discovery;
+- a G1/G2 na_candidate without a fresh challenge establishing absence;
 - a likely_pass with any check not `yes`, with red flags, or with a summary that describes a missing control;
 - a gap with no failed check and no red flag, or with no `violates` words from that item's requirement;
 - a failing line shared by gaps in several items that don't list each other in `also_affects`;

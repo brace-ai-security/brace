@@ -1,0 +1,51 @@
+{
+  "verdict": "failed",
+  "checks": [
+    {
+      "id": "B04.1",
+      "result": "unclear",
+      "evidence": "app/identity.py:92",
+      "quote": "return Path(self.settings.workload_token_path).read_text().strip()",
+      "note": "The agent uses its own service-account token, not the user's token, so disabling it would not disable the user. The disable path itself lives in the STS or IdP, which is outside this repo."
+    },
+    {
+      "id": "B04.2",
+      "result": "fails",
+      "evidence": "app/loop.py:127",
+      "quote": "await killswitch.assert_running(pool, ident.tenant)",
+      "note": "The only in-repo stop check is a database flag that the agent process reads itself. It runs only once at run start and is not enforced at a gateway, STS or target service.",
+      "violates": [
+        "A trusted enforcement point must block later calls",
+        "The agent must not need to cooperate"
+      ]
+    },
+    {
+      "id": "B04.3",
+      "result": "fails",
+      "evidence": "app/identity.py:97, deploy/k8s/deployment.yaml:107",
+      "quote": "if cached and cached.expires_at - 30 > time.time():\nexpirationSeconds: 600",
+      "note": "STS tokens are cached and reused until expiry, with no revocation check on each call. No maximum revocation time is stated anywhere. There is no CAEP, introspection or deny list, and the halt flag is not re-checked inside the run loop.",
+      "violates": [
+        "Set and measure the longest time before the cutoff takes effect",
+        "Count cached tokens, self-contained tokens, and open sessions"
+      ]
+    },
+    {
+      "id": "B04.4",
+      "result": "fails",
+      "evidence": "README.md:58",
+      "quote": "`'tenant:<bu>'`, `halted = true`) as `procurement_ops`. New runs refuse to",
+      "note": "Halt only stops new runs from starting. It does not revoke issued access tokens or end open sessions, and a run already in progress keeps going with its cached tokens.",
+      "violates": [
+        "Revoking only the refresh token is not enough",
+        "Count cached tokens, self-contained tokens, and open sessions"
+      ]
+    }
+  ],
+  "violates": [
+    "A trusted enforcement point must block later calls",
+    "The agent must not need to cooperate",
+    "Set and measure the longest time before the cutoff takes effect"
+  ],
+  "note": "The halt flag is read by agent code only at run start, so it blocks new runs but leaves in-flight runs and cached 600 s tokens valid, and no revocation time limit is stated."
+}

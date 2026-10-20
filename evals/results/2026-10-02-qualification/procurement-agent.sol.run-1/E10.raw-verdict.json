@@ -1,0 +1,40 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Check that a vendor boundary doesn't leave any action untraceable to the agent and instance that did it."
+  ],
+  "checks": [
+    {
+      "id": "E10.1",
+      "result": "unclear",
+      "evidence": "agent/app/audit.py:45, agent/app/mcp_client.py:125",
+      "quote": "    agent_type_id, agent_instance_id, trace_id, span_id,\n                \"_meta\": {\"business_unit\": ident.tenant, \"run_id\": ident.run_id},",
+      "note": "The common local writer stores all six identity fields, and children retain the parent's trace through RunIdentity.child. External gateway and tool-service writers are absent. ERP metadata carries only tenant and run ID, with no explicit shared trace propagation; external identity enrichment and audit behavior cannot be verified."
+    },
+    {
+      "id": "E10.2",
+      "result": "holds",
+      "evidence": "agent/migrations/001_init.sql:120, agent/migrations/001_init.sql:121",
+      "quote": "REVOKE ALL ON ALL TABLES IN SCHEMA public FROM procurement_agent;\nGRANT SELECT, INSERT ON audit_events TO procurement_agent;",
+      "note": "The supplied runtime-role grants permit only SELECT and INSERT on audit_events; they give no UPDATE, DELETE or TRUNCATE permission. The audit primary key prevents INSERT from overwriting an existing node."
+    },
+    {
+      "id": "E10.3",
+      "result": "unclear",
+      "evidence": "agent/app/tools/erp.py:30",
+      "quote": "        return await erp.call(args[\"operation\"], arguments, ident, deps.erp_scope_for(args[\"operation\"]))",
+      "note": "Local tools provide no audit administration, but generic ERP calls reach externally implemented operations. Their implementations and permissions are absent, so the absence of a remote audit-rewrite path cannot be established."
+    },
+    {
+      "id": "E10.4",
+      "result": "fails",
+      "evidence": "agent/app/extractor.py:74, agent/app/extractor.py:80, agent/app/extractor.py:81",
+      "quote": "                response = await self.client.messages.create(**request)\n                    payload={\"requested_model\": request[\"model\"], \"served_model\": response.model,\n                             \"stop_reason\": response.stop_reason},",
+      "note": "The delegated extractor calls the external Anthropic service, but its complete model_decision payload stores only model names and stop reason, omitting the vendor response/request ID. Neither its completion record nor any other writer stores that ID. The primary model loop likewise omits response.id. Consequently these vendor actions cannot be joined by vendor receipt ID to the local identity and trace, despite payment and Slack tool receipts being retained.",
+      "violates": [
+        "Check that a vendor boundary doesn't leave any action untraceable to the agent and instance that did it."
+      ]
+    }
+  ],
+  "note": "E10 fails because model-service calls omit the vendor receipt ID needed to link vendor actions to the local agent identity and trace."
+}

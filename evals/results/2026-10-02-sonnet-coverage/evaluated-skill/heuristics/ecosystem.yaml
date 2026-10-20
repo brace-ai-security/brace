@@ -1,0 +1,502 @@
+# BRACE Ecosystem (E) heuristics for code review.
+# Hand-written. Each entry says what code and config can and cannot show for one checklist item.
+
+E01:
+  provable_from_code: "partly"
+  look_for:
+    - "A dependency map listing outside tools, MCP servers, peer agents, sub-agents, registries, identity services, gateways, stop channels, and audit services."
+    - "A responsibility table naming the agent-team owner and the platform or vendor owner for each applicable control, with evidence links for both."
+    - "Owner records in machine-readable form (service catalog, `.brace/deployment.yaml` roles, CODEOWNERS)."
+  red_flags:
+    - "Outside services in config (MCP servers, API base URLs, webhooks) that do not appear in any dependency or ownership list."
+    - "Controls marked N/A because an upstream vendor provides the service."
+    - "Vendor evidence assumed rather than linked, with no gap recorded."
+  where_to_look:
+    - "*.mcp.json, agent config, env vars with service URLs"
+    - "service catalog files, architecture docs, `.brace/` records"
+    - "IaC for gateways, identity providers, and log sinks"
+  needs_runtime_evidence: "Code shows declared dependencies; the E01 recipe compares them with a test trace of real calls and links evidence for each owner."
+  na_when: "never"
+  must_show:
+    - id: E01.1
+      check: "An inventory file lists the outside tools, MCP servers, peer agents, sub-agents, registries, identity services, gateways, stop channels, and audit services."
+      verify: "1) Find the inventory file. 2) Check each category the agent uses is listed: outside tools, MCP servers, peer agents, sub-agents, registries, identity services, gateways, stop channels, audit services. 3) Answer no if no inventory exists or a category the agent uses is missing."
+      doc_ok: true
+    - id: E01.2
+      check: "Each inventory entry names both an agent-team owner and a platform or vendor owner."
+      verify: "1) Open each inventory entry. 2) Check it names an agent-team owner and a platform or vendor owner. 3) Answer no if any entry is missing either owner."
+      doc_ok: true
+    - id: E01.3
+      check: "Every outside service the code or config calls appears in the inventory."
+      verify: "1) Search code and config for outside calls: HTTP clients and base URLs, SDK clients, `*.mcp.json` servers, queue and webhook endpoints, identity providers, telemetry exporters. 2) Compare each with the inventory. 3) Answer no if any called service is not listed."
+      doc_ok: true
+  not_covered:
+    - problem: "A tool call that skips the MCP gateway or reaches a tool server directly"
+      owner: E06
+    - problem: "A vendor service dropping agent or tenant identity from its records"
+      owner: E10
+    - problem: "Tool or MCP server approved without vetting or pinning"
+      owner: E02
+
+E02:
+  provable_from_code: "partly"
+  look_for:
+    - "MCP servers, packages, and images pinned to exact versions or digests (`pkg@1.4.2`, `image@sha256:...`)."
+    - "Dependency scanning in CI (for example OSV-Scanner, Trivy, Grype, Dependabot) with a policy for findings."
+    - "Signature or provenance checks (Sigstore/cosign, SLSA attestations, npm provenance) where available."
+    - "Model files, adapters, and datasets included in the pinned list with revisions or digests."
+    - "Review records for each approved tool or server: publisher, permissions, update source."
+  red_flags:
+    - "MCP server launched with `npx -y package` or `uvx package` without a pinned version."
+    - "Remote MCP server URLs with no record of publisher review or limits."
+    - "Docker images pulled by `:latest` for tools or servers."
+    - "Hub models or datasets loaded by name with no revision pin."
+    - "Registry namespace verification treated as proof the code is safe."
+  where_to_look:
+    - "*.mcp.json, `claude_desktop_config.json`, agent tool registries"
+    - "lockfiles, Dockerfiles, compose and k8s manifests"
+    - "CI scanning and signing steps"
+    - "model and dataset download code"
+  needs_runtime_evidence: "Signature verification results and scan outputs come from the E02 run; code shows only whether pins and checks are configured."
+  na_when: "never"
+  must_show:
+    - id: E02.1
+      check: "Each tool, MCP server, package, model file, adapter, and dataset is pinned by exact version or digest, with no floating tags, ranges, or 'latest'."
+      verify: "1) Open lockfiles, `*.mcp.json`, Dockerfiles, and model or dataset download code. 2) Check each tool, MCP server, package, model file, adapter, and dataset uses an exact version or digest. 3) Answer no if any uses a range, `latest`, a branch, `npx` or `uvx` without a version, or an unpinned download URL."
+    - id: E02.2
+      check: "Signature checks run in the build or load path where the publisher provides signatures, and a failed check stops the install or load."
+      verify: "1) Find install and load steps in CI and code. 2) Check signature checks (`cosign verify`, `npm audit signatures`, sigstore, GPG) run where the publisher signs. 3) Answer no if a check is missing, its failure is ignored (`|| true`, `continue-on-error`, `try/except` that continues), or a second install path skips it."
+    - id: E02.3
+      check: "A vulnerability scan of the pinned dependency list runs in CI and gates on the team's release policy."
+      verify: "1) Open CI workflows. 2) Find a vulnerability scan (`pip-audit`, `npm audit`, `osv-scanner`, `trivy`, `grype`) of the pinned dependency list. 3) Check it fails the build per the release policy. 4) Answer no if no scan exists, it is set not to fail (`--exit-zero`, `|| true`, `continue-on-error`), or it scans a different file than the lockfile actually used."
+    - id: E02.4
+      check: "Each approved dependency's record names its publisher, permissions, and update source, and remote services or unsigned artifacts have a recorded exception."
+      verify: "1) Find the dependency approval records. 2) Check each names publisher, permissions, and update source. 3) Check each remote service and unsigned artifact has a recorded exception. 4) Answer no if any approved dependency lacks these fields or the needed exception."
+      doc_ok: true
+  not_covered:
+    - problem: "A tool's description or schema changing after it was approved"
+      owner: E03
+    - problem: "Hidden instructions inside a tool's metadata"
+      owner: E04
+    - problem: "Lookalike or duplicate tool names across servers"
+      owner: E05
+    - problem: "Container image not pinned by digest or signature-checked"
+      owner: B10
+
+E03:
+  provable_from_code: "yes"
+  look_for:
+    - "Stored fingerprints (hashes) of each approved tool's description and schema, compared on every load, cache refresh, and `notifications/tools/list_changed`."
+    - "Load is blocked when the fingerprint doesn't match or the re-check fails; no fallback to a cached definition."
+    - "Implementation version pinned or attested separately from the metadata fingerprint where visible."
+    - "A query or inventory showing which deployments use each tool or server version."
+  red_flags:
+    - "Tool lists fetched from MCP servers and passed to the model with no fingerprint comparison."
+    - "`list_changed` notifications handled by silently reloading tools."
+    - "On re-check error, the code falls back to the cached tool definition."
+    - "Docs or code claim a metadata hash detects changes to remote server code."
+  where_to_look:
+    - "MCP client code and tool registry or loader"
+    - "gateway tool-catalog config"
+    - "approved tool lists or lock files for tools"
+  needs_runtime_evidence: "Code usually shows whether pinning and re-checks exist; the E03 recipe confirms that a changed description, schema, or version on a test server blocks use, including after a failed re-check."
+  na_when: "The agent loads no external tools or MCP servers; all tools are built in and fixed in the release."
+  must_show:
+    - id: E03.1
+      check: "A fingerprint of each approved tool's description and schema is stored."
+      verify: "1) Find where tool definitions are loaded (MCP `tools/list`, tool registry). 2) Look for a stored hash of each approved tool's description and schema. 3) Answer no if no fingerprint is stored, or it covers only the name and not the description and schema."
+    - id: E03.2
+      check: "The fingerprint is re-checked on every tool load, cache refresh, and list-changed notice from the server."
+      verify: "1) List every path that loads tool definitions: startup, cache refresh, reconnect, and the `notifications/tools/list_changed` handler. 2) Check each recomputes the fingerprint and compares it with the stored one. 3) Answer no if any path skips the compare, or both sides of the compare are computed from the new definition."
+    - id: E03.3
+      check: "When the re-check fails, the tool is blocked and the cached definition is not used."
+      verify: "1) Open the fingerprint mismatch branch. 2) Check it blocks the tool and does not fall back to the cached definition. 3) Answer no if it only logs, uses the cached or new definition anyway, or an error during the check lets the tool load."
+    - id: E03.4
+      check: "The implementation version is pinned or attested where it can be seen, and recorded separately from the metadata fingerprint."
+      verify: "1) Check how each tool server implementation is referenced: package version, image digest, or attestation. 2) Check that version is recorded in its own field, apart from the metadata fingerprint. 3) Answer no if a visible implementation is unpinned, or only the metadata hash is recorded."
+  not_covered:
+    - problem: "Hidden instructions in a tool's metadata when first approved"
+      owner: E04
+    - problem: "Tool approved without reviewing its publisher and permissions"
+      owner: E02
+    - problem: "A new server quietly swapping its tool in for an approved one"
+      owner: E05
+    - problem: "Cached tool list shared across authorization contexts"
+      owner: E06
+
+E04:
+  provable_from_code: "yes"
+  look_for:
+    - "A scanner or filter that runs on server instructions, tool names, titles, descriptions, schemas, annotations, and prompt and resource templates before they reach the model."
+    - "Checks for hidden or control characters, encoded payloads, role overrides, references to other servers' tools, and length limits."
+    - "Scanner errors cause rejection (fail closed), not pass-through."
+    - "Where scanning is limited, a small approved catalog with reviewed, versioned metadata."
+  red_flags:
+    - "Tool descriptions and server `instructions` inserted into the system prompt unchanged."
+    - "Only descriptions are scanned; schemas, annotations, or templates skip the scanner."
+    - "Scanner wrapped in `try/except` that logs and continues on error."
+    - "No length limits on tool metadata."
+  where_to_look:
+    - "MCP client or gateway code that builds the tool list for the model"
+    - "metadata scanning or sanitizing modules"
+    - "gateway policy config"
+  needs_runtime_evidence: "The E04 recipe with poisoned metadata fixtures confirms what the model actually saw, including with the scanner turned off."
+  na_when: "The agent loads no external tools or MCP servers; all tool metadata is written in-house and fixed in the release."
+  must_show:
+    - id: E04.1
+      check: "A scanner runs on server instructions, tool names, titles, descriptions, input and output schemas, annotations, and prompt and resource templates before the model sees them."
+      verify: "1) Inventory every model-visible metadata field and loading path. 2) Build a field-by-rule matrix: names, titles, descriptions, schemas, annotations, instructions, prompts and resource templates. 3) For each field, trace the actual scanner rules applied before serialization to the model. A syntax regex alone is not proof that payload/instruction rules ran. 4) Try the same suspicious string in different fields; answer no for an unscanned required surface."
+    - id: E04.2
+      check: "The scanner checks for hidden instructions, references to other servers' tools, invisible or control characters, role overrides, encoded payloads, and data-sending targets, and enforces length limits."
+      verify: "1) Trace rule application, not just rule declarations. 2) Attempt encoded strings and multi-line role overrides; record input, exact code path and outcome. 3) Verify hidden instructions, cross-tool references, control/invisible characters, role overrides, encoded payloads, data-sending targets and length limits. 4) Answer no when a required rule is absent or a demonstrated suspicious input bypasses it."
+    - id: E04.3
+      check: "Metadata the scanner flags is cleaned or rejected, not just logged."
+      verify: "1) Open the scanner's result handling. 2) Check flagged metadata is cleaned, or the tool rejected, before the model sees it. 3) Answer no if flagged items are only logged or warned about and passed through."
+    - id: E04.4
+      check: "A scanner error or outage blocks the metadata instead of letting it through unchecked."
+      verify: "1) Read every `try/except`, `catch`, and timeout around the scanner call. 2) Check an error blocks the metadata. 3) Answer no if any error branch passes metadata through, returns clean, or skips the scan, or a config flag disables scanning by default."
+  not_covered:
+    - problem: "A tool's description or schema changing after it was approved"
+      owner: E03
+    - problem: "Hidden instructions in tool call results"
+      owner: R01
+    - problem: "Lookalike or duplicate tool names across servers"
+      owner: E05
+    - problem: "Allow decisions based on server hints such as read-only"
+      owner: B01
+
+E05:
+  provable_from_code: "yes"
+  look_for:
+    - "Tools keyed by verified server identity plus tool name (for example a namespaced `server-id/tool`), where server identity comes from the endpoint, credential, or registry namespace."
+    - "Registration code that flags duplicate and lookalike tool names across servers."
+    - "Approvals bound to verified server identity, not to the server's self-reported name."
+  red_flags:
+    - "Tools merged into one flat dict by bare name, so a later server overwrites an earlier one."
+    - "Server identity taken from the `serverInfo.name` the server reports about itself."
+    - "No warning when two servers expose the same or similar tool name."
+  where_to_look:
+    - "tool registry and MCP client multiplexing code"
+    - "gateway routing config"
+    - "*.mcp.json server entries"
+  needs_runtime_evidence: "The E05 recipe registers a duplicate or lookalike server and confirms calls still go to the approved server identity."
+  na_when: "The agent loads no external tools or MCP servers."
+  must_show:
+    - id: E05.1
+      check: "Tools are keyed by verified server identity (endpoint, credential, or registry namespace) plus tool name, never by bare tool name or a server's self-reported name."
+      verify: "1) Find the tool registry or lookup map. 2) Check its key is a verified endpoint, credential, or registry namespace plus tool name. 3) Answer no if tools are keyed by bare tool name or the server's self-reported name (`serverInfo.name`), or a later server overwrites an earlier entry with the same tool name."
+    - id: E05.2
+      check: "The registry flags duplicate and lookalike tool names across servers."
+      verify: "1) Trace name comparison across servers. 2) Construct repeated confusable substitutions, multiple edits and normalization-boundary examples, starting from an existing tool name; record canonical outputs, comparison result and registration outcome. 3) Answer no if a duplicate or demonstrated lookalike is accepted without a conflict flag. The existence of normalization/edit-distance code is insufficient; namespacing and approval binding do not satisfy this separate check."
+    - id: E05.3
+      check: "Approval is bound to the verified server identity, so a new server with a matching tool name or self-reported name does not inherit approval or replace the approved tool."
+      verify: "1) Find where tool approval is stored and checked. 2) Check approval is keyed by verified server identity, not tool name or self-reported server name. 3) Answer no if a new server with a matching tool name or server name would count as approved or replace the approved tool."
+  not_covered:
+    - problem: "Hidden instructions inside a tool's metadata"
+      owner: E04
+    - problem: "A tool's description or schema changing after it was approved"
+      owner: E03
+    - problem: "Peer agent identity not authenticated on each message"
+      owner: E07
+    - problem: "Gateway not authenticating callers or authorizing each action"
+      owner: E06
+
+E06:
+  provable_from_code: "partly"
+  look_for:
+    - "All MCP traffic routed through a gateway or enforcement layer; network policy blocks direct paths from the agent to servers."
+    - "Gateway checks token issuer, audience, expiry, and scopes; uses separate downstream credentials (token exchange) rather than passing the caller's token through."
+    - "Per-call authorization, request and response validation, rate limits, and decision logging."
+    - "Rejection of requests whose MCP headers (for example `Mcp-Name`) don't match the body, before policy runs; tool-list caches keyed by authorization context."
+    - "`iss` checked (RFC 9207) where the gateway is an OAuth client; SSRF protection on discovery URLs; stdio servers launched in a sandbox with limited files, credentials, and network."
+    - "Fail-closed settings when the policy engine or scanner is down."
+  red_flags:
+    - "Agent config lists MCP server URLs directly, bypassing the gateway, with egress open."
+    - "Gateway forwards the incoming bearer token unchanged to downstream servers."
+    - "Policy or scanner outage handled with fail-open (`on_error: allow`, catch and continue)."
+    - "Cached tool lists shared across callers or tenants."
+    - "stdio servers launched on the host with full environment variables and network access."
+  where_to_look:
+    - "gateway config (route, auth, policy, rate-limit rules)"
+    - "*.mcp.json and agent MCP client settings"
+    - "k8s NetworkPolicy, egress proxy, firewall rules"
+    - "OAuth client and token-exchange config; sandbox or container settings for stdio servers"
+  needs_runtime_evidence: "Needs the E06 tests: bypass attempts, wrong-audience and expired tokens, broken responses, header-body mismatch, cross-caller cache reads, and policy or scanner outages must all fail closed."
+  na_when: "The agent uses no MCP servers or similar external tool servers."
+  must_show:
+    - id: E06.1
+      check: "The agent can reach MCP servers only through the gateway: network policy blocks direct routes, the agent holds no server credentials, and any local stdio servers are launched by the host or sandbox with limited files, credentials, and network."
+      verify: "1) Find how the agent reaches MCP servers: URLs in `*.mcp.json` and client config. 2) Check all go to the gateway, and NetworkPolicy or egress rules block direct routes. 3) Check the agent holds no server credentials and stdio servers run in a restricted sandbox. 4) Answer no if any tool call bypasses the gateway. Answer unknown if network policy lives outside this repo."
+    - id: E06.2
+      check: "The gateway checks each token's issuer, audience, expiry, and scopes, and uses its own separately authorized credentials downstream instead of passing the caller's token through."
+      verify: "1) Open the gateway's token validation. 2) Check issuer, audience, expiry, and scopes are each verified. 3) Check downstream calls use the gateway's own credentials. 4) Answer no if any claim is unchecked, signature verification is disabled, or the caller's `Authorization` header is forwarded downstream."
+    - id: E06.3
+      check: "The gateway authorizes each action, validates requests and responses, enforces rate limits, and logs every decision."
+      verify: "1) Open the gateway's request handling. 2) Check per-action authorization, request and response validation, rate limits, and a log entry for every decision. 3) Answer no if any is missing, authorization happens only once per connection, or denials are not logged."
+    - id: E06.4
+      check: "If a required check (policy engine, scanner, token check) errors or times out, the call is blocked."
+      verify: "1) Read every `try/except`, `catch`, and timeout around the policy engine, scanner, and token check. 2) Check each error blocks the call. 3) Answer no if any error branch allows the call or logs and continues, or a config flag defaults to fail-open."
+    - id: E06.5
+      check: "Requests whose routing headers (such as Mcp-Name) don't match the body are rejected before policy, and cached tool lists and responses are stored per authorization context."
+      verify: "1) Find where routing or policy reads headers such as `Mcp-Name`. 2) Check the header is compared with the body before policy runs, and mismatches are rejected. 3) Check tool-list and response caches are keyed by authorization context. 4) Answer no if headers are trusted without the compare, or a cache is shared across callers."
+    - id: E06.6
+      check: "If the gateway is itself an OAuth client, it checks the authorization server's issuer (iss, RFC 9207) and blocks private and metadata addresses in discovery URLs. Answer yes with the code line, or yes citing the config that shows it isn't an OAuth client."
+      verify: "1) Check whether the gateway acts as an OAuth client (gets tokens, follows discovery or metadata URLs). 2) If so, check it verifies the `iss` parameter (RFC 9207) and blocks private, loopback, and metadata addresses (169.254.169.254) in discovery URLs. 3) Answer no if either is missing. If it is not an OAuth client, answer yes citing the config that shows that."
+  not_covered:
+    - problem: "Tool inventory missing a task-based reason for each tool"
+      owner: B01
+    - problem: "Agent credential granting wildcard or admin permissions"
+      owner: B02
+    - problem: "Destructive actions running without a higher-authority approval"
+      owner: B05
+    - problem: "Hidden instructions inside a tool's metadata"
+      owner: E04
+    - problem: "Outbound traffic to unapproved internet destinations"
+      owner: B09
+
+E07:
+  provable_from_code: "partly"
+  look_for:
+    - "Every peer message authenticated (mTLS, signed requests, verified tokens) and the sender's scope checked."
+    - "Message type and schema validation for incoming A2A or peer requests."
+    - "Nonce, request ID, or timestamp tracking to stop replays where an action could repeat."
+    - "Signed agent cards verified, and card claims not used as authorization."
+    - "Callback and webhook URLs checked against private, link-local, and metadata addresses (SSRF)."
+    - "Peer message content passed to the model as untrusted data."
+  red_flags:
+    - "Peer requests accepted based on a valid signature alone, with no per-peer authorization."
+    - "Agent card skills or capabilities treated as permission grants."
+    - "Callback URLs fetched without SSRF checks (for example to `169.254.169.254`)."
+    - "Retried peer requests re-run side effects with no idempotency key."
+    - "Peer message text inserted into the system prompt as instructions."
+  where_to_look:
+    - "A2A server handlers, agent card files (`/.well-known/agent-card.json`)"
+    - "peer auth middleware"
+    - "webhook and callback handlers"
+    - "idempotency and replay protection code"
+  needs_runtime_evidence: "Needs the E07 fixtures: fake-sender, replayed, cross-tenant, tampered-card, and private-callback requests must be denied."
+  na_when: "The agent receives no messages from other agents (no A2A server, peer endpoint, or agent-to-agent channel)."
+  must_show:
+    - id: E07.1
+      check: "Every peer message is authenticated to a specific sending agent, even when the message is validly signed."
+      verify: "1) Find the handler for incoming peer messages (A2A server, peer endpoint). 2) Check each message is authenticated to a specific sending agent (mTLS identity, verified token subject). 3) Answer no if any route accepts unauthenticated messages, trusts a self-declared sender field, or accepts any valid signature without mapping it to a known agent."
+    - id: E07.2
+      check: "Message types and schemas are validated, and each request is checked against what that peer is allowed to ask for, including tenant."
+      verify: "1) Open the peer message handler. 2) Check message type and schema validation. 3) Check a per-peer allowlist of request types and tenants, keyed on the authenticated sender. 4) Answer no if schemas are unchecked, any authenticated peer can ask for anything, or tenant is taken from the message body."
+    - id: E07.3
+      check: "Action requests carry a nonce or request ID and a freshness check, and replays are rejected or do not repeat side effects."
+      verify: "1) Find action request handling. 2) Check for a nonce or request ID plus a freshness (timestamp) check, with seen IDs stored. 3) Answer no if no replay check exists, the nonce is never stored or compared, or a repeated ID repeats side effects."
+    - id: E07.4
+      check: "Peer message content is handled as untrusted data and is not placed into system or instruction prompts."
+      verify: "1) Trace peer message content to the prompt builder. 2) Check it goes into user or tool-result content as untrusted data. 3) Answer no if any path places it into the system prompt or an instruction template."
+    - id: E07.5
+      check: "Callback and webhook URLs are checked against SSRF, with private and metadata addresses blocked."
+      verify: "1) Find code that calls callback or webhook URLs from peers. 2) Check URL validation blocks private, loopback, link-local, and metadata addresses (169.254.169.254). 3) Answer no if any callback is fetched without the check, or only the hostname text is checked and not the resolved address."
+  not_covered:
+    - problem: "Tool server identified only by its self-reported name"
+      owner: E05
+    - problem: "Missing schema or size checks on API responses"
+      owner: R01
+    - problem: "Peers or children still running after a stop"
+      owner: E09
+    - problem: "Run can't be rebuilt across gateway, tool services, and delegated workers"
+      owner: E10
+
+E08:
+  provable_from_code: "partly"
+  look_for:
+    - "Each sub-agent gets its own narrowed role or credential (token exchange per RFC 8693, transaction tokens, down-scoped tokens) at each hop."
+    - "Authorization uses the original subject and the current actor; earlier actors in the chain are recorded only."
+    - "Children cannot be given powers the parent lacks unless there is an explicit, separate approval."
+    - "Audience-restricted tokens, so a parent's token is rejected by a child's service."
+  red_flags:
+    - "Parent passes its own full credentials or API keys to sub-agents."
+    - "A low-privilege agent can call a more powerful peer that acts with the peer's own broad credentials."
+    - "Authorization decided from the `act` chain or a peer-supplied delegator claim instead of the original subject."
+    - "Tokens with no audience restriction reused across services."
+  where_to_look:
+    - "sub-agent spawn and handoff code"
+    - "token exchange and credential issuing code"
+    - "peer agent authorization policy"
+    - "IAM role trust policies for agent roles"
+  needs_runtime_evidence: "Needs the E08 test: a read-only parent asking a more powerful peer for a forbidden write must be denied, a properly approved handoff must work, and the parent's token must be rejected at the child's service."
+  na_when: "The agent never delegates to sub-agents or peer agents."
+  must_show:
+    - id: E08.1
+      check: "Each child gets a credential narrowed to its approved task (for example by token exchange or transaction tokens), never the parent's full credential."
+      verify: "1) Find where a child agent gets its credential. 2) Check it is a narrowed token for the task (token exchange, transaction token, scoped-down role). 3) Answer no if any spawn path passes the parent's token, API key, or full role, or the child inherits the parent's environment credentials."
+    - id: E08.2
+      check: "Authorization at the action uses the original subject and the current actor, and earlier actors in the delegation chain never add access."
+      verify: "1) Open authorization code for delegated actions. 2) Check it decides on the original subject and the current actor. 3) Answer no if it grants access because of any earlier actor in the chain (nested `act` claims, parent identity) or a union of chain permissions."
+    - id: E08.3
+      check: "An action the parent was denied is also denied when routed through a more powerful peer, unless it carries its own explicit approval."
+      verify: "1) Find how a parent asks a peer or child to act. 2) Check the request carries the parent's limits and the peer re-checks them, or requires its own explicit approval. 3) Answer no if a peer acts with its own wider permissions on a parent's request without that check."
+    - id: E08.4
+      check: "Downstream services reject the parent's token when the child presents it (audience-bound tokens)."
+      verify: "1) Find how child tokens are issued and how downstream services validate tokens. 2) Check tokens are audience-bound and services verify `aud`. 3) Answer no if audience is unset, a wildcard, or not checked. Answer unknown if downstream services are outside this repo."
+  not_covered:
+    - problem: "Approvals that can be replayed or aren't tied to exact arguments"
+      owner: B06
+    - problem: "Prompt a parent gave a sub-agent not recorded"
+      owner: A06
+    - problem: "Children still running after the parent is stopped"
+      owner: E09
+    - problem: "Replayed or faked peer-agent messages"
+      owner: E07
+    - problem: "No limit on how many sub-agents a run can start"
+      owner: B07
+
+E09:
+  provable_from_code: "partly"
+  look_for:
+    - "A stop signal that spreads from root to all descendants (cancellation tokens, propagated stop messages)."
+    - "Short-lived leases or credentials that children must renew, so disconnected workers lose access."
+    - "Queued work for a stopped tree is dropped or blocked; retries check a stop flag before running."
+    - "Open tool streams, subscriptions, and remote tasks are canceled on stop; a reconciliation step for effects already done."
+  red_flags:
+    - "Stop only kills the parent process; children, queue workers, or remote tasks keep running."
+    - "Long-lived credentials given to remote workers."
+    - "Retry loops and schedulers with no check for a stopped run."
+    - "No time limit on tasks or subscriptions."
+  where_to_look:
+    - "orchestration and sub-agent lifecycle code"
+    - "queue consumers and retry config"
+    - "credential TTLs and lease logic"
+    - "stop or kill endpoints and runbooks"
+  needs_runtime_evidence: "Needs the E09 drill across nested agents, a remote worker, queued work, and open streams, with stop and revocation times and denied retries."
+  na_when: "never"
+  must_show:
+    - id: E09.1
+      check: "A stop signal from the root reaches every descendant: nested children, remote workers, queued work, and open tool streams, subscriptions, and tasks."
+      verify: "1) Find the stop handler. 2) Check it reaches nested children, remote workers, queued jobs, and open tool streams, subscriptions, and tasks (cancel calls, MCP `notifications/cancelled`). 3) Answer no if any of these that exists in the code is not reached, or stop only sets an in-process flag that remote workers never read."
+    - id: E09.2
+      check: "Stopping revokes descendants' credentials or leases, and leases or tokens are short-lived, so a disconnected worker loses authority within the stop time limit."
+      verify: "1) Open the stop path and credential issuing code. 2) Check stopping revokes descendants' tokens or leases. 3) Check token or lease lifetime fits within the stop time limit. 4) Answer no if no revocation exists, or tokens are long-lived so a disconnected worker keeps authority."
+    - id: E09.3
+      check: "Queues and schedulers refuse new work, retries, and restarts for a stopped tree."
+      verify: "1) Find queue consumers, schedulers, and retry logic. 2) Check each looks up the stopped state before running new work, retries, or restarts. 3) Answer no if any consumer, retry decorator, or restart policy runs without that check."
+    - id: E09.4
+      check: "Outside effects already completed are recorded for reconciliation."
+      verify: "1) Open the stop path. 2) Check it records outside effects already completed (tool calls, writes, sent messages) for reconciliation. 3) Answer no if nothing is recorded, or only in-flight work is listed."
+  not_covered:
+    - problem: "Agent able to disable or delay its own stop"
+      owner: R11
+    - problem: "No way to cut off the agent's access without cutting off the user"
+      owner: B04
+    - problem: "No drill for a compromised shared tool or agent type"
+      owner: E12
+    - problem: "Sub-agent given powers beyond its task"
+      owner: E08
+
+E10:
+  provable_from_code: "partly"
+  look_for:
+    - "Gateway, tool services, and workers all emit the six identity fields and propagate W3C trace context."
+    - "Gateway maps verified identity to vendor job or receipt IDs where identity can't pass downstream."
+    - "Audit logs go to a sink the agent can only append to (separate write-only role, WORM storage, S3 Object Lock in compliance mode)."
+    - "No tool or peer the agent can call has delete or edit rights on audit storage."
+  red_flags:
+    - "Audit logs written by the agent's own credentials to a bucket it can delete from."
+    - "A tool or admin API the agent can call that can delete or rewrite logs."
+    - "Vendor calls made with shared credentials and no mapping from receipts back to agent and instance."
+    - "Trace context dropped at the gateway or at queue boundaries."
+  where_to_look:
+    - "audit log sink config and its IAM policy"
+    - "bucket or storage settings (object lock, retention mode)"
+    - "gateway logging and trace propagation"
+    - "tool definitions with admin or log-management powers"
+  needs_runtime_evidence: "Needs the E10 test: merge logs across services into one graph with all six fields, and show deletes or edits by the agent, directly or through a more powerful tool or peer, are denied or held for approval."
+  na_when: "never"
+  must_show:
+    - id: E10.1
+      check: "The gateway, tool services, and delegated workers each write audit records with all six identity fields and the shared trace context."
+      verify: "1) Find audit writers in the gateway, tool services, and delegated workers. 2) Check each writes all six identity fields and the shared trace context. 3) Answer no if any component writes records without them or starts a new trace. Answer unknown if a component's code is outside this repo."
+    - id: E10.2
+      check: "The agent's credentials have no permission to delete, update, or overwrite audit records (for example an append-only or WORM store with IAM denies)."
+      verify: "1) Find the agent's IAM role or database grants and the audit store config. 2) Check the agent has no delete, update, or overwrite rights (`DeleteObject`, overwriting `PutObject`, `UPDATE`, `DELETE`, `TRUNCATE`) and the store is append-only or WORM (Object Lock). 3) Answer no if the agent's credentials can delete or rewrite records, or grant `*`. Answer unknown if these are set outside this repo."
+    - id: E10.3
+      check: "No tool or peer the agent can call is able to delete or rewrite audit records on its behalf, or such requests are held for approval under B05."
+      verify: "1) List the tools and peers the agent can call. 2) For each, check whether it can delete or rewrite audit records (database admin, log management, storage tools). 3) Answer no if any can and such requests are not held for approval under B05."
+    - id: E10.4
+      check: "Calls into vendor services are mapped from the gateway's verified identity and correlation ID to the vendor's job or receipt ID."
+      verify: "1) Find calls into vendor services. 2) Check the gateway stores its verified identity and correlation ID together with the vendor's job or receipt ID. 3) Answer no if the vendor ID is not stored, or stored without the link to identity and correlation ID."
+  not_covered:
+    - problem: "Audit retention, access, redaction, or export rules missing"
+      owner: E11
+    - problem: "Authorization decisions missing the policy version in the run record"
+      owner: R13
+    - problem: "Instance or tenant labels taken from what the model supplies"
+      owner: A04
+    - problem: "Recovery checkpoints not tamper-evident"
+      owner: R14
+
+E11:
+  provable_from_code: "partly"
+  look_for:
+    - "Retention set to cover the investigation window and legal needs (for example at least six months for EU AI Act high-risk logs)."
+    - "Integrity checks on audit records (hash chains, signed batches, sequence numbers)."
+    - "Durable local buffering with delivery receipts, backlog limits, and alerts on gaps."
+    - "High-impact actions fail closed when audit capture is down."
+    - "Documented export, restore, redaction, and access rules."
+  red_flags:
+    - "Audit writes are fire-and-forget; failures are logged and the action continues."
+    - "Default backend retention (for example 7 or 30 days) with no longer archive."
+    - "No alert when log delivery stops or sequence numbers skip."
+    - "Exported logs hold unredacted sensitive data with broad read access."
+  where_to_look:
+    - "audit logging client and buffering code"
+    - "log backend and bucket lifecycle settings"
+    - "monitoring and alert rules for log pipelines"
+    - "data retention and redaction policy docs"
+  needs_runtime_evidence: "Needs the E11 recipe: restore an old trace, check integrity, interrupt delivery and inject a missing event, and confirm the gap is caught and high-impact actions stop."
+  na_when: "never"
+  must_show:
+    - id: E11.1
+      check: "Audit retention is set in config to cover the investigation window and the legal minimum (for example at least six months for EU AI Act high-risk systems)."
+      verify: "1) Find retention settings for audit storage: bucket lifecycle rules, log retention days, TTLs. 2) Check the value covers the investigation window and the legal minimum (for example six months for EU AI Act high-risk systems). 3) Answer no if retention is shorter or unset. Answer unknown if audit storage is configured outside this repo."
+    - id: E11.2
+      check: "Access to audit records is limited by role, and redaction rules apply to sensitive fields."
+      verify: "1) Find IAM policies or ACLs on audit storage. 2) Check reads are limited by role. 3) Check redaction rules apply to sensitive fields. 4) Answer no if read access is broad (`*`, all engineers) or no redaction exists."
+    - id: E11.3
+      check: "Integrity protection (hash chain, signatures, or WORM) plus sequence numbers or delivery receipts let missing records be detected, with an alert on gaps or pipeline failure."
+      verify: "1) Open the audit writer and store config. 2) Check for integrity protection (hash chain, signatures, or WORM) plus sequence numbers or delivery receipts. 3) Check an alert fires on gaps or pipeline failure. 4) Answer no if any piece is missing, or a hash is computed but never verified."
+    - id: E11.4
+      check: "High-impact actions are blocked when required audit capture is down."
+      verify: "1) Find high-impact action paths. 2) Check they confirm audit capture is working before the action runs. 3) Answer no if audit write errors are caught and the action proceeds, or the audit record is written only after success."
+  not_covered:
+    - problem: "Agent able to erase or rewrite its own audit history"
+      owner: E10
+    - problem: "Run record missing denials, approvals, or results"
+      owner: R13
+    - problem: "Secrets left in tool output, responses, or normal logs"
+      owner: R03
+
+E12:
+  provable_from_code: "no"
+  look_for:
+    - "An inventory or query that maps tool and dependency versions to instances and tenants."
+    - "Quarantine controls for a shared tool or agent type (gateway deny rule, registry block, feature flag)."
+    - "Alert routes for cross-agent abuse and budget alerts to a named responder team."
+    - "An incident runbook that names who decides on outside reporting and information sharing."
+  red_flags:
+    - "No way to find which deployments or tenants use a given tool version."
+    - "Quarantine requires a code change and full redeploy."
+    - "Alerts go to an unowned channel or a single person."
+    - "No named decision-maker for outside reporting."
+  where_to_look:
+    - "incident runbooks and on-call config"
+    - "alert routing config (PagerDuty, Opsgenie, Alertmanager)"
+    - "gateway and tool registry block rules"
+    - "SBOM or dependency inventory systems"
+  needs_runtime_evidence: "Almost all of this item is shown by the E12 drill: mark a shared tool compromised, query the impact, quarantine, revoke, alert, and measure stop times. Code only shows that the controls exist."
+  na_when: "never"
+  must_show: []
+  not_covered:
+    - problem: "Kill switch for a single agent not drilled"
+      owner: R11
+    - problem: "No owner named on each side of a shared control"
+      owner: E01
+    - problem: "Tool or MCP server approved without vetting or pinning"
+      owner: E02
+    - problem: "Budget and rate limits not enforced outside the model"
+      owner: B07

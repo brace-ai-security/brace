@@ -1,0 +1,40 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Show that permissions and revocation belong to that identity, even when a user starts the run."
+  ],
+  "checks": [
+    {
+      "id": "A01.1",
+      "result": "holds",
+      "evidence": "agent/k8s/deployment.yaml:60, agent/infra/terraform/iam.tf:15, agent/infra/terraform/iam.tf:16",
+      "quote": "      serviceAccountName: clinic-agent\n            \"system:serviceaccount:clinic-agent:clinic-agent\",\n            \"system:serviceaccount:clinic-agent:clinic-agent-reminders\",",
+      "note": "Deployment uses its own credentialed service account. Searching agent/ for service accounts and runtime-role references found only this agent and its reminder component using the runtime role; no unrelated service or user shares it."
+    },
+    {
+      "id": "A01.2",
+      "result": "unclear",
+      "evidence": "agent/src/integrations/payments.ts:13, agent/src/integrations/sms.ts:25, agent/src/integrations/ehr-mcp.ts:41, agent/src/agent/loop.ts:15",
+      "quote": "  return JSON.parse(s.SecretString ?? \"{}\").restricted_key;\n  return { token: v.api_token, from: v.from_number };\n    body: new URLSearchParams({ grant_type: \"client_credentials\", client_id, client_secret, scope }),\nconst anthropic = new Anthropic({ maxRetries: 1 });",
+      "note": "No launching-user token forwarding was found. AWS uses workload credentials and eligibility exchanges the projected workload token. Payments, SMS and EHR use per-clinic stored provider credentials, but their issuance and whether they are shared are absent. The model client's credential provisioning is also absent. Reading secrets through agent IAM does not establish the provider principal's exclusivity."
+    },
+    {
+      "id": "A01.3",
+      "result": "holds",
+      "evidence": "agent/src/routes/webchat.ts:50, agent/src/routes/sms-webhook.ts:65, agent/src/agent/identity.ts:112",
+      "quote": "      subject: { kind: claims.role === \"staff\" ? \"staff\" : \"patient\", id: claims.sub },\n        subject: { kind: \"patient\", id: `phone:${msg.from}` },\n    workloadToken: async () => readFileSync(WORKLOAD_TOKEN_PATH, \"utf8\").trim(),",
+      "note": "Both user entry points carry a separate subject field; newRunContext retains the agent identity and obtains its workload token independently. The user does not replace the agent principal."
+    },
+    {
+      "id": "A01.4",
+      "result": "fails",
+      "evidence": "agent/src/integrations/ehr-mcp.ts:34, agent/src/integrations/ehr-mcp.ts:54, agent/src/integrations/ehr-mcp.ts:58",
+      "quote": "  if (hit && hit.exp - 30_000 > Date.now()) return hit.value;\n  if (existing) return existing;\n      headers: { authorization: `Bearer ${token}`, \"x-clinic-id\": clinicId },",
+      "note": "AWS grants bind to the runtime role, but EHR access continues through cached OAuth bearer tokens and existing authenticated sessions without another IAM/Secrets Manager check. Removing the runtime binding alone therefore does not cut already-issued EHR access; provider-side revocation or expiry is additionally needed. No mechanism coupling provider-token revocation to the workload principal is defined here.",
+      "violates": [
+        "Show that permissions and revocation belong to that identity, even when a user starts the run."
+      ]
+    }
+  ],
+  "note": "A01 fails because revoking the agent's runtime binding alone does not remove its cached EHR access; provider credential exclusivity remains unclear."
+}

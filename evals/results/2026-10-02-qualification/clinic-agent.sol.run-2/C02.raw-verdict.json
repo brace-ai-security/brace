@@ -1,0 +1,31 @@
+{
+  "verdict": "failed",
+  "violates": [
+    "Only named roles in config (CODEOWNERS, IAM, or protected CI environments) can change production configuration.",
+    "An emergency change path exists that records an owner, a reason, an end date, and a follow-up review."
+  ],
+  "checks": [
+    {
+      "id": "C02.1",
+      "result": "unclear",
+      "evidence": "agent/infra/terraform/github.tf:26, agent/.github/CODEOWNERS:4, agent/Dockerfile:18",
+      "quote": "    required_approving_review_count = 2\n/prompts/            @northbay-clinics/agent-platform-leads\nCOPY --chown=65532:65532 config ./config",
+      "note": "Review requirements and ownership coverage are configured for main and the relevant files are present and packaged locally. However, neither this workspace nor agent contains .git metadata, so actual tracking cannot be verified from this snapshot."
+    },
+    {
+      "id": "C02.2",
+      "result": "fails",
+      "evidence": "agent/infra/terraform/iam.tf:43, agent/infra/terraform/iam.tf:44, agent/infra/terraform/iam.tf:47, agent/infra/terraform/main.tf:123",
+      "quote": "          \"dynamodb:PutItem\",\n          \"dynamodb:UpdateItem\",\n        Resource = \"arn:aws:dynamodb:${var.region}:${data.aws_caller_identity.current.account_id}:table/clinic-agent-*\"\n  name         = \"clinic-agent-control\"",
+      "note": "The agent's own runtime credentials allow PutItem and UpdateItem on every clinic-agent-* table, including the production control table. They can change global or tenant halt settings and undo an operator's stop despite the read-only claim in kill-switch.ts. Protected deploy environments do not constrain these runtime writes."
+    },
+    {
+      "id": "C02.3",
+      "result": "fails",
+      "evidence": "agent/.github/workflows/deploy.yml:74, agent/.github/workflows/deploy.yml:80, agent/.github/workflows/deploy.yml:83",
+      "quote": "          kubectl apply -f k8s/deployment.yaml\n          kubectl -n clinic-agent rollout status deployment/clinic-agent --timeout=5m\n        if: inputs.emergency",
+      "note": "The emergency record is created after the Apply step, and its condition does not override the default success requirement. If apply changes production but rollout times out or fails, the issue step is skipped. The earlier validation only checks inputs; deployment annotations record neither the supplied owner, reason nor end date. This path can therefore leave an emergency production change without the required record and follow-up review."
+    }
+  ],
+  "note": "The review misses runtime write access to production stop controls and an emergency deployment failure path that skips the change record."
+}
