@@ -9,6 +9,7 @@ The split is deliberate. **The AI drafts. People approve.** An AI reading a repo
 | Piece | What it does | Where |
 |---|---|---|
 | `brace-review` skill | Reads the agent's code and config and rates all 53 items: likely_pass, gap, needs_evidence, or na_candidate, with file and line evidence. Reports text in the repo that tries to steer the review. | [skills/brace-review/](skills/brace-review/SKILL.md) |
+| `brace-mcp-review` skill | Focused static MCP server/client/gateway review, mapped to BRACE items and primary research. Reports evidence, gaps and unknowns; never launches servers or approves deployment. | [skills/brace-mcp-review/](skills/brace-mcp-review/SKILL.md) |
 | `brace-tests` skill | Turns the [verification recipes](CHECKLIST-VERIFICATION.md) into tests and drill scripts that produce dated evidence files. | [skills/brace-tests/](skills/brace-tests/SKILL.md) |
 | `brace-record` skill | Sets up `.brace/`, records outcomes with evidence, and drafts exceptions and N/A decisions for people to approve. | [skills/brace-record/](skills/brace-record/SKILL.md) |
 | `brace.py` | Checks the `.brace/` record against the gates, verifies approvals on GitHub, recomputes the agent-type-id, and reports FINDINGS for high-risk deployments or GO/NO-GO record conditions for lower-risk deployments. | [tools/brace/](tools/brace/README.md) |

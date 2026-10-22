@@ -1,11 +1,19 @@
 ---
 name: brace-tests
-description: Write tests and drill scripts that produce evidence for BRACE checklist items, based on the BRACE verification recipes. Use when asked to test an agent for BRACE, produce evidence for an item, or follow up on brace-review items rated needs_evidence or likely_pass.
+description: "Write controlled tests and drills producing evidence for BRACE item IDs, including findings from brace-review or brace-mcp-review. Use for negative tests, runtime evidence or drill scripts; review alone does not authorize test execution. Does not approve outcomes or deployment."
 ---
 
 # BRACE tests
 
 Each BRACE checklist item has a verification recipe: a procedure, an expected result, and the evidence to keep. This skill turns recipes into tests and drills for the project's own stack. Their results become the evidence links in `.brace/record.yaml`.
+
+Accept item IDs from a full `brace-review` report or a focused `brace-mcp-review`
+report. Carry forward the reported component, transport, protocol/package versions,
+source URL/date and unresolved prerequisites. Read only the recipes for those
+items and the applicable MCP transport reference when supplied. A proposed test
+in a review is not authorization to run it. Report untested scope separately from
+negative test results; hand evidence to `brace-record` only when recordkeeping is
+requested.
 
 For high-stakes or high-autonomy deployments, report tested scope, results, gaps and unknowns without a BRACE GO/NO-GO verdict. Passing tests does not authorize deployment. Accountable people own any gradual, closely monitored rollout, stop conditions and recovery.
 
@@ -20,7 +28,7 @@ For high-stakes or high-autonomy deployments, report tested scope, results, gaps
 
 ## Steps
 
-1. **Pick the items.** Start with items rated `needs_evidence` or `likely_pass` in `brace-findings.json`, G1 items first, or with the items the user names.
+1. **Pick the items.** Start with items rated `needs_evidence` or `likely_pass` in a supplied review, G1 items first, or with the items the user names. Map MCP report topics to their BRACE IDs; don't imply the remaining checklist was reviewed.
 2. **Read the recipe** in the right reference file:
    - [references/build-time.md](references/build-time.md): B01–B12
    - [references/run-time.md](references/run-time.md): R01–R14

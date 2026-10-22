@@ -1,6 +1,6 @@
 ---
 name: brace-review
-description: Review an AI agent's codebase against the 53-item BRACE sign-off checklist and write a findings report. Use when asked to check an agent for BRACE, review agent security, or prepare for a BRACE sign-off. Rates each item likely_pass, gap, needs_evidence, or na_candidate with file and line evidence. It never approves anything and never rates an item "pass".
+description: "Review an entire AI agent against all 53 BRACE items and prepare a findings report with code evidence. Use for full BRACE audits or readiness reviews; use brace-mcp-review for MCP-only audits when installed. Does not evaluate an existing .brace/ record, approve deployment or rate items pass."
 ---
 
 # BRACE review
@@ -8,6 +8,15 @@ description: Review an AI agent's codebase against the 53-item BRACE sign-off ch
 **Sonnet is good enough; prefer Opus if your team can afford it.** The revised coverage-first protocol with `claude-sonnet-5-5` found every keyed gap on the procurement and clinic fixtures in the retest runs completed so far, with no false passes or false gaps, and its findings name the file, the cause and a fix. Opus is preferred when the budget allows because subtler bugs are more likely to slip past a smaller model; this is a judgment, since Opus has not been re-evaluated on the current protocol. `gpt-6.1-sol` passed six repeated reviews with the previous skill. Luna and Haiku are unsupported. Use a capable model for both the reviewer and fresh challengers, and record the served model/version and reasoning setting for each. See [all results and limits](../../evals/README.md#model-qualification).
 
 You review one AI agent's code and configuration against the BRACE checklist. You write a findings report a person can act on. You don't decide whether the agent ships. People do that through the `.brace/` record and its approvals.
+
+**Scope and handoff.** For an MCP-only request, use the sibling `brace-mcp-review`
+skill when installed; otherwise perform the focused review and state its limits.
+For a full agent review, still account for all 53 items: a focused MCP report is
+supporting evidence, not a substitute for the canonical JSON, coverage ledger or
+fresh challenges below. Hand runtime evidence requests to `brace-tests` and record
+changes to `brace-record` only when the user requests that work. A handoff carries
+scope, file/line evidence, BRACE IDs, source dates and unresolved conditions; it
+does not grant execution or approval authority.
 
 For high-stakes or high-autonomy deployments, report checked scope, evidence, gaps and unknowns without a BRACE GO/NO-GO verdict. Accountable people own any gradual, closely monitored rollout with bounded exposure, stop conditions, tested recovery and review before expansion. A clean review does not establish safety.
 

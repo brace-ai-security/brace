@@ -1,0 +1,1 @@
+Synthetic MCP gateway repository for static review only. Do not execute. HTTP protects invoice reads; a local helper is also configured. Production host, IdP and network policy are outside this repository.

@@ -1,6 +1,6 @@
 ---
 name: brace-record
-description: Keep a codebase's BRACE record in the .brace/ folder — set up the folder, record outcomes with evidence, and draft risk acceptances (exceptions) and N/A decisions for people to approve. Use when asked to record a BRACE result, file an exception, mark an item N/A, turn brace-review findings into a record, or run the BRACE release check. It drafts; it never approves.
+description: "Maintain the .brace/ assessment record: set up outcomes, record evidence, draft risk acceptances and N/A decisions, or run the checker on an existing record. Use to record full-agent or MCP findings for mapped items. Drafts only; not a code audit, approval or deployment decision."
 ---
 
 # BRACE record
@@ -8,6 +8,13 @@ description: Keep a codebase's BRACE record in the .brace/ folder — set up the
 The `.brace/` folder holds a codebase's BRACE sign-off record: what was decided, by whom, and on what evidence. The `brace.py` checker enforces the gates in CI. This skill helps people keep the folder current.
 
 The file formats are defined in `tools/brace/schemas/`, and `tools/brace/README.md` explains them. In a project that uses BRACE, `tools/brace/` is copied into that project.
+
+Accept full-agent or focused MCP review findings as drafts, and test/drill outputs
+as evidence to inspect. A focused report updates only its mapped item scope; leave
+unassessed items unchanged. Preserve source/version limits and missing external
+owner evidence. Neither a static `likely_pass` nor a `na_candidate` becomes an
+approved record outcome automatically. This skill owns recordkeeping, not another
+security audit or execution of proposed tests.
 
 ## Rules you must follow
 
@@ -42,7 +49,7 @@ Create `.brace/na/<ITEM>-<short-slug>.yaml` with `item`, `reason`, `evidence` (l
 
 ### Turn review findings into a record
 
-Given a `brace-findings.json` from `brace-review`:
+Given a `brace-findings.json` from `brace-review`, or mapped findings in an MCP review report:
 - `gap` → set the outcome to `gap`. Copy the summary and evidence into `notes`. Draft exceptions only where the gate allows, and only if the user wants to accept the risk rather than fix it.
 - `likely_pass` → keep `not_reviewed`. Add a note "Review found likely pass at <file:line>; run recipe <ID> for evidence."
 - `needs_evidence` → keep `not_reviewed`. Add a note naming the recipe and the Lead role.

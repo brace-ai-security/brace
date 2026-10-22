@@ -1,0 +1,13 @@
+# Skill forward-test observations
+
+Applied `skills/brace-mcp-review/SKILL.md` and its four references to both supplied fixtures. Read only fixture directories and the skill bundle; wrote reports under the requested output directory. No fixture was run/imported, no dependency installed, no network lookup or server connection attempted. Review date 2026-10-22.
+
+- The distinction between host-owned controls, unknown evidence and actual server gaps was usable. It prevented interpreting missing local OAuth as a stdio defect, and prevented claiming the declaration-only verifier proves a wrong-audience exploit.
+- The requirement to track every applicable control-map row for every boundary produces a large evidence-unknown table for tiny source excerpts. It is feasible, but the skill could explicitly allow a compact grouped table and define when several externally owned unknowns can be combined.
+- “Load the extension section ... only for enabled extensions” appears after an unconditional instruction to read `control-map.md`, whose extension section is in that same file. It is unclear whether this means do not read it or do not apply it; treating it as conditional applicability worked.
+- HTTP source may omit protocol negotiation and actual handler construction. The skill appropriately forbids projecting newer rules backward, but could explicitly describe a fallback: record version unknown, distinguish generally relevant guidance, and avoid protocol noncompliance findings until negotiation is known.
+- Advisory records are dated and package-specific. With network prohibited, the supplied index can only support conditional leads, not verified current advisory conclusions. The skill covers this limit well; report boilerplate would make source-date versus lookup-date distinctions easier to keep consistent.
+- “For each claimed control, identify a plausible bypass” needs a proportional interpretation for declaration-only/source-only fixtures: report the missing caller or upstream evidence without elevating every hypothetical into a finding. No fixture supplies runtime or approval evidence, so proposed tests remain proposals.
+- The stdio path guard uses a POSIX prefix check after platform-native `relative`; supported OS is absent. The skill does not force platform inventory explicitly, although its path/sandbox requirements naturally expose this question. A platform item in scope inventory could help without prescribing a larger review.
+
+Reports: `mixed-review.md` and `stdio-review.md`. No edits to the source repositories or `.brace/` outcomes were made. No certification, release verdict or full 53-item coverage is asserted.

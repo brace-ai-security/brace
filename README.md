@@ -1,6 +1,6 @@
 # BRACE Framework — security for autonomous AI agents
 
-**Version: 2.0.1** (see [VERSION](VERSION)).
+**Version: 2.1.0** (see [VERSION](VERSION)).
 
 **BRACE Framework** is a practical, vendor-neutral set of security controls for teams that build and run autonomous AI agents. These agents plan several steps, call tools and APIs, change real systems, and start sub-agents, with no person reviewing each action.
 
