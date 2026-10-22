@@ -7,6 +7,8 @@ description: Write tests and drill scripts that produce evidence for BRACE check
 
 Each BRACE checklist item has a verification recipe: a procedure, an expected result, and the evidence to keep. This skill turns recipes into tests and drills for the project's own stack. Their results become the evidence links in `.brace/record.yaml`.
 
+For high-stakes or high-autonomy deployments, report tested scope, results, gaps and unknowns without a BRACE GO/NO-GO verdict. Passing tests does not authorize deployment. Accountable people own any gradual, closely monitored rollout, stop conditions and recovery.
+
 ## Rules
 
 1. **Never aim a test at production.** Use separate test tenants, throwaway resources, fake secrets, fake payments, and a test destination the team controls, as the [verification guide](../../CHECKLIST-VERIFICATION.md#prepare-a-verification-run) describes. If you can't tell whether a target is production, stop and ask.

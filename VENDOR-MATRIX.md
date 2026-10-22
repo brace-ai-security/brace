@@ -11,10 +11,10 @@ Use the [53-item checklist](CHECKLIST.md), its [verification recipes](CHECKLIST-
 | BRACE control | Checklist items | Evidence required from vendor and deployment owner |
 |---|---|---|
 | C1 — Architecture | B08–B09; E06 | Actual network routes, tenant isolation, egress and SSRF controls, and bypass test results. Calling a service "managed" does not prove where its boundary is. |
-| C2 — Capability-scoped access | B02–B04; A01; E05–E08 | Actual grants, resource and audience limits, delegation scope, and measured revocation time, including open sessions. |
+| C2 — Capability-scoped access | B02–B04; A01; E05–E08 | Separate acting-agent and delegated-subject identities, actual grants, front/back token audiences, supported exchanges, static-key exceptions, and measured revocation time, including caches and open work. |
 | C3 — Container | B10–B11; E02 | Build provenance, checks against an approved signer, runtime isolation design, and the split of duties between customer and provider. Managed infrastructure may limit what you can inspect directly. |
 | C4 — Harness | B01; B05–B07; B12; E06; E08 | Versioned policies, enforcement on operation and arguments, approval replay tests, hard limits, and every other path that can run the same action. |
-| C5 — Data | R01–R04; E02–E07 | Input checks at each boundary, handling of generated output, retrieval permissions, tool metadata checks, and containment when injection detection misses. |
+| C5 — Data | R01–R04; E02–E07 | Input checks at each boundary, retrieval permissions, reviewed tool publication and rollback, scanner false positives/misses, and containment when injection detection misses. |
 | C6 — Memory | R04–R06 | Scope enforcement, records of each entry's source and writer, revocation, cleanup, and how summaries and caches are handled. |
 | C7 — Behavioral | R08–R10; A07; E12 | Written detection claims, measured misses and false alarms, identities of checker models, and responder drills. |
 | C8 — Kill switch | R11–R12; A05; E09; E12 | Measured stop time across sub-agents, streams, queues, and disconnected workers. Reconciliation for effects that already happened. |
@@ -24,6 +24,10 @@ Use the [53-item checklist](CHECKLIST.md), its [verification recipes](CHECKLIST-
 | Obs-T3 — Parent/prompt provenance | A06; C08 | Parent-child trace links, and the prompt the parent passed (or a protected reference to it). Show that links survive handoffs and that access is controlled. |
 
 E01 and the Configuration items (C01–C08) apply across the whole matrix, including model records and the history of training you run yourself. A vendor may cover only part of an item. Name who builds and checks the rest. No product listing changes the checklist's G1/G2/G3 rules.
+
+## MCP gateway deployment evidence
+
+Record the deployment pattern: internal HTTP, public third-party service, or local stdio. Request the protocol/extension versions, owner-approved tool inventory, publication/config propagation and rollback evidence, and policy tests for direct, dynamic, CLI/code-mode, and wrapper calls. Verify gateway and backend credentials separately. Test private cache/task/state isolation across tenants and after revocation; test Apps sandbox/CSP/bridge and task cancellation where enabled. An internal mTLS design is one option. A public service may require controls on agent egress and credential access instead; a local server needs host/sandbox enforcement. A clean metadata scan or a project-specific gateway conformance claim is not a BRACE pass.
 
 ## Candidate platforms and components
 

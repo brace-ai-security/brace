@@ -98,7 +98,7 @@ Item IDs refer to the [checklist](../CHECKLIST.md). "Sign-off record" is the [fi
 
 | Subcategory | Outcome (summary) | Coverage | BRACE items | How BRACE helps |
 |---|---|---|---|---|
-| MANAGE 1.1 | A decision is made on whether the system meets its goals and should go ahead. | Partial | Sign-off record, Priority gates | BRACE ends in a GO or NO-GO on security grounds; whether the agent meets its goals is judged elsewhere. |
+| MANAGE 1.1 | A decision is made on whether the system meets its goals and should go ahead. | Partial | Sign-off record, Priority gates | BRACE supplies security evidence, gaps and unknowns. High-risk reports carry no BRACE release verdict; accountable people own any deployment decision and gradual monitored rollout. Whether the agent meets its goals is judged elsewhere. |
 | MANAGE 1.2 | Risk treatment is prioritized by impact, likelihood, and resources. | Partial | Priority gates, Sign-off record | Gates and the stakes rating set fixed priorities for security gaps; they do not weigh likelihood or cost. |
 | MANAGE 1.3 | Responses to high-priority risks are planned and written down (reduce, transfer, avoid, or accept). | Partial | Evidence record, Priority gates | Each security gap gets a fix, a cut in powers, or an approved acceptance with an owner; other risks are not covered. |
 | MANAGE 1.4 | Leftover risks to buyers and end users are written down. | Partial | Evidence record, Sign-off record | Accepted gaps record their exposure and compensating controls; telling buyers and users is outside BRACE. |

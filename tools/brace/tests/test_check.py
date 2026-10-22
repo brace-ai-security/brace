@@ -1,4 +1,5 @@
 
+import pytest
 import yaml
 
 from conftest import GATE, ITEMS, brace, good_exception, good_na
@@ -24,12 +25,33 @@ def test_go_with_strict_and_nothing_to_approve(repo):
     assert code == 0
 
 
+@pytest.mark.parametrize("dimension", ["stakes", "autonomy"])
+@pytest.mark.parametrize("gap", [None, G1, G3])
+def test_high_risk_reports_findings_without_release_verdict(repo, dimension, gap):
+    repo.deployment["classification"][dimension] = "high"
+    repo.write()
+    if gap:
+        repo.set_item(gap, outcome="gap", lead="@bob")
+    code, res = repo.check("--approvals", "off")
+    assert code == (1 if gap else 0)
+    assert res["decision"] == "FINDINGS"
+    assert "gradual exposure, close monitoring" in res["notice"]
+    summary = brace.render_summary(res)
+    assert "Report: FINDINGS" in summary
+    assert "Decision:" not in summary
+    assert "Release is blocked" not in summary
+    if gap:
+        assert res["items"][gap]["outcome"] == "gap"
+        assert gap in reasons(res)
+
+
 def test_missing_classification(repo):
     del repo.deployment["classification"]
     repo.write()
     code, res = repo.check("--approvals", "off")
     assert code == 1
     assert "no classification" in reasons(res)
+    assert res["decision"] == "FINDINGS"
 
 
 def test_incomplete_classification(repo):
@@ -38,6 +60,7 @@ def test_incomplete_classification(repo):
     code, res = repo.check("--approvals", "off")
     assert code == 1
     assert "rationale, approved_by" in reasons(res)
+    assert res["decision"] == "FINDINGS"
 
 
 def test_unreviewed_item(repo):

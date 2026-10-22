@@ -31,7 +31,7 @@ BRACE item IDs link to the [checklist](../CHECKLIST.md). Tests and evidence for 
 | Clause | Heading | BRACE items | How BRACE helps |
 |---|---|---|---|
 | 4 | Context of the organization | sign-off record, E01 | The deployment record writes down the agent's task, tenants, data, autonomy, and worst credible damage. |
-| 5 | Leadership | sign-off record, A02 | The sign-off record names the accountable party, the approver, and the GO or NO-GO decision for each release. |
+| 5 | Leadership | sign-off record, A02 | The record names the accountable party and human deployment decision, separately from BRACE findings; high-risk reports carry no BRACE release verdict. |
 | 6 | Planning | priority gates, evidence and exception record, B05 | The gates and the harm and autonomy rating decide which gaps block release and which need a signed risk acceptance. |
 | 7 | Support | evidence and exception record, C01, E11 | Each item keeps an owner, dated evidence, and a release manifest, stored with access and retention rules. |
 | 8 | Operation | C02, C06, B12, C04 | Changes to the agent are reviewed, re-tested before promotion, and checked for drift after release. |
@@ -111,7 +111,7 @@ BRACE item IDs link to the [checklist](../CHECKLIST.md). Tests and evidence for 
 
 | Control | Title | Coverage | BRACE items | How BRACE helps |
 |---|---|---|---|---|
-| A.9.2 | Processes for responsible use of AI systems | Partial | B05, B06, sign-off record | High-impact actions need a specific approval, and each release needs a recorded GO decision. |
+| A.9.2 | Processes for responsible use of AI systems | Partial | B05, B06, sign-off record | High-impact actions need specific approval. Deployment decisions belong to accountable people; high-risk BRACE reports provide findings to inform a gradual monitored rollout. |
 | A.9.3 | Objectives for responsible use of AI systems | Out of scope | — | BRACE does not set the organization's goals for using AI. |
 | A.9.4 | Intended use of the AI system | Partial | sign-off record, B01, B02 | The intended task is written down, and tools and credentials are limited to it and tested. |
 

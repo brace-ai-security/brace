@@ -10,7 +10,7 @@ Securing an agent takes more than the team that builds it. This page shows which
 | **Operations** | The people who run the agent in production, including analytics and on-call. | Monitoring, alerts, drills, the stop control, drift checks, and pulling records during an incident. |
 | **Security** | The security team, including red team and detection engineering. | Threat review, attack testing, detection rules, dependency vetting, and incident response. |
 | **Infrastructure** | The platform team that runs shared services. | Identity and secrets, network and egress rules, container runtime and sandbox, the MCP gateway, and the logging pipeline. |
-| **Governance** | A cross-team group with authority to approve risk, such as a risk committee or AI review board. | Harm and autonomy ratings, risk acceptance, change rules, and the final GO/NO-GO decision. |
+| **Governance** | A cross-team group with authority to approve risk, such as a risk committee or AI review board. | Harm and autonomy ratings, risk acceptance, change rules, and the separate deployment decision and high-risk rollout oversight. |
 | **Business owner** | The person or team that owns what the agent is for. | The agent's task and allowed actions, the worst damage it could do, and approval of high-impact actions while it runs. Usually the **accountable party** and **operational owner** in A02's identity fields. |
 | **Data and privacy** | The data protection officer, privacy team, or the owners of the data sets the agent uses. | What data is sensitive, who may see it, what memory and logs may keep, redaction, and retention rules. |
 | **Model team** | The team that trains, fine-tunes, or hosts your own models. Only needed if you do that. | Training-run and dataset records, signed weights, and checker models. If you only call hosted models, the Agent team takes these shares. |
@@ -139,8 +139,8 @@ These steps come from the checklist's [how-to](CHECKLIST.md#how-to-use-this-chec
 | Approve G2 and G3 risk acceptances | **Governance** | Security, Business owner |
 | Fix gaps and track remediation owners | **Agent team** | Operations, Security, Infrastructure |
 | Record emergency changes (C02) | **Operations** | Governance |
-| Check evidence independently before GO, at least for G1 items | **Independent audit** | Governance |
-| Make the GO/NO-GO decision and record it | **Governance** | Business owner, Security |
+| Check evidence independently before a deployment decision, at least for G1 items | **Independent audit** | Governance |
+| Own and record the deployment decision separately from BRACE findings, including a gradual monitored high-risk rollout | **Governance** | Business owner, Security |
 | Keep the stop control, response steps, and evidence reachable by operators | **Operations** | Infrastructure |
 | Get evidence for the vendor half of each control (E01) | **Governance** | Agent team, Infrastructure, Vendors |
 | Schedule and run re-reviews | **Governance** | Agent team, Independent audit |
@@ -148,7 +148,7 @@ These steps come from the checklist's [how-to](CHECKLIST.md#how-to-use-this-chec
 
 ## Keep approval separate from the work
 
-- Someone outside the Agent team should approve risk acceptances and N/A decisions, and make the GO/NO-GO decision. A team that approves its own gaps has a reason to approve them.
+- Someone outside the Agent team should approve risk acceptances and N/A decisions, and own the deployment decision independently of BRACE findings. A team that approves its own gaps has a reason to approve them.
 - High-impact actions at run time (B05, B06) should be approved by the Business owner or another named authority, not by the team that built the agent.
 - Security should not be the only reviewer of evidence it produced. Where Security leads an item, such as R02 or E02, have the Agent team or Operations check the result.
 - A vendor's statement is evidence to check, not a Pass. The internal Lead decides whether it meets the item.

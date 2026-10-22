@@ -1,5 +1,7 @@
 # BRACE Framework — security for autonomous AI agents
 
+**Version: 2.0.1** (see [VERSION](VERSION)).
+
 **BRACE Framework** is a practical, vendor-neutral set of security controls for teams that build and run autonomous AI agents. These agents plan several steps, call tools and APIs, change real systems, and start sub-agents, with no person reviewing each action.
 
 It is built on one idea:
@@ -16,10 +18,10 @@ BRACE defines controls for that configuration, says which to build first, and li
 
 ## Start here
 
-- **[Sign-off checklist](CHECKLIST.md)** — a 53-item go/no-go review across all five BRACE aspects. It is for the engineer or manager who approves an agent for production, and it notes what is hard, what to do if you can't fully comply, and which tradeoffs are acceptable. If you read one thing, read this.
+- **[Sign-off checklist](CHECKLIST.md)** — a 53-item evidence review across all five BRACE aspects. It is for the engineer or manager who approves an agent for production, and it notes what is hard, what to do if you can't fully comply, and which tradeoffs are acceptable. If you read one thing, read this.
 - **[Self-assessment](SELF-ASSESSMENT.md)** — score the same 53 checklist items for a running deployment or a vendor.
 - **[Source review](SOURCE-REVIEW.md)** — supporting sources, corrections, and the limits of the evidence.
-- **[BRACE in your codebase](TOOLS.md)** — AI skills that review an agent's code, a `.brace/` record for exceptions and approvals, and a CI check that returns GO or NO-GO.
+- **[BRACE in your codebase](TOOLS.md)** — AI skills that review an agent's code, a `.brace/` record for exceptions and approvals, and a CI evidence check with findings-only output for high-risk deployments.
 - **[Role map](ROLES.md)** — which team leads each checklist item.
 
 ---
@@ -33,7 +35,7 @@ BRACE has **nine controls** (C1–C9) and **three observability requirements** (
 | Code | Control | What it does |
 |---|---------|--------------|
 | C1 | Architecture | Isolate the agent's environment and network. Allow only the outside destinations its task needs. Limit damage by design, not by trusting good behavior. |
-| C2 | Capability-scoped API access | Use access tokens for the agent's own service account or workload identity, rather than long-lived API keys or other static credentials. Give each access token only the powers it needs (`read:tickets`, not `*`). Keep access tokens short-lived, limited to one service, and bound to their holder where possible. Make sure you can cut off the agent without cutting off its user. |
+| C2 | Capability-scoped API access | Use narrowly scoped, short-lived access tokens rather than static API keys. Identify the acting agent separately from the user or system whose authority it uses; delegated user access is valid when explicitly authorized. Give each access token only the powers it needs (`read:tickets`, not `*`). Keep access tokens short-lived, limited to one service, and bound to their holder where possible. Make sure you can cut off the agent without cutting off its user. |
 | C3 | Container | Run a pinned, signed, minimal image whose build record you have checked. Use a stronger sandbox, such as a microVM, when the agent runs untrusted code. The image digest is part of the agent's identity. |
 | C4 | Harness | Enforce which tools, arguments, and budgets the agent may use. **Block destructive actions** unless someone with authority approves that exact action. Treat every consequential action as destructive when one agent can read untrusted input, reach sensitive data, and act on the outside world. |
 
@@ -62,6 +64,8 @@ BRACE has **nine controls** (C1–C9) and **three observability requirements** (
 
 **Every control has two halves:** the settings for each agent type, and the support from shared infrastructure and services. You can't secure one half alone. For example, an agent can't present a narrowly scoped access token unless the identity system can issue one.
 
+For MCP deployments, distinguish internal HTTP, public third-party, and local stdio boundaries. Discover tools disabled, require owner approval, and enforce the same action policy in direct calls, dynamic tools, CLI/code mode, and wrappers. Verify gateway and backend credentials independently; isolate private cached data and explicit task/state handles across tenants and authorization contexts. The [MCP gateway guide](guides/mcp-gateway/index.html) covers these patterns and enabled extension boundaries. The [MCP resource catalog](RESOURCES.md#mcp-security-specifications-deployment-practice-and-research) includes Uber's deployment reports, protocol requirements, industry guidance and research, with their different evidence limits.
+
 ### The six required identity fields (Obs-T1)
 
 Every action records: **accountable party**, **operational owner**, **tenant**, **agent-type-id**, **agent-instance-id**, and **trace context**. (Optional: region, trust domain.)
@@ -78,7 +82,7 @@ Build the twelve elements (nine controls and three observability requirements) i
 - **Tier 2 — harden the substrate (the environment the agent runs on), and expose hidden failures.** Network and egress isolation (C1), a signed, minimal container (C3), input validation (C5), and context-size logging (Obs-T2).
 - **Tier 3 — active detection.** Security monitoring with baselines of normal action sequences (C7), memory scoping and source records (C6), and sub-agent and parent-prompt provenance (Obs-T3).
 
-The [checklist](CHECKLIST.md) turns these priorities into **G1/G2/G3** gates on each item. G stands for gate. A G1 gap blocks release. A G2 gap needs a written, approved risk acceptance. A G3 gap blocks high-stakes or high-autonomy deployments, and needs a written, approved risk acceptance for lower-stakes ones. Fallbacks may cost features or add manual work. They don't turn a gap into a pass on their own.
+The [checklist](CHECKLIST.md) turns these priorities into **G1/G2/G3** gates on each item. G stands for gate. A G1 gap remains open and cannot be waived; G2 gaps need written, approved risk acceptance. High-stakes or high-autonomy reviews report every G3 gap without closing it by exception. BRACE reports evidence, gaps and unknowns for high-risk deployments; it does not issue a GO/NO-GO deployment verdict. Accountable people own any gradual, closely monitored rollout, with bounded exposure, stop conditions, tested recovery and review before expansion. Lower-risk GO/NO-GO results describe checklist record conditions, not deployment authorization. Fallbacks may cost features or add manual work. They don't turn a gap into a pass on their own.
 
 Use the checklist for the requirements, the [verification guide](CHECKLIST-VERIFICATION.md) for tests and evidence, and the [self-assessment](SELF-ASSESSMENT.md) to score the same item IDs. The [website guides](https://braceframework.org/guides/) explain the principles and link to those items.
 
@@ -137,7 +141,8 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 | [SELF-ASSESSMENT.md](SELF-ASSESSMENT.md) | Scoring worksheet for the same 53 checklist item IDs and gates. |
 | [otel-conventions.md](otel-conventions.md) | Proposed OpenTelemetry attributes for agent identity and provenance. |
 | [mappings/](mappings/) | How BRACE items line up with [MITRE ATLAS](mappings/mitre-atlas.md), the [NIST AI RMF](mappings/nist-ai-rmf.md), and [ISO/IEC 42001](mappings/iso-iec-42001.md). Each row is rated Direct, Partial, or Out of scope. |
-| [TOOLS.md](TOOLS.md) | Use BRACE inside an agent's codebase: AI skills that review code and write tests, a `.brace/` record for outcomes, exceptions, and approvals, and a CI check that returns GO or NO-GO. |
+| [TOOLS.md](TOOLS.md) | Use BRACE inside an agent's codebase: AI skills that review code and write tests, a `.brace/` record for outcomes, exceptions, and approvals, and a CI evidence check with findings-only output for high-risk deployments. |
+| [evals/README.md](evals/README.md) | Model-review evaluations, including failures, repeated-run variance, exact configurations, answer-key corrections, and saved evidence. |
 | [ROLES.md](ROLES.md) | Which role leads or shares each checklist item and sign-off duty, from the agent team to vendors and independent audit. |
 | [VENDOR-MATRIX.md](VENDOR-MATRIX.md) | Evidence to request when evaluating vendor and platform support for each control. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose changes, report a real-world incident, or map a vendor product. |

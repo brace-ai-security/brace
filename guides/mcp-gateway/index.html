@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>How to build an MCP gateway — BRACE</title>
-<meta name="description" content="A gateway in front of your MCP servers only works if it is the only path to them. Build it to authenticate, authorize, scan, meter, and audit every tool call — and enforce at the network layer that agents can reach tools no other way.">
+<meta name="description" content="Build an enforced MCP boundary for internal HTTP, public third-party, and local tools: scoped access tokens, owner-approved publication, policy, audit, and tested isolation.">
 <link rel="canonical" href="https://braceframework.org/guides/mcp-gateway/">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="BRACE Framework">
 <meta property="og:title" content="How to build an MCP gateway, and make it the only door">
-<meta property="og:description" content="A gateway only works if it is the only path to your MCP servers. How to build one that authenticates, authorizes, scans, meters, and audits every tool call — and can't be bypassed.">
+<meta property="og:description" content="MCP gateway deployment patterns, agent identity and delegated authority, scoped backend access tokens, tool publication, policy, audit, and negative tests.">
 <meta property="og:url" content="https://braceframework.org/guides/mcp-gateway/">
 <meta property="og:image" content="https://braceframework.org/og-ecosystem.png">
 <meta property="og:image:type" content="image/png">
@@ -20,7 +20,7 @@
 <meta property="og:image:alt" content="How to build an MCP gateway">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="How to build an MCP gateway, and make it the only door">
-<meta name="twitter:description" content="A gateway only works if it is the only path to your MCP servers. Build it to authenticate, scan, meter, and audit every call.">
+<meta name="twitter:description" content="Build MCP enforcement for internal, public third-party, and local tools, with scoped access tokens, policy, audit, and tested isolation.">
 <meta name="twitter:image" content="https://braceframework.org/og-ecosystem.png">
 <style>
   :root{
@@ -95,12 +95,12 @@
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "headline": "How to build an MCP gateway",
-  "description": "A gateway in front of your MCP servers only works if it is the only path to them. Build it to authenticate, authorize, scan, meter, and audit every tool call, and enforce at the network layer that agents can reach tools no other way.",
+  "description": "Build an enforced MCP boundary for internal HTTP, public third-party, and local tools, with scoped access tokens, owner-approved publication, policy, audit, and tested isolation.",
   "image": "https://braceframework.org/og-ecosystem.png",
   "author": { "@type": "Person", "name": "Brenn Hill", "url": "https://www.linkedin.com/in/brennhill/", "sameAs": ["https://www.linkedin.com/in/brennhill/"] },
   "publisher": { "@type": "Organization", "name": "BRACE Framework", "logo": { "@type": "ImageObject", "url": "https://braceframework.org/apple-touch-icon.png" } },
   "datePublished": "2026-06-25",
-  "dateModified": "2026-10-01",
+  "dateModified": "2026-10-16",
   "mainEntityOfPage": "https://braceframework.org/guides/mcp-gateway/",
   "isPartOf": { "@type": "WebSite", "name": "BRACE Framework", "url": "https://braceframework.org/" }
 }
@@ -121,7 +121,7 @@
   <div class="wrap">
     <p class="eyebrow">BRACE Guide · Ecosystem deep dive</p>
     <h1>Build an MCP gateway that agents cannot bypass</h1>
-    <p class="lede">A gateway in front of your MCP servers is the one place you can authenticate, authorize, scan, meter, and log every tool call. But a gateway only works if it is the <strong>only</strong> path to your tools. If an agent can reach an MCP server directly, the gateway is optional, and a hijacked or misaligned agent will go around it. This guide shows how to build the gateway, and how to make it impossible to bypass.</p>
+    <p class="lede">A gateway can authenticate, authorize, scan, meter, and log MCP calls. It works as a control when it is the <strong>only usable path</strong> to the tools it governs. Choose network and credential controls for internal or public HTTP services, and host or sandbox controls for local stdio tools. Test every alternate route, including CLI/code mode.</p>
     <p style="margin:16px 0 0; font-size:14px; opacity:.9">By <a href="https://www.linkedin.com/in/brennhill/" style="color:#cfe2f1; font-weight:600">Brenn Hill</a></p>
   </div>
 </header>
@@ -130,7 +130,7 @@
 <section>
   <div class="wrap">
     <div class="idea">
-      A gateway is the network-firewall pattern applied to MCP traffic: one choke point, which you can audit, that every tool call passes through. The <a href="/guides/ecosystem/">Ecosystem guide</a> covers what to enforce there. This deep dive covers what makes it real. The gateway must be the <strong>only</strong> route from an agent to a tool, enforced by the network. And it must <strong>meter</strong> what passes through, so you can control and account for access.
+      A gateway is the network-firewall pattern applied to MCP traffic: one choke point, which you can audit, that every tool call passes through. The <a href="/guides/ecosystem/">Ecosystem guide</a> covers what to enforce there. This deep dive covers what makes it real. The selected boundary must be the <strong>only usable path</strong> to governed tools, enforced through network, credential, and local-process controls appropriate to the deployment. It must also <strong>meter</strong> access.
     </div>
     <div class="toc">
       <b>On this page</b>
@@ -147,21 +147,28 @@
   </div>
 </section>
 
-<section><div class="wrap"><p><b>Scope and practical limits.</b> This guide describes a gateway for remote HTTP tools. Local MCP servers that talk over standard input/output (stdio) need the same controls in the host or sandbox. An HTTP gateway doesn't control their processes, files, credentials, or network. Access tokens for the services behind the gateway must come from an authority those services trust, with the right audience and scope. These are short-lived access grants issued for an agent-specific service account or workload identity, including delegated user authority where needed; they are not static API keys or personal access tokens. A gateway can't invent a token that any API will accept. Where a service only supports static API keys or other long-lived secrets, keep them behind the gateway, limit what they can do, and write down the gap in lifetime and revocation. MCP 2026-07-28 is the current version. Under it, the gateway must reject any request whose copied <code>Mcp-*</code> headers don't match the body, before it checks policy. Store any cached tool list or response separately for each authorization context. Where the gateway is itself an OAuth client, check the authorization server's issuer (<code>iss</code>, RFC 9207). Prefer Client ID Metadata Documents for client registration. Dynamic Client Registration is deprecated. Also protect discovery URLs against SSRF (tricking a server into calling places it shouldn't). See <a href="https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization">MCP authorization, 2026-07-28</a>, the <a href="https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http">Streamable HTTP transport</a>, and checklist E06.</p></div></section>
+<section><div class="wrap">
+  <h2>Scope, standards, and credentials</h2>
+  <p>This guide covers internal HTTP servers, public third-party MCP services, and local stdio tools. Choose the enforcement mechanism for each deployment. A private network and mutual TLS are one strong internal pattern; you cannot require a third-party service to use your private network. Local processes need controls in the host or sandbox.</p>
+  <p><b>Two authorization boundaries.</b> The agent authenticates to the gateway with a credential valid for that gateway. The gateway separately obtains an access token for the backend from an issuer that backend trusts, using a supported grant or token exchange. Check issuer, audience, expiry, and grants at each boundary. Never accept a token intended for another resource or forward it unchanged as a substitute for backend authorization. A gateway cannot mint credentials that an arbitrary API will accept.</p>
+  <p><b>Identity and authority are separate.</b> Identify the acting agent and the user or system whose authority it uses. Short-lived access tokens can represent either machine authority or explicitly delegated user authority. A service account is one possible agent identity, not the definition of an access token. Static API keys and personal access tokens are different credentials. Where a backend only supports static keys, isolate them at the gateway, limit their permissions, and record the lifetime and revocation gap. A vault stores backing secrets; a trusted issuer supplies expiring access grants.</p>
+  <p><b>Protocol baseline, checked 2026-10-16.</b> Use the <a href="https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization">MCP 2026-07-28 authorization specification</a>, <a href="https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http">Streamable HTTP transport</a>, and <a href="https://modelcontextprotocol.io/docs/2026-07-28/tutorials/security/security_best_practices">official security guidance</a>. MCP authorization is optional at the protocol level; BRACE requires authentication and action authorization for protected tool access. An OAuth deployment follows the applicable discovery, resource-indicator, PKCE, issuer-response, and audience-validation requirements. Prefer Client ID Metadata Documents; Dynamic Client Registration is deprecated. Protect discovery and redirect fetches against SSRF.</p>
+  <p><b>Additional mechanisms.</b> <a href="https://www.rfc-editor.org/rfc/rfc9700.html">RFC 9700</a> is OAuth security best current practice; <a href="https://www.rfc-editor.org/rfc/rfc8693.html">RFC 8693</a> defines token exchange where supported. <a href="https://modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization">Enterprise-Managed Authorization</a> is a stable optional MCP extension; <a href="https://modelcontextprotocol.io/extensions/auth/oauth-client-credentials">MCP Client Credentials</a> remains draft at this review. Check client, server, and issuer support. Project-specific gateway specifications and industry deployment reports are design references, not universal MCP conformance standards.</p>
+</div></section>
 
 <section id="only">
   <div class="wrap">
     <div class="principle">
       <span class="pnum">THE RULE</span>
       <h2 style="margin-top:14px">It must be the only door</h2>
-      <p class="statement">Set up your MCP servers so they can be reached <strong>only</strong> through the gateway. If an agent has any other route to a tool, such as a direct network path or its own credentials, every gateway control is optional. The agent that most needs stopping is the one that will go around it.</p>
+      <p class="statement">Make the gateway or equivalent enforcement layer the <strong>only usable path</strong> from this agent to its governed tools. Control both network access and credentials. Apply that boundary to HTTP calls, dynamic tools, CLI/code mode, and wrappers; an alternative execution path must not skip policy.</p>
 
       <div class="why">
         <p style="margin:0"><b class="k">Why it matters.</b> A gateway you can bypass is not a control. It is a suggestion. Scanning, allow and deny rules, rate limits, and audit only hold if there is no other way to call the tool. The threat is an agent that no longer cooperates, because it was hijacked by prompt injection or is misaligned. So you can't rely on the agent <em>choosing</em> to use the gateway. Make the direct call impossible, not just discouraged. The network and the credentials do that, not the agent's code.</p>
       </div>
 
       <figure>
-        <svg viewBox="0 0 980 400" role="img" aria-label="An agent in an isolated network can reach MCP servers only through the gateway; a direct call has no route and no credentials">
+        <svg viewBox="0 0 980 400" role="img" aria-label="One internal deployment: an isolated agent reaches private MCP servers through a gateway; a direct call has no route and no credentials">
           <!-- agent isolated zone -->
           <rect x="24" y="70" width="250" height="150" rx="12" fill="none" stroke="#9aa6b0" stroke-width="1.5" stroke-dasharray="6 5"/>
           <text x="40" y="92" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#555a63">Agent runtime · isolated network</text>
@@ -205,25 +212,25 @@
             <marker id="ggrn" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#1f7a4d"/></marker>
           </defs>
         </svg>
-        <figcaption>The gateway is the only door because the network and the credentials make it so, not because the agent behaves well.</figcaption>
+        <figcaption>One internal deployment pattern: private backends and gateway-held credentials block direct calls. Public third-party and local stdio deployments use the controls below.</figcaption>
       </figure>
 
-      <h3 style="margin-top:20px">How to make it non-bypassable</h3>
-      <p>Three things must all be true. None is optional.</p>
+      <h3 style="margin-top:20px">Choose controls for each deployment</h3>
+      <p>Every pattern must prevent the agent from skipping authorization. Use the controls that apply to its actual routes and execution environment.</p>
       <ol class="lifecycle">
-        <li><b>Network isolation on the agent side.</b> The agent's runtime can connect to the gateway and nothing else. Its egress policy blocks every other route: no direct path to tool servers, and no open internet. (This is the same per-agent egress allowlist from <a href="/guides/build-time/">Build-time</a>, aimed at your tools.)</li>
-        <li><b>Private, gateway-only servers.</b> MCP servers sit on a private network segment with no public route. They accept connections <em>only</em> from the gateway, enforced with mutual TLS, not just an IP allowlist. A server that answers anyone is a back door.</li>
-        <li><b>The agent holds no tool credentials, and the ones the gateway adds are short-lived.</b> The gateway gets a <strong>short-lived access token, limited to what that agent is allowed to do</strong>, from the destination's trusted issuer or through a supported token exchange. An agent with no tool credential can't authenticate to a server even if it finds a route. Set and test the token's lifetime and grants. Don't assume every issuer supports tokens limited to a single call. Where only static API keys or other long-lived secrets are supported, apply the limits and record the gap described above.</li>
+        <li><b>Internal HTTP servers.</b> Restrict agent egress to approved enforcement endpoints. Place backends on private networks where possible and authenticate the gateway to them, for example with mTLS. Keep backend access tokens and secrets out of agent-controlled processes. Other essential routes, such as model access, need their own approved boundary.</li>
+        <li><b>Public third-party services.</b> Enforce agent-side egress and credential restrictions so direct calls cannot exercise the protected authority. Keep third-party tokens and refresh credentials in the broker. Use the provider's supported OAuth flow or token exchange and preserve tenant/resource limits. Public availability alone does not mean the agent can authenticate. Test alternate hosts, redirects, proxy settings, and shell/SDK routes; disable a path whose bypass you cannot prevent.</li>
+        <li><b>Local stdio servers.</b> Control who can launch the process and which pinned binary or image runs. Give it only approved files, environment variables, secrets, and network access. Local transport is not a sandbox. An HTTP gateway does not protect a separate local process that can read host credentials or invoke tools directly.</li>
       </ol>
 
       <div class="eg">
         <div class="col bad">
           <div class="tag">✗ Gateway as a courtesy</div>
-          The SDK is set to use the gateway, but agents run with normal network access and hold the tools' API keys. A prompt-injected agent simply calls the server directly.
+          The SDK is set to use the gateway, but agents run with normal network access and hold the tools' API keys. A prompt-injected agent simply calls the server directly with those keys.
         </div>
         <div class="col good">
           <div class="tag">✓ Gateway as the only door</div>
-          Agents run in a sandbox that can reach only the gateway. Servers accept only the gateway, over mTLS. Credentials live in the gateway. The direct call has no route and no tool credential.
+          Agents run in a sandbox that can reach only the gateway. Internal servers authenticate the gateway, for example over mTLS. Backend credentials live in the gateway. The direct call has no route and no tool credential.
         </div>
       </div>
     </div>
@@ -241,7 +248,10 @@
         <p style="margin:0"><b class="k">Why it matters.</b> To approve a tool, check its fingerprint, or limit it by role, you first have to record it in the inventory. "Shadow MCP" risk is a server someone wired up that no inventory knows about, so no control covers it. The registry closes that gap. It also holds the rug-pull baseline: the fingerprint the gateway re-checks on load is the one the registry recorded at approval. And it holds the role-to-tool map, so the gateway can filter the <em>list</em> of tools each agent sees, not just individual calls.</p>
       </div>
 
-      <p>A workable registry entry holds, for each tool: a stable identity made of a verified server identity plus the tool name, the vetted fingerprint (a hash of its description and schema), an owner and approval date, a trust tier, the agent roles allowed to call it, and a pointer to its credential in the vault. Base server identity on the verified endpoint, credential, or registry namespace, never on the name the server reports about itself (<code class="inl">serverInfo</code>). The gateway reads the registry on every call. Nothing reaches an agent unless the registry has admitted it.</p>
+      <p>A workable registry entry holds, for each tool: a stable identity made of a verified server identity plus the tool name, the vetted fingerprint (a hash of its description and schema), an owner and approval date, a trust tier, the agent roles allowed to call it, and a pointer to its credential in the vault. Base server identity on the verified endpoint, credential, or registry namespace, never on the name the server reports about itself (<code class="inl">serverInfo</code>). Each call uses an approved registry/policy version. Bound and test how long config changes take to reach every executor; stale grants must not survive the revocation limit. Nothing reaches an agent until the registry has admitted it.</p>
+
+      <h3>Publication is a controlled lifecycle</h3>
+      <p>Discover tools into a disabled state. The service owner reviews the publisher, description, schemas, permissions, and implementation reference, then approves and enables a version. Re-check on load, cache refresh, and tool-list change. Quarantine unexpected changes until reviewed. Keep approval history, propagation times, and a tested rollback; rollback must not restore revoked permissions. Fingerprints cover metadata, not hidden remote implementation changes.</p>
 
       <div class="eg">
         <div class="col bad">
@@ -262,11 +272,11 @@
     <h2>What the gateway enforces, in order</h2>
     <p>Once every call has to pass through it, the gateway is where you apply the ecosystem controls the same way for every agent, instead of building them again for each one. A single tool call goes through these steps. Order matters: cheap rejections first, the costly forward last, and any failure ends in a denial.</p>
     <ol class="lifecycle">
-      <li><b>Authenticate the caller.</b> Prove <em>which</em> agent is calling, by its own identity, such as a dedicated service account or workload identity, rather than an account shared across agents. For HTTP and OAuth, check the access token's issuer, intended audience, expiry, and scopes. Deny a call that fails authentication. Never pass an unchecked access token through to the services behind the gateway. (This is the agent identity from the <a href="/guides/agent/">Agent</a> aspect. The gateway is where it's checked.)</li>
-      <li><b>Authorize against the agent's role and identity.</b> First, reject any request whose <code class="inl">Mcp-*</code> headers don't match its body, so policy can't approve one tool while the body calls another. Then check a least-privilege allowlist tied to <em>this</em> agent's identity and role: may it call <em>this</em> tool with <em>these</em> kinds of arguments? Deny by default. The list of <em>available</em> tools is also filtered by role, so an agent can't even see, let alone call, tools outside its job. Read the allowlist and the role-to-tool map from the registry, not from code for each agent. Don't base allow or approval decisions on a tool's own annotations, such as &ldquo;read-only.&rdquo; MCP treats them as untrusted unless you trust the server.</li>
+      <li><b>Authenticate the caller.</b> Prove <em>which</em> agent is calling, by its own identity, such as a dedicated service account or workload identity, rather than an account shared across agents. For HTTP and OAuth, check the access token's issuer, intended audience, expiry, and scopes. Deny a call that fails authentication. Validate the gateway-facing credential for this resource and obtain separately authorized credentials for each backend. Preserve the original subject and current agent identity. (This is the agent identity from the <a href="/guides/agent/">Agent</a> aspect. The gateway is where it's checked.)</li>
+      <li><b>Authorize against the agent's role and identity.</b> First, reject any request whose <code class="inl">Mcp-*</code> headers don't match its body, so policy can't approve one tool while the body calls another. Then check a least-privilege allowlist tied to the verified agent, delegated subject, tenant, and task: may it call <em>this</em> tool with <em>these</em> kinds of arguments? Deny by default. The list of <em>available</em> tools is also filtered by role, so an agent can't even see, let alone call, tools outside its job. Use the approved registry/policy version. Enforce the same decision in dynamic tools, CLI/code mode, and wrappers. An identity chain records provenance; it does not itself approve an action. For RFC 8693 tokens, prior nested actors grant no additional access. Don't base allow or approval decisions on a tool's own annotations, such as &ldquo;read-only.&rdquo; MCP treats them as untrusted unless you trust the server.</li>
       <li><b>Validate the call and inspect the tool.</b> Compare the hash of the tool's description and schema with the approved fingerprint. That catches the metadata changes of a <a href="/guides/ecosystem/">rug pull</a>. It can't reveal hidden changes to remote code. If the re-check fails, don't serve the cached definition. Scan all metadata for hidden instructions: server instructions, names, descriptions, schemas, annotations, and templates. Validate argument schemas. Check for obvious attempts to send data out, such as a <code class="inl">url</code> pointing outside the allowlist.</li>
       <li><b>Reserve budget before forwarding.</b> Before sending the call, check and reserve its call and cost allowance in one step, counting parallel calls and sub-agents. Record the approved attempt before any side effect. Set a fixed tolerance for costs known only after the call runs.</li>
-      <li><b>Forward with a short-lived access token added by the gateway.</b> Only now does the call leave the gateway, over mTLS. It carries a short-lived, narrowly scoped access token for the agent's identity, from an issuer the tool trusts. The agent never receives this credential. Enforce the token's set expiry.</li>
+      <li><b>Forward with a short-lived access token added by the gateway.</b> Only now does the call leave the gateway over a protected connection, using mTLS where the deployment supports it. It carries a short-lived token issued for this backend, bounded by the agent's approved task and any delegated user/system authority. The agent-controlled runtime never receives the backend credential. A gateway-facing token cannot be reused at the backend. Enforce expiry and the measured revocation limit.</li>
       <li><b>Validate and scan the response.</b> Treat the tool's output as untrusted input on the way back. Remove anything that looks like a secret before it reaches the model's context or your logs. Reject or hold aside suspicious content, according to policy. Scans can miss an injection hidden in a well-formed response. So keep data separate from instructions, and enforce action permissions separately. <a href="/guides/run-time/">Data hygiene runs both ways.</a></li>
       <li><b>Reconcile usage and record the outcome.</b> Compare actual usage with the reserved budget. Add the outcome, agent identity, tool, argument hash, decision, and latency to the append-only audit trail.</li>
       <li><b>Fail closed.</b> If any step errors, deny. Examples: the scanner is down, the fingerprint store can't be reached, or the policy engine times out. A check that can't run is a denial, never a silent pass. A scanner that quietly lets unchecked content through creates false confidence. Block high-impact actions when required audit capture isn't working.</li>
@@ -276,6 +286,11 @@
 
 <section id="meter">
   <div class="wrap">
+    <h2>Request state, caches, and extensions</h2>
+    <p>MCP 2026-07-28 removes protocol-level sessions: requests carry their own metadata. A connection, process, conversation label, or self-reported client/server name is not an authenticated principal. For older versions, test their session-binding rules separately. Authorize every use of an explicit task ID, state handle, or resource URI; knowing its value is not authorization.</p>
+    <p>Key private tool-list/result caches by verified authorization context, tenant, resource, and policy version, with expiry or invalidation that meets the revocation limit. Share only results explicitly approved as public under the server's cache policy. Test a second tenant, a lower-privilege caller, and a revoked grant against both cached data and task handles.</p>
+    <p>Inventory protocol and extension versions. For Tasks, test access to status/results, cancellation, ownership, and shutdown with work in flight. For <a href="https://apps.extensions.modelcontextprotocol.io/api/documents/overview.html">MCP Apps</a>, test the host's iframe sandbox, declared CSP, bridge-message validation, and authorization of UI-initiated tool calls. A gateway cannot enforce browser-host boundaries it never sees. Assign the remaining controls to the host. Deprecated sampling, roots, logging, and legacy HTTP+SSE paths still need review while enabled; deprecation does not disable them.</p>
+
     <h2>Meter and control access through the choke point</h2>
     <p>Every call passes through one place, so that is also where you <strong>meter</strong> tool access. Metering is a security control, not just an accounting one. The gateway already knows which agent called which tool, with what arguments, and how often. Use it.</p>
 
@@ -295,7 +310,7 @@
 <section id="build">
   <div class="wrap">
     <h2>A minimal build</h2>
-    <p>You don't need a platform to start. This design has seven parts, starting with an MCP reverse proxy:</p>
+    <p>For an HTTP gateway, this reference design has seven parts. A local stdio integration needs equivalent controls in its host or sandbox:</p>
     <ol class="lifecycle">
       <li><b>A proxy front end</b> that speaks MCP to agents and to servers. It is the one endpoint every agent is set up, and network-restricted, to use.</li>
       <li><b>A registry or inventory</b>, the source of truth above: approved servers and tools, each with a fingerprint, owner, trust tier, allowed roles, and a credential pointer.</li>
@@ -305,10 +320,10 @@
       <li><b>A meter</b> that records calls and cost for each agent and tool, enforces quotas, and sends anomaly signals.</li>
       <li><b>An append-only audit store</b> that records every decision, so you can trace who did what and investigate later.</li>
     </ol>
-    <p>Wrap all seven so that any internal failure returns a denial to the agent. Then enforce the three no-bypass properties around it: isolated agents, private gateway-only servers, and no credentials held by agents. Now you have a real gateway, not a hint.</p>
+    <p>Wrap all seven so that any internal failure returns a denial to the agent. Then enforce the boundary for each deployment: approved agent egress, separately authorized backends, broker-held backend credentials, and restricted local processes. Now you have a real gateway, not a hint.</p>
 
     <div class="refbox">
-      <p style="margin:0"><b>Reference specification.</b> You don't have to invent the spec. Microsoft's open <a href="https://github.com/microsoft/agent-governance-toolkit/blob/580344a624530b6e9611e67544519bca3107cd31/docs/specs/MCP-SECURITY-GATEWAY-1.0.md">MCP Security Gateway 1.0</a> (part of the MIT-licensed <a href="https://github.com/microsoft/agent-governance-toolkit">Agent Governance Toolkit</a>) is a draft specification. It sets conformance requirements for interception, scanning, schema-drift detection, and fail-closed behavior. It doesn't prove that any product conforms. BRACE defines <em>what</em> to enforce at the MCP boundary and why it must be the only door. That spec is one concrete way to <em>build</em> the box.</p>
+      <p style="margin:0"><b>Reference specification.</b> Separate protocol conformance from architecture guidance. Microsoft's <a href="https://developer.microsoft.com/blog/securing-mcp-a-control-plane-for-agent-tool-execution/">Agent Governance Toolkit</a> includes a project-specific MCP Security Gateway specification. It sets conformance requirements for interception, scanning, schema-drift detection, and fail-closed behavior. It doesn't prove that any product conforms. BRACE defines <em>what</em> to enforce at the MCP boundary and why it must be the only door. That spec is one concrete way to <em>build</em> the box.</p>
     </div>
   </div>
 </section>
@@ -320,7 +335,7 @@
     <div class="eg">
       <div class="col bad">
         <div class="tag">✗ The bypassable gateway</div>
-        Agents can still reach servers directly or hold the credentials. Calls that bypass the gateway also bypass its controls.
+        Agents can invoke tools outside policy through direct routes, alternative execution paths, or leaked backend credentials. Those calls bypass the gateway controls.
       </div>
       <div class="col bad">
         <div class="tag">✗ The fail-open gateway</div>
@@ -334,7 +349,7 @@
       </div>
       <div class="col good">
         <div class="tag">✓ The real gateway</div>
-        The gateway mediates every tool call, denies access by default, fails closed, enforces budgets, and can stop further calls. These controls must work even when the agent does not cooperate.
+        Every governed tool call passes the selected enforcement boundary. It denies by default, fails closed, enforces budgets, and can stop further calls. These controls must work even when the agent does not cooperate.
       </div>
     </div>
   </div>
@@ -342,15 +357,21 @@
 
 <section id="checklist">
   <div class="wrap">
+    <h2>Evidence, deployment examples, and further reading</h2>
+    <p><b>Uber's deployment reports.</b> <a href="https://www.uber.com/us/en/blog/solving-the-agent-identity-crisis/">Solving the Identity Crisis for AI Agents</a> (May 2026) describes registry-verified agent identities, SPIRE-backed workloads, and short-lived per-hop tokens with delegation context. Its exchange is customized; preserved history is not proof of action approval. <a href="https://www.uber.com/us/en/blog/designing-mcp-gateway/">Designing MCP Gateway</a> (October 2026) describes separate registry/control and proxy/data planes, disabled-by-default tools, owner-reviewed changes, and CLI calls through the gateway. These are reported practices, not independent security certification or a universal MCP architecture.</p>
+    <p><b>Deployment guidance.</b> Use OWASP's <a href="https://genai.owasp.org/resource/a-practical-guide-for-secure-mcp-server-development/">secure server development guide</a> and <a href="https://genai.owasp.org/resource/cheatsheet-a-practical-guide-for-securely-using-third-party-mcp-servers-1-0/">third-party server guide</a> alongside the protocol. <a href="https://agentgateway.dev/docs/standalone/latest/documentation/configuration/security/backend-authn/token-exchange/standard/">agentgateway's token-exchange documentation</a> is one implementation reference, not a requirement to use that product.</p>
+    <p><b>Attack and scanner evidence.</b> <a href="https://arxiv.org/abs/2508.14925">MCPTox</a> tests poisoned tool metadata. <a href="https://arxiv.org/abs/2512.15163">MCP-SafetyBench</a> and <a href="https://arxiv.org/abs/2510.15994">MCP Security Bench</a> exercise broader tool workflows. <a href="https://arxiv.org/abs/2607.11086">The MCPZoo/scanner study</a> finds substantial disagreement, false alarms, and missed vulnerabilities in its sample. A clean scan is one piece of evidence. Keep allowed-task results, concrete negative tests, scanner versions, false positives, and misses; do not turn benchmark attack rates into a production risk estimate.</p>
+
     <h2>Gateway go / no-go</h2>
-    <p style="color:var(--muted)">One way to build the MCP boundary, extending Principle 5 of the <a href="/guides/ecosystem/">Ecosystem guide</a>. The full checklist sets the release gates and acceptable tradeoffs. The mTLS and credential-broker design in this guide is one way to meet them. See <a href="https://github.com/brace-ai-security/brace/blob/main/CHECKLIST.md#e--ecosystem">E02–E06 and E10–E11</a> and <a href="https://github.com/brace-ai-security/brace/blob/main/CHECKLIST-VERIFICATION.md#e--ecosystem">their verification recipes</a>. A clean content scan can't prove that every prompt injection was caught, so limit each agent's authority separately.</p>
+    <p style="color:var(--muted)">One way to build the MCP boundary, extending Principle 5 of the <a href="/guides/ecosystem/">Ecosystem guide</a>. The full checklist sets the release gates and acceptable tradeoffs. Choose internal, third-party, or local controls for each integration. The private-network/mTLS diagram is one example. See <a href="https://github.com/brace-ai-security/brace/blob/main/CHECKLIST.md#e--ecosystem">E02–E06 and E10–E11</a> and <a href="https://github.com/brace-ai-security/brace/blob/main/CHECKLIST-VERIFICATION.md#e--ecosystem">their verification recipes</a>. A clean content scan can't prove that every prompt injection was caught, so limit each agent's authority separately.</p>
     <ul class="check">
       <li>Agents are network-restricted so the gateway is their only route to any tool server.</li>
-      <li>MCP servers are on a private segment and accept connections only from the gateway, over mutual TLS.</li>
-      <li>Every MCP server and tool is in an inventory/registry — fingerprint, owner, trust tier, permitted roles — and the gateway admits only what is registered.</li>
+      <li>Internal, public third-party, and local stdio paths each have tested network, credential, and host controls appropriate to their deployment.</li>
+      <li>New tools start disabled. Owners approve versioned definitions and grants; re-checks, quarantine, config propagation, and rollback are tested.</li>
       <li>The gateway obtains and attaches <b>short-lived, scoped access tokens</b> for tool calls; agents never receive them. If a service only supports static API keys, keep them in the gateway and record the lifetime and revocation gap.</li>
       <li>Every call is authenticated to a specific agent identity and authorized against a <b>registry-backed allowlist for the agent's role</b> (deny by default). The list of available tools is filtered by the agent's role.</li>
-      <li>Requests whose <code class="inl">Mcp-*</code> headers don't match the body are rejected before policy runs. Cached tool lists are kept separate for each authorization context.</li>
+      <li>Header/body mismatches are rejected before routing or policy relies on them. Private caches and explicit task/state handles are isolated by verified authorization context and tenant, including after policy changes.</li>
+      <li>Gateway/backend audiences, delegated subjects, dynamic tools, CLI/code mode, task cancellation, and enabled Apps boundaries have positive and negative tests.</li>
       <li>Calls and responses are scanned, the tool fingerprint is re-checked, and any check failure denies (fail closed).</li>
       <li>Per-agent, per-tool quotas and cost metering are enforced, with anomaly alerts and a central cut-off.</li>
       <li>Every decision is written to an append-only audit trail.</li>

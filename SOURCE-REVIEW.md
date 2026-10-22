@@ -1,12 +1,30 @@
 # Source and practical-accuracy review
 
-**Review dates: 2026-09-16 (full review); 2026-09-30 (update against current guidance, below).** Scope: the [53-item checklist](CHECKLIST.md), [verification recipes](CHECKLIST-VERIFICATION.md), assessment, guides, resource catalog, vendor worksheet, and telemetry proposal.
+**Review dates: 2026-09-16 (full review); 2026-09-30 (update against current guidance); 2026-10-16 (targeted MCP revision); 2026-10-22 (all 53 recommendations re-researched, BRACE 2.0.1).** Scope: the [53-item checklist](CHECKLIST.md), [verification recipes](CHECKLIST-VERIFICATION.md), assessment, guides, resource catalog, vendor worksheet, and telemetry proposal.
+
+## Latest review: 2026-10-22
+
+The [full dated evidence review](RESEARCH-2026-10-22.md) rechecks all 53 items and recipes, with a row for every item, original advisory links, affected/fixed versions, configuration prerequisites and source limits. Newly published October 19–21 advisories are distinguished from older omissions found now. This is a source review, not a dependency audit, exploit reproduction, model requalification or deployment test.
+
+**Approved policy clarification:** high-stakes or high-autonomy deployments receive evidence, gaps and unknowns, without a BRACE GO/NO-GO deployment verdict. Unrated deployments also receive findings only. Accountable people own any deployment decision and a gradual, closely monitored rollout with bounded exposure, stop conditions, tested recovery and review before expansion. Lower-risk GO/NO-GO results describe checklist record conditions, not deployment authorization. This supersedes earlier release-approval wording below; government guidance recommends low-risk, non-sensitive uses and does not endorse a high-risk release after BRACE gates pass.
+
+| Rechecked concern | Finding and discussion implication |
+|---|---|
+| Patching versus configured remediation | MCP TypeScript/Python issuer, audience and validation fixes can require explicit settings, stored-credential cleanup and application lifecycle changes. A patched version alone is insufficient evidence. |
+| Inputs before inference | October 20 vLLM advisories cover media decoder dispatch, GPU exhaustion, token ranges and unauthenticated browser-reachable endpoints. Token budgets and prompt checks do not cover every preprocessing failure. |
+| Persistent authority and influence | Hook registration, files, summaries and handoffs can change later execution. Namespace encoding and batch/async/auth-hook paths need concrete isolation tests. |
+| Verification and recovery | A missed August Cosign advisory concerns legacy blob bundles, explicitly not OCI images. Checkpoint object revival and model-loader advisories distinguish authenticity from safe decoding. |
+| Metadata and scanning | Fingerprinting all reviewed metadata and containing scanner startup are distinct from scanning descriptions. Skills over MCP adds host-specific activation, origin and cache boundaries. |
+| Shutdown and evidence | Cooperative cancellation does not prove execution has stopped. Complete action evidence should retain necessary detail in protected storage without leaking secrets into normal logs. |
+| Standards and assurance claims | MCP versioning still identifies 2026-07-28; identity drafts and OTel Development conventions retain their stated limits. BRACE's exact schema, context metric and priorities remain design judgments. |
+
+Apart from the approved release-policy clarification, these technical refinements remain discussion inputs. They have not silently changed checklist controls, gates or existing model qualification claims. Updated references are indexed in the [resource catalog](RESOURCES.md#security-reference-refresh-2026-10-22).
 
 ## Conclusion and limits
 
 The core control approach is consistent with the primary guidance reviewed, subject to the corrections below. All 53 requirements and their verification recipes were reviewed for practical accuracy using the available documentation. **This is not a deployment test, product certification, or proof that these controls prevent every attack.** Effectiveness must be demonstrated on the actual release using the verification recipes.
 
-The source inventory contained **70 distinct external URLs** before this review. The initial link check successfully retrieved 67 sources (HTTP 200); three blocked access (HTTP 403). A successful response establishes reachability, not accuracy or implementation effectiveness. Relevant primary documentation was then read to check the security claims and catalog descriptions; the inventory states the verification limits for other references. Product source code, all linked subpages, and proprietary service internals were not comprehensively audited.
+Before the initial 2026-09-16 review, the source inventory contained **70 distinct external URLs**. The initial link check successfully retrieved 67 sources (HTTP 200); three blocked access (HTTP 403). A successful response establishes reachability, not accuracy or implementation effectiveness. Relevant primary documentation was then read to check the security claims and catalog descriptions; the inventory states the verification limits for other references. Product source code, all linked subpages, and proprietary service internals were not comprehensively audited.
 
 The nine controls, exact six-field identity schema, decision-time context requirement, top-three selections, and release gates are BRACE design judgments. Sources support related principles; they do not prescribe this exact checklist or validate its ranking. Mappings to standards show related concepts; they do not establish compliance.
 
@@ -51,6 +69,22 @@ All 53 checklist items and their recipes were rechecked against guidance publish
 - The OWASP ASI01–ASI10 identifiers appear only in the downloadable document, not on the landing page.
 
 These limits do not change any requirement.
+
+## Targeted MCP update: 2026-10-16
+
+This update reviews MCP credential/delegation language, gateway deployment patterns, tool publication, protocol state/extensions, and the related verification recipes. It is not a new audit of every external reference, an exhaustive literature review, or a deployment/conformance test. Existing evaluation snapshots and historical outreach remain records of their evaluated versions. Changing the review checks requires fresh model qualification; historical model results do not validate this revision.
+
+| Finding | Revision and evidence |
+|---|---|
+| An access token need not represent only a service account. | B02/B03 and the guides distinguish acting-agent identity from machine or explicitly delegated user/system authority. Gateway and backend audiences are checked separately. Supported exchange is an option, not an issuer capability every backend has. S3, S27, S41, S42. |
+| An internal network design was described too broadly. | E06 and the gateway guide distinguish internal HTTP, public third-party and local stdio enforcement. Private networks and mTLS are one internal pattern. Public services need effective controls over agent egress and credential custody; local processes need host/sandbox restrictions. S4, S43, S44. |
+| Tool discovery and publication need distinct states. | E03 adds disabled discovery, owner approval, versioned grants, bounded config propagation, quarantine and rollback that preserves revocations. Uber's reports support the pattern; they are not independent verification or normative MCP requirements. S45, S46. |
+| Policy can be bypassed through alternate invocation paths. | E06 and its recipe cover direct, dynamic, wrapper and CLI/code-mode calls, with operation/resource/tenant/argument checks. The protocol does not itself enforce the approved business task. S44, S46, S47. |
+| New protocol state and extensions need explicit ownership. | E06 and C01 record protocol/extension versions, private cache isolation, task/state-handle authorization, Tasks cancellation and Apps host controls. 2026-07-28 removed protocol sessions; older clients still need their applicable binding tests. Self-reported metadata is not identity. S19, S43, S48. |
+| A clean scan can be mistaken for sufficient assurance. | Recipes require allowed-task results and concrete denial/outage tests. The research catalog distinguishes benchmark results, demonstrations, empirical scanner studies and proposed defenses. No cross-study attack rate or certification claim is made. S49–S57. |
+| Guidance and specifications have different authority. | The catalog labels protocol requirements, RFCs, optional stable/draft extensions, CoSAI profiles, project-specific gateway specifications, deployment reports and research. MCP authorization is optional at protocol level; BRACE requires it for protected access. CoSAI assurance profiles are additional requirements when adopted, not automatic BRACE certification. S3, S16, S41–S43, S48. |
+
+The targeted source set is listed in the [MCP resource catalog](RESOURCES.md#mcp-security-specifications-deployment-practice-and-research), including original Invariant, Trail of Bits, JFrog and Pillar disclosures. These reports have different attacker assumptions and dates. We did not reproduce exploits, independently audit vendor systems, or re-run published benchmarks.
 
 ### Evidence still unavailable
 
@@ -103,6 +137,24 @@ References below support the related principle, not every BRACE-specific impleme
 - **S39:** [NIST AI 100-1, AI RMF 1.0](https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf) and [NIST AI 600-1, Generative AI Profile](https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf), used for the [AI RMF mapping](mappings/nist-ai-rmf.md). On 2026-10-01 NIST's AI RMF page said version 1.0 is being revised; no newer version was published.
 - **S40:** [ISO/IEC 42001:2023](https://www.iso.org/standard/81230.html), via its free online preview, for the clause headings in the [ISO/IEC 42001 mapping](mappings/iso-iec-42001.md). Annex A control titles come from public secondary lists named in that file; the full standard was not reviewed.
 
+- **S41:** [RFC 9700: OAuth security best current practice](https://www.rfc-editor.org/rfc/rfc9700.html). Checked 2026-10-16.
+- **S42:** [MCP Enterprise-Managed Authorization (stable optional) and Client Credentials (draft optional)](https://github.com/modelcontextprotocol/ext-auth). Checked 2026-10-16.
+- **S43:** [CoSAI MCP Security v2.0, August 2026 update and September publication note](https://www.coalitionforsecureai.org/mcp-security-version-2-0-from-threat-taxonomy-to-a-model-you-can-actually-audit-against/). Checked 2026-10-16.
+- **S44:** [OWASP secure MCP development and third-party-use guidance](https://genai.owasp.org/resource/a-practical-guide-for-secure-mcp-server-development/). Checked 2026-10-16. See also [third-party server use](https://genai.owasp.org/resource/cheatsheet-a-practical-guide-for-securely-using-third-party-mcp-servers-1-0/).
+- **S45:** [Uber identity architecture, 2026-05-21 (deployment report)](https://www.uber.com/us/en/blog/solving-the-agent-identity-crisis/). Checked 2026-10-16.
+- **S46:** [Uber gateway architecture, 2026-10-01 (deployment report)](https://www.uber.com/us/en/blog/designing-mcp-gateway/). Checked 2026-10-16.
+- **S47:** [Docker MCP Gateway security boundaries (implementation documentation)](https://github.com/docker/mcp-gateway/blob/main/docs/security.md). Checked 2026-10-16.
+- **S48:** [MCP 2026-07-28 changes and optional extension boundaries](https://blog.modelcontextprotocol.io/posts/2026-07-28/). Checked 2026-10-16. [MCP Apps host security](https://apps.extensions.modelcontextprotocol.io/api/documents/overview.html) requires separate host-side evidence.
+- **S49:** [MCPTox](https://arxiv.org/abs/2508.14925). Checked 2026-10-16.
+- **S50:** [MCP-SafetyBench](https://arxiv.org/abs/2512.15163). Checked 2026-10-16.
+- **S51:** [MCP Security Bench](https://arxiv.org/abs/2510.15994). Checked 2026-10-16.
+- **S52:** [MCPXKIT](https://arxiv.org/abs/2508.12538). Checked 2026-10-16.
+- **S53:** [MCPZoo and scanner reliability](https://arxiv.org/abs/2607.11086). Checked 2026-10-16.
+- **S54:** [MCP Pitfall Lab](https://arxiv.org/abs/2604.21477). Checked 2026-10-16.
+- **S55:** [AEGIS (research architecture)](https://arxiv.org/abs/2608.20481). Checked 2026-10-16.
+- **S56:** [Enterprise MCP authentication architecture (research)](https://arxiv.org/abs/2608.10760). Checked 2026-10-16.
+- **S57:** [MCP lifecycle/threat survey](https://arxiv.org/abs/2503.23278). Checked 2026-10-16.
+
 ## Review coverage: all 53 items
 
 Each row records the practical issue checked or clarified. An unchanged item means no design correction was identified in this review; it does not mean an implementation has passed. Use the linked verification guide for procedures and expected evidence.
@@ -110,9 +162,9 @@ Each row records the practical issue checked or clarified. An unchanged item mea
 | Item | Related guidance | Practical review conclusion |
 |---|---|---|
 | B05 | S1 S6 S34 S21 S22 | Authorize operation, target, and arguments at execution; command-name filtering is insufficient. |
-| B02 | S1 S3 S27 | Check destination permissions and tenant isolation with actual issued credentials. |
+| B02 | S1 S3 S27 S41 S42 | Check destination permissions and tenant isolation with actual issued credentials. |
 | B01 | S1 S19 | Inventory every callable path; a model refusing a tool is not enforcement. |
-| B03 | S3 S5 S25 S28 | Measure expiry and rotation overlap; do not demand invalidation before an explicitly permitted overlap ends. |
+| B03 | S3 S5 S25 S28 S41 S42 | Measure expiry and rotation overlap; do not demand invalidation before an explicitly permitted overlap ends. |
 | B04 | S5 S26 | Measure the revocation budget, including cached tokens and existing sessions; refresh-token revocation alone is insufficient. |
 | B06 | S6 S27 | Bind approval to the action, check current state, and exercise concurrent replay. |
 | B07 | S1 S24 | Include children and in-flight overshoot in a declared budget; no universal safe numerical limit. |
@@ -150,13 +202,13 @@ Each row records the practical issue checked or clarified. An unchanged item mea
 | C06 | S1 S2 S34 | Use deployment-specific regression and injection cases; a passing finite suite is bounded evidence. |
 | C07 | S1 S9 S12 S33 | Test restart and rollback with state compatibility; a code rollback cannot undo committed external effects. |
 | C08 | S11 S14 | Verify retained trace-to-release and prompt references; the exact BRACE join is custom instrumentation. |
-| E06 | S3 S4 S16 S19 S20 | Apply HTTP authorization or equivalent local stdio enforcement as appropriate; cover bypass and response paths. |
+| E06 | S3 S4 S16 S19 S20 S43 S44 S47 S48 | Apply HTTP authorization or equivalent local stdio enforcement as appropriate; cover bypass and response paths. |
 | E08 | S1 S3 S27 | Exercise privilege escalation through a peer; delegation must not bypass the caller’s authorization. |
 | E09 | S1 | Prove the stop reaches remote descendants, queues, credentials, and retries within the chosen budget. |
 | E01 | S1 S15 | Assign platform and team responsibilities; an upstream product claim is not implementation evidence. |
 | E02 | S1 S8 S9 S20 S31 | Pin observable artifacts, assess maintenance, and record remote implementation limitations. |
-| E03 | S4 S16 S19 S20 | Metadata fingerprints detect metadata changes; they cannot attest hidden remote code. |
-| E04 | S2 S4 S19 S20 | Scan metadata with a failure policy; scanners have false positives and evasion limits. |
+| E03 | S4 S16 S19 S20 S46 | Metadata fingerprints detect metadata changes; they cannot attest hidden remote code. |
+| E04 | S2 S4 S19 S20 S49 S53 | Scan metadata with a failure policy; scanners have false positives and evasion limits. |
 | E05 | S3 S4 S19 | Bind server identity plus tool name; names alone do not establish provenance. |
 | E07 | S1 S6 S20 | Authenticate, authorize, validate, and prevent replay of action-bearing peer messages. |
 | E10 | S11 S13 S14 S34 | Verify cross-service propagation and protected evidence; standards do not guarantee instrumentation completeness. |

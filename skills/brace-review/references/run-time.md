@@ -544,7 +544,7 @@ Test suspicious chains of actions that are each allowed on their own. Also test 
 
   If you can't fully do it: Start with a few clear signals. Examples: an unusual number of reads followed by an outside send, repeated denials, too many sub-agents, or a used-up budget. Measure how many seeded attacks you catch, how many false alarms you raise, and how fast alerts arrive, for each context-size range. Use hard rate and cost limits, and limit destinations, while you improve detection. Say exactly which sequences you cover and which you miss. Basic rules don't prove general sequence detection.
 
-  Tradeoffs you can accept: A narrower, written detection scope, and a measured false-alarm rate that responders can handle. For lower-stakes deployments, defer broader coverage under G3 while keeping hard limits. Where G3 blocks release, reduce the real exposure or finish the required coverage.
+  Tradeoffs you can accept: A narrower, written detection scope, and a measured false-alarm rate that responders can handle. For lower-stakes deployments, defer broader coverage under G3 while keeping hard limits. For high-risk use, retain uncovered behavior as an open finding and reduce exposure or finish the required coverage.
 
 ### Verification recipe
 

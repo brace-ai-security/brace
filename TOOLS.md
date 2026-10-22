@@ -1,6 +1,6 @@
 # BRACE in your codebase
 
-These tools bring the [sign-off checklist](CHECKLIST.md) into an agent's repository. AI skills review the code and write tests. A `.brace/` folder records outcomes, exceptions, and N/A decisions. A CI check turns that record into a GO or NO-GO.
+These tools bring the [sign-off checklist](CHECKLIST.md) into an agent's repository. AI skills review the code and write tests. A `.brace/` folder records outcomes, exceptions, and N/A decisions. A CI check reports record findings. High-stakes, high-autonomy and unrated deployments receive FINDINGS, without a BRACE release verdict.
 
 The split is deliberate. **The AI drafts. People approve.** An AI reading a repository can be misled by what's in it, so no AI output counts as a Pass or an approval.
 
@@ -11,7 +11,7 @@ The split is deliberate. **The AI drafts. People approve.** An AI reading a repo
 | `brace-review` skill | Reads the agent's code and config and rates all 53 items: likely_pass, gap, needs_evidence, or na_candidate, with file and line evidence. Reports text in the repo that tries to steer the review. | [skills/brace-review/](skills/brace-review/SKILL.md) |
 | `brace-tests` skill | Turns the [verification recipes](CHECKLIST-VERIFICATION.md) into tests and drill scripts that produce dated evidence files. | [skills/brace-tests/](skills/brace-tests/SKILL.md) |
 | `brace-record` skill | Sets up `.brace/`, records outcomes with evidence, and drafts exceptions and N/A decisions for people to approve. | [skills/brace-record/](skills/brace-record/SKILL.md) |
-| `brace.py` | Checks the `.brace/` record against the gates, verifies approvals on GitHub, recomputes the agent-type-id, and returns GO or NO-GO. | [tools/brace/](tools/brace/README.md) |
+| `brace.py` | Checks the `.brace/` record against the gates, verifies approvals on GitHub, recomputes the agent-type-id, and reports FINDINGS for high-risk deployments or GO/NO-GO record conditions for lower-risk deployments. | [tools/brace/](tools/brace/README.md) |
 | Evals | Sample agent repos with planted gaps, used to measure how well `brace-review` works. | [evals/](evals/README.md) |
 
 ## How it fits together
@@ -21,7 +21,7 @@ The split is deliberate. **The AI drafts. People approve.** An AI reading a repo
 3. **Test.** Run the `brace-tests` skill on items rated `needs_evidence` or `likely_pass`. Run the tests and drills in a test environment. Each one writes a dated evidence file.
 4. **Record.** Use the `brace-record` skill, or edit by hand, to mark each item in `.brace/record.yaml`. A Pass needs an evidence link and date. For a gap you choose to accept, the skill drafts an exception file.
 5. **Approve.** Open a pull request. Governance approves exceptions and N/A decisions by approving that pull request. `CODEOWNERS` makes their review required.
-6. **Gate.** CI runs `brace.py check --approvals github --strict` on every pull request and on main. It blocks release when a G1 item isn't met, an exception lacks an approval, an item wasn't reviewed, or the agent changed since the last review.
+6. **Check evidence.** CI runs `brace.py check --approvals github --strict` on every pull request and on main. It flags unmet G1/G3 requirements, missing approvals/reviews and changes since review. For high-risk or unrated deployments, its result is FINDINGS even with no gaps. Exit code 0 means record conditions were met, not deployment approval. Accountable people own any high-risk rollout: small stages, bounded exposure, close monitoring, stop conditions, tested recovery and review before expansion.
 
 ## The `.brace/` folder
 
@@ -42,9 +42,9 @@ The skills follow the common `SKILL.md` format. To use them with Claude Code, co
 ## What these tools can't do
 
 - **They don't prove an agent is secure.** A code review finds likely gaps and likely controls. Many items, such as stop times, revocation delays, and drift alerts, can only be shown by running the recipes.
-- **They don't replace people's judgment.** The stakes rating, risk acceptances, N/A decisions, and the GO/NO-GO decision stay with the roles in [ROLES.md](ROLES.md).
+- **They don't replace people's judgment.** The stakes rating, risk acceptances, N/A decisions, and deployment decisions stay with the roles in [ROLES.md](ROLES.md).
 - **The review's accuracy is measured, not assumed.** See the [eval results](evals/README.md) before trusting `brace-review` on its own, and re-run the evals when the skill or the checklist changes.
-- **Use a strong model for `brace-review`, such as Claude Sonnet or Opus.** On eight agent codebases the skill had never seen, a strong model found all 92 planted gaps with no false passes. A small model (Claude Haiku) found 64 of 92, missed gaps hidden behind code that looks like a working control, and passed 9 broken controls. If only a small model is available, use `--conservative` and treat the output as a partial gap list.
+- **Use a capable reviewer and fresh challengers.** The previous skill qualified `gpt-6.1-sol` on six repeated procurement/clinic runs; tested Sonnet and Luna failed that workflow. The revised skill adds static path inventories, required-control coverage/deviations, concrete bypass attempts, five-item batches and independent discovery before comparison. It requires separate qualification; Sonnet is being retested. Haiku remains unsupported. [All results and limits](evals/README.md#model-qualification) are recorded, with evaluated skill snapshots; historical Opus runs used older keys. `--conservative` produces a partial gap list and does not qualify a model.
 
 ---
 

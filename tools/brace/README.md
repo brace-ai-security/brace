@@ -1,8 +1,8 @@
 # brace.py — the BRACE sign-off checker
 
-`brace.py` reads a `.brace/` folder in your agent's codebase and tells you whether the
-release is a **GO** or a **NO-GO** under the [BRACE sign-off checklist](../../CHECKLIST.md).
-It lists every reason for a NO-GO in plain language, so you know what to fix.
+`brace.py` checks the supplied `.brace/` evidence record against the [BRACE checklist](../../CHECKLIST.md). High-stakes, high-autonomy or unrated deployments return **FINDINGS**, with evidence gaps and unknowns, never a BRACE GO/NO-GO deployment verdict. Lower-risk deployments retain GO/NO-GO record results. Neither a clean report nor exit code 0 authorizes deployment.
+
+Accountable people own any high-risk rollout: gradual stages, bounded exposure, close monitoring, explicit stop conditions, tested recovery and review before expansion.
 
 It checks the record. It does not test your agent. The evidence links in the record
 point to the tests you ran (see the [verification guide](../../CHECKLIST-VERIFICATION.md)).
@@ -39,9 +39,9 @@ For each item in `record.yaml`, set `outcome` to one of:
 
 - `pass` — add at least one `evidence` entry with a `link` and a `date`.
 - `gap` — the item isn't met. What happens next depends on its gate:
-  - **G1**: release is blocked. G1 items can't be waived.
+  - **G1**: an open, non-waivable finding; blocks a lower-risk record GO.
   - **G2**: add a risk acceptance file in `.brace/exceptions/` and set `exception:` to its name (without `.yaml`).
-  - **G3**: blocked when the deployment is high stakes or high autonomy. Otherwise, treat it like G2.
+  - **G3**: remains an open finding when stakes or autonomy are high. Otherwise, treat it like G2.
 - `na` — add a file in `.brace/na/` with the reason, evidence, and reviewer, and set `na:` to its name.
 
 Exception files have no expiry date. They stay until someone removes them, and the
@@ -57,9 +57,9 @@ Options:
 - `--approvals github|git|off` — how to check approvals (see below).
 - `--strict` — treat an approval that couldn't be verified as blocking. Use this in CI.
 - `--json FILE` — also write the result as JSON (`-` prints it). The JSON has
-  `decision`, `reasons`, `warnings`, `counts`, and one entry per item.
+  `decision` (`FINDINGS` for high-risk/unrated deployments), `notice`, `reasons`, `warnings`, `counts`, and one entry per item. Consumers that assumed `decision` has only GO/NO-GO must handle FINDINGS explicitly. Item status `blocked` means an unresolved record condition, not a high-risk deployment veto.
 
-The checker blocks release when:
+The checker reports unresolved record conditions (exit 1) when:
 
 1. a file doesn't match its schema (this is exit code 2, not a NO-GO);
 2. the stakes and autonomy rating is missing or incomplete;
@@ -95,7 +95,7 @@ Approval modes:
 
 Without `--approvals`, the checker uses `github` when `approvals.provider` is `github`
 and both variables are set, `git` inside a git repository, and `off` otherwise.
-With `--strict`, "not verified" blocks release.
+With `--strict`, "not verified" is an unresolved record finding.
 
 ## Agent-type-id
 
@@ -104,7 +104,7 @@ With `--strict`, "not verified" blocks release.
 prints the fingerprint of the inputs in `.brace/manifest.yaml`. Paths are relative to
 the repository root. Copy the value into `agent_type_id.value` in `deployment.yaml`, and
 set `agent_type_id.manifest`. From then on, `check` recomputes it. If any input changed,
-the release is blocked until someone reviews it again and records the new value.
+the record has an unresolved finding until someone reviews it again and records the new value.
 
 How the fingerprint is computed:
 
@@ -139,8 +139,8 @@ on reviews, and on pushes to `main`.
 
 | Code | Meaning |
 |---|---|
-| 0 | GO (or the command worked) |
-| 1 | NO-GO |
+| 0 | Record conditions met (or command succeeded); not deployment authorization |
+| 1 | Unresolved record findings; not a high-risk deployment verdict |
 | 2 | Invalid input or usage error: a file is missing, isn't valid YAML, doesn't match its schema, or the GitHub API couldn't be read |
 
 ## For BRACE maintainers

@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """BRACE record checker.
 
-Reads the `.brace/` record folder in a codebase and decides GO or NO-GO
-against the BRACE sign-off checklist.
+Reads the `.brace/` record folder against the BRACE checklist. High-risk
+deployments receive FINDINGS, never a GO/NO-GO deployment verdict.
 
   brace.py init  [--dir .]
   brace.py items [--json]
   brace.py hash  [--dir .] [--manifest .brace/manifest.yaml]
   brace.py check [--dir .] [--approvals github|git|off] [--strict] [--json out.json]
 
-Exit codes: 0 GO (or command succeeded), 1 NO-GO, 2 invalid input or usage error.
+Exit codes: 0 record conditions met, 1 unresolved findings, 2 invalid input/usage.
+These codes do not authorize deployment.
 Requires Python 3.10+ and PyYAML. Uses `jsonschema` when installed; otherwise a
 built-in validator for the subset of JSON Schema the bundled schemas use.
 """
@@ -738,14 +739,14 @@ class Checker:
         cls = self.deployment.get("classification")
         fields = ["stakes", "autonomy", "rationale", "approved_by"]
         if not cls:
-            self._block(None, "deployment.yaml has no classification (stakes and autonomy rating). A missing rating blocks release.")
+            self._block(None, "deployment.yaml has no classification (stakes and autonomy rating). Assessment scope is incomplete.")
             high = True
         else:
             missing = [f for f in fields if _blank(cls.get(f))]
             if missing:
                 self._block(None, f"The classification in deployment.yaml is missing: {', '.join(missing)}. "
-                                  "An incomplete rating blocks release.")
-            high = cls.get("stakes") != "low" or cls.get("autonomy") != "low"
+                                  "Assessment scope is incomplete.")
+            high = bool(missing) or cls.get("stakes") != "low" or cls.get("autonomy") != "low"
         self.high = high
 
         no_lead: list[str] = []
@@ -813,12 +814,13 @@ class Checker:
     def rule_gap(self, item_id, meta, rec):
         gate = meta["gate"]
         if gate == "G1":
-            self._block(item_id, f"{item_id} is G1 and marked gap. G1 items can't be waived. Release is blocked.")
+            consequence = "The finding remains open." if self.high else "Release is blocked."
+            self._block(item_id, f"{item_id} is G1 and marked gap. G1 items can't be waived. {consequence}")
             return
         if gate == "G3" and self.high:
             why = "high stakes or high autonomy" if self.deployment.get("classification") else "not rated, so it counts as high stakes"
             self._block(item_id, f"{item_id} is G3 and marked gap. This deployment is {why}, so G3 gaps can't be "
-                                 "accepted as risk. Release is blocked.")
+                                 "closed by risk acceptance. The finding remains open.")
             return
         stem = rec.get("exception")
         if not stem:
@@ -882,7 +884,11 @@ class Checker:
         for item in self.items_out.values():
             counts[item["gate"]][item["outcome"]] += 1
         return {
-            "decision": "NO-GO" if self.reasons else "GO",
+            "decision": "FINDINGS" if self.high else ("NO-GO" if self.reasons else "GO"),
+            "notice": ("High-risk or unrated deployment: record findings only; BRACE does not authorize or reject deployment. "
+                       "Any rollout needs accountable human judgment, gradual exposure, close monitoring, "
+                       "stop conditions and tested recovery." if self.high else
+                       "GO/NO-GO describes checklist record conditions, not deployment authorization."),
             "reasons": self.reasons,
             "warnings": self.warnings,
             "approvals": self.mode,
@@ -910,14 +916,17 @@ def render_summary(res: dict) -> str:
     lines.append(f"{'All':4}{totals['pass']:>6}{totals['gap']:>6}{totals['na']:>6}{totals['not_reviewed']:>10}{totals['missing']:>9}")
     if res["reasons"]:
         lines.append("")
-        lines.append(f"Blocking ({len(res['reasons'])}):")
+        label = "Unresolved findings" if res["decision"] == "FINDINGS" else "Blocking"
+        lines.append(f"{label} ({len(res['reasons'])}):")
         lines.extend(f"  - {r}" for r in res["reasons"])
     if res["warnings"]:
         lines.append("")
         lines.append(f"Warnings ({len(res['warnings'])}):")
         lines.extend(f"  - {w}" for w in res["warnings"])
     lines.append("")
-    lines.append(f"Decision: {res['decision']}")
+    label = "Report" if res["decision"] == "FINDINGS" else "Decision"
+    lines.append(f"{label}: {res['decision']}")
+    lines.append(res["notice"])
     return "\n".join(lines)
 
 
@@ -931,7 +940,7 @@ def cmd_check(args) -> int:
             sys.stdout.write(text)
         else:
             Path(args.json).write_text(text, encoding="utf-8")
-    return EXIT_GO if res["decision"] == "GO" else EXIT_NOGO
+    return EXIT_NOGO if res["reasons"] else EXIT_GO
 
 
 # --------------------------------------------------------------------------
@@ -945,7 +954,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = _Parser(prog="brace.py", description="Check a BRACE record folder (.brace/) and decide GO or NO-GO.")
+    p = _Parser(prog="brace.py", description="Check BRACE evidence records; high-risk reviews report FINDINGS without a release verdict.")
     sub = p.add_subparsers(dest="command", required=True, parser_class=_Parser)
 
     s = sub.add_parser("init", help="create .brace/ from the templates")
@@ -961,7 +970,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--manifest", help="manifest file (default: <dir>/.brace/manifest.yaml)")
     s.set_defaults(func=cmd_hash)
 
-    s = sub.add_parser("check", help="validate .brace/ and decide GO or NO-GO")
+    s = sub.add_parser("check", help="validate .brace/ and report record findings")
     s.add_argument("--dir", default=".", help="repository root holding .brace/ (default: .)")
     s.add_argument("--approvals", choices=["github", "git", "off"],
                    help="how to verify exception and N/A approvals (default: github when configured and "

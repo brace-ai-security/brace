@@ -1,5 +1,16 @@
 # Project Instructions for AI Agents
 
+## BRACE versioning
+
+`VERSION` is the authoritative BRACE semantic version. For every future update to
+framework content, documentation, website, or tooling, increment it once per delivered change set:
+patch for compatible corrections, references, or maintenance; minor for compatible
+additions; major for incompatible requirements, gates, IDs, or interfaces. Reset
+lower components when incrementing major or minor. Keep the version displayed in
+`index.html`, `README.md`, and `CITATION.cff` synchronized. The current update
+establishes 2.0.1; apply the next increment to the next update. Beads-only tracking
+changes do not require a bump. Mirror this rule in `AGENTS.md`.
+
 This file provides instructions and context for AI coding agents working on this project.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->

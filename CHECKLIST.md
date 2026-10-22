@@ -1,6 +1,8 @@
 # BRACE sign-off checklist
 
-Use this checklist to decide if an AI agent is ready for production. It covers all five BRACE aspects: **Build-time, Run-time, Agent, Configuration, and Ecosystem**.
+Use this checklist to record the controls, gaps and unknowns found for an AI agent. It covers all five BRACE aspects: **Build-time, Run-time, Agent, Configuration, and Ecosystem**.
+
+**High-risk deployments:** when stakes or autonomy are high, BRACE reports what was checked, what was found, what was not found and what remains unverified. It does not issue a GO/NO-GO deployment verdict. A report with no identified gaps is not proof of safety. Accountable people own the deployment decision. Any rollout should start with small, bounded exposure, close monitoring, explicit stop conditions and tested recovery, with human review before each expansion. The release policy and priorities below are BRACE judgments, not government endorsement of high-risk agent use.
 
 Run it at three times:
 
@@ -15,7 +17,7 @@ The checklist covers two kinds of trouble. An attacker may **hijack or misuse** 
 1. **Describe the deployment.** Write down the agent's task, environment, tenants (customers or accounts whose data must stay separate), data sensitivity, allowed actions, and level of autonomy. Also write down the worst damage it could credibly cause. Include tools, retrieval, memory, helper models, and sub-agents.
 2. **Go through all five aspects.** Give every item an owner. The [role map](ROLES.md) suggests which team should lead each item. Mark an item done only when the deployed setup meets it and you can link to proof. Proof means a reviewed artifact, an enforced policy, a trace, or a dated test result. A plan or a vendor claim is not proof.
 3. **Record every result.** Use **Pass**, **Gap**, or **N/A** in the evidence record below. A partial fix is a Gap. N/A needs a reason and a reviewer's approval. A missing control is not N/A. For example, memory checks are N/A only if the agent has no memory that lasts between runs.
-4. **Apply the priority gates in all five sections.** The section letters say *where to look*. The gate labels say *what blocks release*. Don't stop after Build-time or after the first section that passes.
+4. **Apply the priority gates in all five sections.** The section letters say *where to look*. The gate labels organize evidence requirements and lower-risk record conditions. Don't stop after Build-time or after the first section that passes.
 5. **Use the verification recipes.** The [verification guide](CHECKLIST-VERIFICATION.md) gives each item a test, the result to expect, and the evidence to keep. To keep the record in the agent's repository and check it in CI, see [BRACE in your codebase](TOOLS.md). Test the release candidate. Use separate test resources and fake data, and write down how the test setup differs from production.
 6. **Finish the sign-off record.** Fix blockers, write down any allowed deferrals, and set the next review date.
 
@@ -37,7 +39,7 @@ For each fallback, record:
 - how failures are handled;
 - an owner.
 
-A fallback does not pass automatically. Check whether it meets the original requirement. If it doesn't, keep the Gap and apply the gate rules below. If a gap blocks release, cut the agent's powers or autonomy, or remove the integration at fault. Then re-test that actual setup. Judge the risk by how the agent now behaves. Don't just rename the deployment to dodge a gate. Improve coverage over time, and never claim more than your evidence shows.
+A fallback does not pass automatically. Check whether it meets the original requirement. If it doesn't, keep the Gap and apply the gate rules below. To reduce an open gap's exposure, cut the agent's powers or autonomy, or remove the integration at fault. Then re-test that actual setup. Judge the risk by how the agent now behaves. Don't just rename the deployment to dodge a gate. Improve coverage over time, and never claim more than your evidence shows.
 
 **Start with the top three in each aspect.** The **IF YOU DO NOTHING ELSE** items are the first things to build in each aspect. Each appears only once. For production sign-off, every applicable G1 item and the G2/G3 rules still apply.
 
@@ -58,15 +60,15 @@ Codes owned by other groups are outside references, not BRACE codes. When one ap
 
 ### Priority gates (G)
 
-A **gate** is a checkpoint a release must clear before it ships. That is why the labels start with **G**. Every item has one of three gates. G1 is the strictest.
+A **gate** groups evidence requirements and unresolved findings. Every item has one of three gates. G1 is the strictest. For lower-risk deployments these also support the checklist's GO/NO-GO record check. For high-risk deployments, report the findings without a BRACE release verdict.
 
-| Label | Sign-off rule |
+| Label | Evidence rule |
 |---|---|
-| **G1 — Blocking** | Every applicable item must pass. If a G1 item fails, **do not ship**. It cannot be waived as accepted risk. |
+| **G1 — Blocking** | Every applicable item must pass to meet BRACE's evidence requirements. A gap cannot be waived as accepted risk. It produces NO-GO in a lower-risk record check; a high-risk report retains the open finding. |
 | **G2 — Harden the substrate** | Every applicable item must pass, or have a written, approved risk acceptance. |
-| **G3 — Active detection** | For high-stakes or high-autonomy deployments, every applicable item must pass. For lower-stakes deployments, a gap needs a written, approved risk acceptance. |
+| **G3 — Active detection** | For high-stakes or high-autonomy deployments, report each applicable item and retain gaps as open findings; risk acceptance cannot turn them into passes. For lower-risk deployments, a gap needs a written, approved risk acceptance. |
 
-Before you judge any gaps, rate the deployment's potential harm and autonomy. Write down why, and name who approved the rating. A missing rating blocks release. Passing many items does not make up for one blocking failure.
+Before you judge any gaps, rate the deployment's potential harm and autonomy. Write down why, and name who approved the rating. A missing rating makes the assessment incomplete and receives a findings-only report. Passing many items does not erase another item's gap.
 
 **References:** C1–C9 are BRACE's [nine controls](README.md#the-framework-in-one-screen). **Obs-T1** is identity fields, **Obs-T2** is context-size logging, and **Obs-T3** is sub-agent provenance. These are observability requirements, not gates. The Configuration and Ecosystem sections apply the same controls to releases and shared services.
 
@@ -80,7 +82,7 @@ Before you judge any gaps, rate the deployment's potential harm and autonomy. Wr
 
 - [ ] **B05 · G1 · C4 — Destructive-action interception.** **List the high-impact operations. These include deletes, destructive database updates, force-pushes, tearing down infrastructure, payment changes, and sending anything outside. Block them by default in the execution path. Allow one only when a reviewer or system with higher authority approves that specific action. When the action runs, authorize its operation, target, and arguments, and block it if they aren't allowed. A list of blocked words or command names is not enough. Test other tools and raw API or shell paths that could do the same thing. Treat deleting audit records, or changing how long they are kept, as high-impact too. That includes asking a more powerful tool or peer to do it. Some agents can do all three of these in one context: read untrusted input, reach sensitive data or systems, and change things or talk to the outside. For those agents, treat every consequential action as high-impact. The exception is a design that stops untrusted content from picking the tool, destination, or arguments. Examples are plan-then-execute, a two-model pattern, or capability tracking such as CaMeL. Record which of the three each agent type has.**
 
-- [ ] **B02 · G1 · C2 — Least-privilege access.** **Limit credentials to named operations and resources, including tenant boundaries. Test that an allowed read works. Test that an out-of-scope write, an admin action, and a request for another tenant's data all fail. Limit each token to its intended audience, so other services reject it. Remove wildcard permissions and permissions inherited from people.**
+- [ ] **B02 · G1 · C2 — Least-privilege access.** **Limit credentials to named operations and resources, including tenant boundaries. Identify the acting agent separately from the original user or system whose authority it uses. Explicitly authorized, narrowly scoped user delegation is valid; copying a login session or inheriting a person's full permissions is not. Test that an allowed read works and an out-of-scope write, an admin action, and another tenant's data all fail. Limit each access token to its intended audience, so other services reject it. Remove wildcard grants.**
 
 - [ ] **B01 · G1 · C4 — Minimal tool surface.** **List every built-in tool, MCP server, API, program, and file permission this agent type can use. Give a task-based reason for each. Enforce a role-based allowlist, and check that an unlisted tool can't be called. Don't base allow or approval decisions on hints a server gives about its own tools, such as "read-only." MCP treats those hints as untrusted unless you trust the server.**
 
@@ -88,7 +90,7 @@ Before you judge any gaps, rate the deployment's potential harm and autonomy. Wr
 
 #### Capabilities and credentials
 
-- [ ] **B03 · G2 · C2 — Credential lifetime and handling.** Issue short-lived credentials from a managed identity or secrets service. For API calls, use access tokens issued for the agent's own service account or workload identity, rather than static API keys or personal access tokens. Keep long-lived secrets out of prompts, images, and checked-in config. Where the service supports it, bind tokens to their holder (mTLS, DPoP, or workload proof tokens). Then a copied token won't work from another machine. Don't use fixed API keys when short-lived or federated credentials are available. Show that credentials expire and rotate, and explain why you chose their lifetime.
+- [ ] **B03 · G2 · C2 — Credential lifetime and handling.** Issue short-lived credentials from a trusted issuer or managed identity service. For API calls, use expiring access tokens with a specific destination audience, identifying the agent and any explicitly delegated user or system authority, rather than static API keys or personal access tokens. A secrets vault stores backing secrets; it does not itself make a static key into an expiring access token. Keep long-lived secrets out of prompts, images, and checked-in config. Where supported, bind tokens to their holder (mTLS, DPoP, or workload proof tokens). Don't use fixed API keys when short-lived or federated credentials are available. If only static keys are supported, isolate them at the enforcement layer, limit their permissions, and record the lifetime and revocation gap. Show expiry and rotation, including allowed overlap, and explain the chosen lifetime.
 - [ ] **B04 · G1 · C2 — Independent revocation.** Show that an operator can cut off this agent's access without cutting off the user who launched it. The agent must not need to cooperate. Set and measure the longest time before the cutoff takes effect. Count cached tokens, self-contained tokens, and open sessions. A trusted enforcement point must block later calls within a time limit that fits the potential harm. Revoking only the refresh token is not enough. If tokens live longer than that limit, push the revocation to each service (for example, with OpenID CAEP session-revoked events) or make the tokens shorter-lived.
 
 #### Harness enforcement
@@ -179,7 +181,7 @@ Before you judge any gaps, rate the deployment's potential harm and autonomy. Wr
 
   **If you can't fully do it:** Start with a few clear signals. Examples: an unusual number of reads followed by an outside send, repeated denials, too many sub-agents, or a used-up budget. Measure how many seeded attacks you catch, how many false alarms you raise, and how fast alerts arrive, for each context-size range. Use hard rate and cost limits, and limit destinations, while you improve detection. Say exactly which sequences you cover and which you miss. Basic rules don't prove general sequence detection.
 
-  **Tradeoffs you can accept:** A narrower, written detection scope, and a measured false-alarm rate that responders can handle. For lower-stakes deployments, defer broader coverage under G3 while keeping hard limits. Where G3 blocks release, reduce the real exposure or finish the required coverage.
+  **Tradeoffs you can accept:** A narrower, written detection scope, and a measured false-alarm rate that responders can handle. For lower-stakes deployments, defer broader coverage under G3 while keeping hard limits. For high-risk use, retain uncovered behavior as an open finding and reduce exposure or finish the required coverage.
 
 - [ ] **R10 · G3 · C7 — Misaligned-behavior review.** If deliberate misalignment is in scope, test a second model or pattern review against realistic evasive behavior. Record what it can and can't catch. Include what the reviewer can see: actions, arguments, and any visible reasoning. Reasoning the reviewer can't see is a stated gap. Include red-team runs by an agent that knows it is being watched. This review must not replace rule-based access and action controls that don't depend on a model's judgment. Deeper checks on intent belong in a separate AI-control program at the model level.
 
@@ -217,7 +219,7 @@ Before you judge any gaps, rate the deployment's potential harm and autonomy. Wr
 
 ### **IF YOU DO NOTHING ELSE — TOP 3**
 
-- [ ] **A01 · G1 · C2/Obs-T1 — Distinct agent identity.** **Give the agent its own non-human identity. Keep it separate from the user who launched it and from unrelated agents. Show that permissions and revocation belong to that identity, even when a user starts the run.**
+- [ ] **A01 · G1 · C2/Obs-T1 — Distinct agent identity.** **Give the agent its own verifiable non-human identity, separate from the user who launched it and from unrelated agents. Preserve any explicitly delegated user/system subject separately and bound the authority used. Show that operators can revoke the agent's access independently of that subject, even when a user starts the run.**
 
 - [ ] **A02 · G1 · Obs-T1 — All six identity fields.** **Check that every action records the accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context. Look at successful, denied, failed, and background actions, not just the main request path.**
 
@@ -246,7 +248,7 @@ Before you judge any gaps, rate the deployment's potential harm and autonomy. Wr
 
 ### **IF YOU DO NOTHING ELSE — TOP 3**
 
-- [ ] **C01 · G2 · C1–C6/Obs-T1 — Complete release manifest.** **Write a release manifest: a list of everything that makes up this release. Include the container, harness, system prompt, rules files, model, built-in tools, MCP servers, permission scopes, memory and retrieval settings, identity bindings, network rules, and execution budgets. Include security-policy versions. Add a separate model record for every model: the main agent model, sub-agent models, and helper models such as embedding models and rerankers. For each, record the provider, model ID, exact version or checkpoint, and any adapter or fine-tune version. For training or fine-tuning you run yourself, also record the training job ID, base-model version, training code and config version, dataset version, and the digest of the output. The agent app's release number alone is not enough. Use the [model provenance fields](CHECKLIST-VERIFICATION.md#model-provenance-fields) to separate recorded versions from details a provider doesn't share. Check each model ID you request against the provider's versioning docs. Mark it as a pinned snapshot or as an alias that can change, and record which doc you used and its date. Naming rules differ by provider and model generation. Name each artifact's owner and a reference that can't change, where one exists. A machine-readable format, such as CycloneDX ML-BOM or the SPDX 3.0 AI and Dataset profiles, lets tools check the manifest.**
+- [ ] **C01 · G2 · C1–C6/Obs-T1 — Complete release manifest.** **Write a release manifest: a list of everything that makes up this release. Include the container, harness, system prompt, rules files, model, built-in tools, MCP servers, permission scopes, memory and retrieval settings, identity bindings, network rules, and execution budgets. Include security-policy versions, MCP protocol and extension versions, approved tool-publication config, issuer/audience bindings, and cache/task isolation settings. Add a separate model record for every model: the main agent model, sub-agent models, and helper models such as embedding models and rerankers. For each, record the provider, model ID, exact version or checkpoint, and any adapter or fine-tune version. For training or fine-tuning you run yourself, also record the training job ID, base-model version, training code and config version, dataset version, and the digest of the output. The agent app's release number alone is not enough. Use the [model provenance fields](CHECKLIST-VERIFICATION.md#model-provenance-fields) to separate recorded versions from details a provider doesn't share. Check each model ID you request against the provider's versioning docs. Mark it as a pinned snapshot or as an alias that can change, and record which doc you used and its date. Naming rules differ by provider and model generation. Name each artifact's owner and a reference that can't change, where one exists. A machine-readable format, such as CycloneDX ML-BOM or the SPDX 3.0 AI and Dataset profiles, lets tools check the manifest.**
 
   **Why this is hard:** Teams can usually find their own training jobs and datasets. A hosted provider may not share its pretraining runs, weights, or data versions. Separate the records your team should have from the details the provider keeps private.
 
@@ -290,9 +292,9 @@ Before you judge any gaps, rate the deployment's potential harm and autonomy. Wr
 
 ### **IF YOU DO NOTHING ELSE — TOP 3**
 
-- [ ] **E06 · G2 · C1/C2/C4/C5/C9 — Enforced gateway boundary.** **Send MCP calls through a gateway, or a similar enforcement layer, that the agent can't get around. Authenticate each caller (prove who they are), authorize each action, and validate calls and responses. Enforce rate limits and log every decision. For HTTP and OAuth, check the token's issuer, intended audience, expiry, and scopes. Use properly authorized credentials for the services behind the gateway. Never pass an unchecked token through. For local tools that talk over standard input/output (stdio), control process launch, file access, credentials, and networking in the host or sandbox. An HTTP gateway alone doesn't cover these. Test going around the gateway straight to the server, bad credentials, broken responses, and outages of the policy engine or scanner. MCP copies some request details into headers. If routing or policy uses those headers, reject any request whose headers don't match its body, before checking policy. Store any cached tool list or response separately for each authorization context. When the gateway is itself an OAuth client, check the issuer (`iss`, RFC 9207). Also protect discovery URLs against SSRF (tricking a server into calling places it shouldn't). Required checks must fail closed: if a required check can't run, block the action.**
+- [ ] **E06 · G2 · C1/C2/C4/C5/C9 — Enforced gateway boundary.** **Send MCP calls through a gateway or equivalent enforcement layer the agent cannot bypass. Choose controls for internal HTTP servers, public third-party services, and local stdio servers; private networking and mTLS are one internal deployment pattern, not universal MCP requirements. Authenticate each caller, preserve agent and delegated-subject identity, and authorize each action's tool, operation, resource, tenant, and arguments. Apply the same policy to direct calls, dynamic tools, CLI/code mode, and wrappers. Validate calls and responses, enforce rate limits, and log every decision. For HTTP OAuth, validate access tokens for the gateway's own audience, issuer, expiry, and scopes; obtain separately authorized backend credentials through a trusted issuer or supported exchange. Never accept a token for another resource or relay it unchanged as a substitute for backend authorization. Keep backend secrets and tokens away from agent-controlled execution paths. Restrict local process launch, files, environment, credentials, and network in the host or sandbox. Under MCP 2026-07-28, reject metadata-header/body mismatches before routing or policy relies on them. Isolate private caches by verified authorization context, tenant, resource, and policy version; share only data explicitly approved as public. Authorize explicit task/state handles on every operation; neither a connection nor self-reported metadata establishes identity. Where the gateway is an OAuth client, validate authorization-server issuer responses and protect discovery URLs against SSRF. Record protocol and extension versions and test each enabled extension's boundary, including task access/cancellation and MCP Apps sandbox, CSP, bridge messages, and UI-initiated tool authorization. Test bypass, cross-tenant access, malformed traffic, and required-check outages. Required checks fail closed.**
 
-- [ ] **E08 · G1 · C2/C4 — Bounded delegated authority.** **Give sub-agents only the powers approved for their task. Enforce each child's role and any explicit approval from a higher authority. A parent must not gain a power it was denied just by asking a more powerful peer to act. Narrow credentials at each hop, for example with token exchange or transaction tokens. Authorize based on the original subject (the user or system whose authority is used) and the current actor. Earlier actors in a delegation chain are for the record only, not a reason to grant access. Test that escalation attempt.**
+- [ ] **E08 · G1 · C2/C4 — Bounded delegated authority.** **Give sub-agents only the powers approved for their task. Preserve the verified original subject and current actor through each handoff and enforce their task, tenant, resource, and audience limits where the action runs. Use supported token exchange or narrow task credentials rather than copying a parent's full credential. A parent must not gain a denied power by asking a more powerful peer to act without separate valid approval. For RFC 8693 tokens, earlier nested actors are provenance only and never add access. An actor chain or signed identity does not prove that a requested action was approved. Test legitimate delegation and that escalation attempt.**
 
   **Why this is hard:** A powerful peer may treat a low-privilege agent's request as a normal task. Knowing who sent the last message doesn't prove what the original requester was allowed to do. Delegation limits can also get lost across several hops.
 
@@ -314,7 +316,7 @@ Before you judge any gaps, rate the deployment's potential harm and autonomy. Wr
 
 - [ ] **E01 · G2 · C1–C9 — Map shared responsibilities.** List the outside tools, MCP servers, peer agents, sub-agents, registries, identity services, gateways, stop channels, and audit services. For each control that applies, name the owner on the agent team and the owner on the shared platform or vendor side. Keep evidence for both halves. Using an upstream service doesn't make its controls N/A.
 - [ ] **E02 · G2 · C3/C5 — Vet and pin dependencies.** Before approving a tool or server, review its source code or available provenance, publisher, permissions, update path, and known vulnerabilities. Include model files, adapters, and datasets. Pin versions or digests, and verify signatures where they exist. A registry's namespace check shows who controls a publisher account, not that the code is safe. Record the limits of remote services and unsigned artifacts, and the extra checks you use instead.
-- [ ] **E03 · G2 · C5 — Re-check tools on load.** Take a fingerprint of each approved tool's description and schema. Compare it every time the tool loads, the cache refreshes, or the server says its tool list changed. Don't use a cached definition when the re-check fails. Test a changed description, schema, or implementation version, and block unexpected changes until they are reviewed. A fingerprint of the description and schema catches changes to that metadata, not hidden changes to remote code. Pin or attest the implementation where you can see it. For remote implementations, record what you can't inspect and when you'll review them again. Track vulnerability notices, and find which deployments use an affected dependency.
+- [ ] **E03 · G2 · C5 — Re-check tools on load.** Keep a tool publication lifecycle: discovery, review, approval, enablement, re-check, quarantine, and rollback. New servers and tools start disabled; their owner approves descriptions, schemas, permissions, and implementation references before use. Take a fingerprint of each approved tool's description and schema. Compare it whenever the tool loads, its cache refreshes, or its tool list changes. Block unexpected changes until reviewed, including when re-checking fails; don't serve a cached definition as a fallback. Record the policy/config version used at execution, bound propagation delay, and test rollback without restoring revoked access. A metadata hash cannot detect hidden changes to remote code. Pin or attest implementations where visible, record remote visibility limits and review dates, and track affected deployments when vulnerabilities are reported.
 - [ ] **E04 · G2 · C5 — Inspect tool metadata.** Before the model sees them, scan server instructions, tool names, titles, descriptions, input and output schemas, annotations, and prompt and resource templates. Look for hidden instructions, references to other servers' tools, invisible or control characters, role overrides, encoded payloads, and places data could be sent. Limit lengths, and clean or reject anything suspicious. Check that a scanner error doesn't quietly let unchecked metadata through.
 
   **Why this is hard:** Hidden instructions can be written in plain language, with no strange encoding or control characters. Scanners can also flag honest descriptions. A clean scan doesn't prove a tool is trustworthy.
@@ -364,7 +366,7 @@ For every allowed G2 or G3 deferral, also fill in:
 |---|---|---|---|---|
 | | | | | |
 
-**Deferral rules:** No G1 waivers. No G3 deferrals for high-stakes or high-autonomy deployments. A blank or unapproved exception counts as an open gap. Every N/A must name its reviewer and the evidence that the feature or exposure doesn't exist.
+**Deferral rules:** No G1 waivers. High-stakes or high-autonomy G3 gaps remain open findings even if humans accept deployment risk. A blank or unapproved exception counts as an open gap. Every N/A must name its reviewer and the evidence that the feature or exposure doesn't exist.
 
 ## Final sign-off
 
@@ -380,7 +382,9 @@ For every allowed G2 or G3 deferral, also fill in:
 | Reviewer(s) and review date | |
 | Evidence-record link and exception-record link | |
 | Kill-switch drill date, measured halt time, and allowed budget | |
-| Decision: GO / NO-GO | |
+| BRACE findings, evidence limits and unreviewed scope; lower-risk record result if applicable | |
+| Accountable human deployment decision and rationale (separate from BRACE findings) | |
+| High-risk rollout stages, exposure limits, monitoring owner, stop conditions and recovery plan | |
 | Sign-off approver and date | |
 | Next scheduled review | |
 
@@ -389,11 +393,11 @@ For every allowed G2 or G3 deferral, also fill in:
 - [ ] All **five aspects** are reviewed. Every item has a result, an owner, and evidence or an approved N/A reason.
 - [ ] Every applicable **G1** item passes.
 - [ ] Every applicable **G2** item passes or has a valid, approved risk acceptance.
-- [ ] For high-stakes or high-autonomy deployments, every applicable **G3** item passes. For lower-stakes deployments, any allowed deferral has a valid, approved risk acceptance.
+- [ ] For high-stakes or high-autonomy deployments, every applicable **G3** finding is reported, including gaps and missing evidence. For lower-risk deployments, any allowed deferral has a valid, approved risk acceptance.
 - [ ] Operators can reach the stop control, response instructions, evidence, and recovery steps.
-- [ ] The approver has recorded the decision for the exact setup being released.
+- [ ] The accountable people have recorded their separate deployment decision for the exact setup, including a gradual, closely monitored rollout for high-risk use and review before expanding exposure.
 
-**GO only when every decision check above is met. Otherwise, NO-GO.**
+**For lower-risk deployments, the checklist record is GO only when every applicable decision check above is met; otherwise it is NO-GO. These results do not authorize deployment. For high-risk or unrated deployments, report FINDINGS with evidence, gaps and unknowns, without a BRACE GO/NO-GO verdict.**
 
 ### When to repeat the review
 
