@@ -1,0 +1,6 @@
+# Local file tool component
+Synthetic source-only target; do not execute. Linux stdio host invokes handle_line. The input tree is provisioned by a trusted administrator; filesystem consumers can submit arbitrary names, but are not allowed to write any file. ROOT is the only permitted read tree. Filesystem contents may include symlinks. Console/list metadata is not an authorization decision. The shown module contains the complete application operation and path checks, with no extra authorization in the framing adapter. Network, package verification, sandbox, inherited credentials, audit sink protection, and measured process termination are host-owned and not supplied. No HTTP listener, OAuth, Tasks, Apps, memory tool or sub-agents exist in this design. Do not infer host isolation from this source.
+
+Input tree policy: trusted administrators provision local files and symlinks; requesters and other untrusted actors cannot create, replace, rename or modify the tree during a request. Installed-runtime and OS enforcement evidence must still be supplied by the host.
+
+The external stdio framing host owns complete attempt/denial/result audit capture around this handler. Its implementation and protections are not supplied; the local record call is supplementary, not the full audit graph.

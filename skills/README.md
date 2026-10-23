@@ -5,7 +5,7 @@ Four focused sibling skills apply the [BRACE checklist](../CHECKLIST.md) to an a
 | Skill | Use it to |
 |---|---|
 | [brace-review](brace-review/SKILL.md) | Review all 53 items with static inventories, quoted coverage/deviation ledgers, bypass attempts, bounded batches and independent discovery-first challenges. Sonnet is good enough; prefer Opus if your team can afford it, since subtler bugs are more likely to slip past a smaller model. Haiku and Luna are unsupported. See [results and limits](../evals/README.md#model-qualification). |
-| [brace-mcp-review](brace-mcp-review/SKILL.md) | Review MCP servers, client/host configurations and gateway boundaries; map evidence and gaps to BRACE and dated primary research. Loads HTTP/stdio details as applicable. A focused static review, not a full assessment or live scanner. Not model-qualified yet. |
+| [brace-mcp-review](brace-mcp-review/SKILL.md) | Review MCP servers, client/host configurations and gateway boundaries; map evidence and gaps to BRACE and dated primary research. Loads HTTP/stdio details as applicable. A focused static review, not a full assessment or live scanner. Sonnet repair retest: all 12 reviewer reports met the exercised criteria; two evaluator faults remain in the raw harness. See [results and limits](../evals/results/2026-10-23-mcp-source-table/README.md). |
 | [brace-tests](brace-tests/SKILL.md) | Write tests and drills that produce evidence, based on the verification recipes. |
 | [brace-record](brace-record/SKILL.md) | Keep the `.brace/` record and draft exceptions and N/A decisions for approval. |
 

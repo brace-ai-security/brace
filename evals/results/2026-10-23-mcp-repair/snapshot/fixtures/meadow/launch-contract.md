@@ -1,0 +1,1 @@
+The configured file-bridge package delegates its line handler to server.py from this component. It may read BRIDGE_ACCESS_TOKEN from its process environment. Package registry resolution and sandbox configuration are outside this component.

@@ -32,8 +32,14 @@ focused MCP review, not completion of the full 53-item BRACE assessment.
    gateway, registry/control plane or deployment. Record commit/release, review date,
    transports, supported operating systems, negotiated protocol revisions and enabled extensions. Inventory each
    configured server, launch command/URL, credential source, package/image pin,
-   exposed tool/resource/prompt and privileged downstream action. Use `rg` and
-   lockfiles; do not evaluate configuration or execute discovery to obtain it.
+   exposed tool/resource/prompt and privileged downstream action. Use the host's
+   available file-reading/search tools and lockfiles. With Read/Glob/Grep, use
+   those directly: Glob `.*` and `**/.*` within the target for hidden config,
+   Read the matching files, and Grep for callers. An empty Glob result is a
+   recorded search result, not a reason to request a directory-listing command.
+   Use `rg` only when a shell is
+   available and permitted. Stay within the supplied tool set.
+   Do not evaluate configuration or execute discovery to obtain the inventory.
    Distinguish a declared version range from the resolved/installed version.
 2. **Map ownership and coverage.** Read [control-map.md](references/control-map.md).
    Track every applicable row for every distinct trust boundary. A compact grouped
@@ -54,7 +60,10 @@ focused MCP review, not completion of the full 53-item BRACE assessment.
    features found, then recheck the original maintainer record and current official
    guidance when browsing is available. Record package, resolved version, affected
    feature, attacker prerequisites, fix, required settings/migration and lookup
-   date. Patching alone does not prove configured remediation. With unavailable
+   date. When lookup is unavailable, cite the bundled primary-source URLs and
+   recorded dates, explicitly marked as not rechecked. Offline review still
+   requires citations; a source name alone is insufficient.
+   Patching alone does not prove configured remediation. With unavailable
    versions, source access or remote internals, state the limit explicitly.
 5. **Trace enforcement.** Follow inputs through validation, authorization, execution
    and response; include wrappers, helpers, error branches and alternate routes.
@@ -67,13 +76,22 @@ focused MCP review, not completion of the full 53-item BRACE assessment.
 6. **Write the report.** Use the user-specified destination, or `mcp-review.md` in
    the reviewed repository. Include:
    - scope, component/transport inventory and ownership boundaries;
+   - a source table with short source IDs, primary URLs, authority and dates
+     (publication/revision date where known, otherwise the bundled review date,
+     labelled as such). Mark offline records as not rechecked;
    - findings ordered by impact, each with trigger/dataflow, affected scope,
-     evidence, BRACE IDs, primary-source URL/date and a concrete remediation;
+     evidence, BRACE IDs, source-table IDs and a concrete remediation. Each finding,
+     including an evidence request, must resolve to a URL and labelled date;
    - a coverage table: boundary/check, status, evidence, source authority and
      owner; record an absence search and reason for each `na_candidate`;
    - controls supported in code, missing/runtime evidence and unreviewed scope;
    - proposed controlled tests with expected allowed and denied outcomes, plus
      an owner. Do not execute them merely because this review suggested them.
+
+Before returning, check every finding's source ID against the source table and
+fill missing URLs/dates from the bundled references. Observing sequential batch
+execution alone does not demonstrate an authorization failure: identify a violated
+authorization or atomicity contract before calling it a gap.
 
 Label sources as protocol requirements for the negotiated version, adopted-profile
 requirements, maintainer advisories, guidance, deployment reports or research.

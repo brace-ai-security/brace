@@ -1,4 +1,8 @@
-# brace-review evals
+# BRACE skill evals
+
+The dedicated MCP review uses a separate [source-only qualification protocol](mcp/README.md)
+with four HTTP/stdio fixtures and hidden case-level keys. Its reports and
+criteria are independent of the full 53-item assessment below.
 
 Three small agent codebases with known problems, plus answer keys, for measuring how well the
 `brace-review` skill rates a codebase against the 53 checklist items.
@@ -8,6 +12,20 @@ Three small agent codebases with known problems, plus answer keys, for measuring
 | `fixtures/support-agent/` | Multi-tenant support agent: refunds, email, MCP servers, vector store | 14 | 4 | yes (`README.md`) |
 | `fixtures/ops-agent/` | DevOps agent: kubectl, helm, git, worker sub-agents | 12 | 3 | no |
 | `fixtures/research-agent/` | Read-only web research agent: no memory, sub-agents, or write tools | 4 | 6 | no |
+
+## Dedicated MCP review: 2026-10-23
+
+The [Sonnet repair retest](results/2026-10-23-mcp-source-table/README.md)
+found all nine keyed issues in three reviews each, with all positive/unknown guards
+met. All 12 reviewer reports met the exercised criteria after one documented
+quote adjudication; the raw full harness has 10 passes and two evaluator faults.
+Blocked shell attempts from earlier campaigns prompted concrete tool guidance;
+citation omissions prompted a source table. All iterations are retained.
+
+These are four fixtures in two paired HTTP/stdio families, retested after repair.
+This is bounded regression evidence, not a fresh holdout, general qualification,
+current-advisory discovery test or live MCP assessment. The fixtures and keys are
+public under CC BY 4.0; future qualification needs fresh cases.
 
 ## Layout
 
