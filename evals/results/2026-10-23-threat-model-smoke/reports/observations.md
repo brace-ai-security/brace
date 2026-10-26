@@ -1,0 +1,12 @@
+# Smoke exercise observations
+
+Read only the two supplied designs and `skills/brace-threat-model/SKILL.md` plus its `references/control-map.md`. No browsing, test execution, service access, repository changes or incident work was performed. Output files are the requested exercise artifacts.
+
+- The skill is practical without code and supports proportional treatment: the invoice model needs payment/identity/memory/descendant analysis, while the offline model does not justify invented payment, tenant, memory or sub-agent controls.
+- “For each crossing” is useful but risks treating absent services as required architecture. I labeled audit as a proposed evidence concern, and did not invent an approval or audit service for the offline tool.
+- Capability “change state or communicate externally” can include literal console output and selected-file reads when interpreted broadly. I treated consequential tool/external authority separately from output/resource effects, and marked actual OS permissions unknown. The skill could clarify this distinction so console-only tools are not automatically treated as externally communicating agents.
+- The skill asks a focused question when a critical fact is missing. This file-output-only smoke exercise offered no design owner to answer. Models preserve focused open questions and conditional branches rather than assuming permissions or controls. Clarifying whether written questions satisfy batch/offline use would help.
+- The mapping lists BRACE item IDs but does not define them individually. Under the exercise's read-only source constraint, mappings follow the reference table without independently validating the full checklist or current framework semantics. The models make no full-checklist or gate claims.
+- The control-map source list says “Sources checked 2026-10-23” but dates the Meta source 2025-10-31; this is chronologically consistent. No source contents were verified because browsing was forbidden. Source citations are guidance provenance, not evidence that any design control works.
+- The invoice input includes a direct instruction to the reviewer to skip payment/credential risks. The skill's evidence-versus-instruction boundary was sufficient to keep it as hostile input evidence without following it.
+- These results are a development smoke exercise. They provide no qualification evidence or claim of model completeness. Actual runtime, permission, resource, approval and destination evidence remains outstanding.

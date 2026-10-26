@@ -1,0 +1,700 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-10-20T12:20:14Z",
+  "scope": "Batch review of B06-B10 only (other items left unreviewed in this file). Read all src/, config/, k8s/, Dockerfile, infra/terraform, release/manifest.json and .github/workflows. Not found in repo: admission policy (Kyverno/ClusterImagePolicy), egress proxy rules, staff console that writes approvals, tests for these controls were not run. Nothing was executed. Pre-scan hits (B02, B11, R13, E03) belong to other items and were not resolved in this batch.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "B06",
+      "gate": "G1",
+      "title": "Approval integrity",
+      "requirement": "Tie each approval to the agent instance that asked, and to the exact operation, target, arguments, and scope. Record who approved it and when it expires. Show the reviewer what the action will do. Make approvals single-use, or set clear limits on a broader grant. When the action runs, check permissions and the relevant resource state again. Record each use of an approval in one step, so parallel calls can't go past the grant. Test changed arguments, a different agent instance, expired approvals, replay, parallel reuse, and approvers without authority. If the approval service fails, the action must not quietly go ahead.",
+      "not_covered": [
+        {
+          "problem": "A high-impact action that never asks for approval at all",
+          "owner": "B05"
+        },
+        {
+          "problem": "A parent gaining a denied power by asking a stronger peer",
+          "owner": "E08"
+        },
+        {
+          "problem": "Harness or approval code changed in production without review",
+          "owner": "B12"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/approvals.ts",
+          "line": 81,
+          "note": "checkApproval compares status, tool, tenantId, expiry and approver role only. rec.argsHash is never compared to hashArgs(args) and rec.agentInstanceId is never compared to AGENT_INSTANCE_ID, so a changed-args call or another instance's approval passes. tenantId is compared to the model-supplied clinicId."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B06.1",
+          "check": "Each approval record is bound to the requesting agent instance and to the exact operation, target, arguments, and scope, and records the approver and an expiry time.",
+          "verify": "1) Find the approval data model (schema, class, table, `approval`). 2) List its fields. 3) Answer no if it lacks any of agent instance ID, operation, target, exact arguments or hash, scope, approver, and expiry, or if approval is a boolean like `approved=True`.",
+          "met": "unknown",
+          "evidence": "src/tools/approvals.ts:29",
+          "quote": "const canonical = JSON.stringify(args, Object.keys(args).sort());",
+          "counter_search": "",
+          "note": "Record has instance, tool, tenant, argsHash, approver, expiry. But hashArgs passes only top-level keys as the stringify replacer, so nested argument content is dropped from the hash; cancel_appointment's schema comes from the MCP server at runtime and is not in the repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B06.2",
+          "check": "When the action runs, the gate rejects it if the instance, operation, target, or arguments differ from the approval, or if the approval has expired.",
+          "verify": "1) Find where an approved action executes. 2) Check the code compares instance, operation, target, and arguments (or hash) against the stored approval and checks expiry at that moment. 3) Answer no if approval is checked only when requested, any field is not compared, arguments are re-read from the model after the check, or expiry is never checked.",
+          "met": "no",
+          "evidence": "src/tools/approvals.ts:81",
+          "quote": "return { ok: true, approval: rec };",
+          "counter_search": "",
+          "note": "checkApproval compares status, tool, tenantId, expiry and approver role only. rec.argsHash is never compared to hashArgs(args) and rec.agentInstanceId is never compared to AGENT_INSTANCE_ID, so a changed-args call or another instance's approval passes. tenantId is compared to the model-supplied clinicId.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B06.3",
+          "check": "Each use of an approval is recorded in one atomic step (single-use or a bounded counter), so replays and parallel calls cannot go past the grant.",
+          "verify": "1) Find where an approval is used or marked consumed. 2) Check it is one atomic step: transaction with lock, compare-and-set, unique constraint, or atomic decrement. 3) Answer no if it reads then writes separately, never marks use, or keeps the count in process memory that parallel workers do not share.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:82",
+          "quote": "approvalId = check.approval.id;",
+          "counter_search": "",
+          "note": "The approval is only read (GetCommand) and used; nothing marks it consumed or decrements a counter. The same approvalId replays for any args until expiresAt, and parallel calls can all pass.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B06.4",
+          "check": "The gate checks that the approver has authority for this action, and rechecks permissions and the relevant resource state when the action runs.",
+          "verify": "1) Find approver checks (role list, `can_approve`, authority mapping). 2) Find rechecks of permissions and resource state at execution. 3) Answer no if any logged-in user can approve, the approver is not checked against the action, or permissions and resource state are not rechecked when the action runs.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:80",
+          "quote": "const check = await checkApproval({ approvalId: input.approvalId, tool: call.name, tenantId: clinicId, args });",
+          "counter_search": "",
+          "note": "Approver role is checked (approvals.ts:78), but no permission or resource-state recheck (e.g. appointment or deposit status) happens between approval and tool.invoke.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B06.5",
+          "check": "If the approval service errors or cannot be reached, the action is denied.",
+          "verify": "1) Find calls to the approval service. 2) Read their error, timeout, and exception handling. 3) Answer no if a `try`/`except` or `catch` logs and proceeds, the default on error or timeout is allow, or a missing response is treated as approved.",
+          "met": "yes",
+          "evidence": "src/tools/approvals.ts:71",
+          "quote": "return { ok: false, reason: `approval store unavailable: ${(err as Error).message}` };",
+          "counter_search": "Searched approvals.ts and executor.ts for catch blocks that continue; the only catch returns ok:false.",
+          "note": "Store errors and missing records deny.",
+          "coverage": [
+            {
+              "subject": "checkApproval store read",
+              "status": "enforced",
+              "evidence": "src/tools/approvals.ts:71",
+              "quote": "return { ok: false, reason: `approval store unavailable: ${(err as Error).message}` };",
+              "note": "DynamoDB read error returns ok:false and the caller denies."
+            },
+            {
+              "subject": "checkApproval missing record",
+              "status": "enforced",
+              "evidence": "src/tools/approvals.ts:73",
+              "quote": "if (!rec) return { ok: false, reason: \"approval not found\" };",
+              "note": "Missing response is a denial on this path, as the quoted line shows."
+            },
+            {
+              "subject": "executor caller of checkApproval",
+              "status": "enforced",
+              "evidence": "src/tools/executor.ts:81",
+              "quote": "if (!check.ok) return deny(check.reason);",
+              "note": "Denial returns before tool.invoke on this path, as the quoted line shows."
+            },
+            {
+              "subject": "requestApproval store write",
+              "status": "enforced",
+              "evidence": "src/tools/approvals.ts:54",
+              "quote": "await ddb.send(new PutCommand({ TableName: policy.approval.table, Item: rec, ConditionExpression: \"attribute_not_exists(id)\" }));",
+              "note": "Write errors throw out of executeTool (no catch around it), stopping the run; the tool is not invoked."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/tools/approvals.ts:81 Approval is accepted without comparing argsHash or agentInstanceId and is never consumed, so one approved id can be replayed with different arguments until expiry."
+      ],
+      "violates": [
+        "Record each use of an approval in one step, so parallel calls can't go past the grant"
+      ],
+      "also_affects": [],
+      "summary": "Approvals are not bound to arguments or instance at use, are never consumed, and no state recheck happens before the tool runs.",
+      "next_step": "Compare argsHash, agentInstanceId and clinic at execution, consume the approval with a conditional update, and recheck permissions and resource state before invoking.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B07",
+      "gate": "G2",
+      "title": "Hard execution budgets",
+      "requirement": "Enforce limits outside the model on loop count, run time, tokens, cost, tool-call rate, and how many sub-agents it can start. Also set spend and rate quotas per user or service, per tenant, and across the whole fleet. That way, many small runs can't use up shared capacity. Hit each limit in a test, and record how the run stops or escalates.",
+      "not_covered": [
+        {
+          "problem": "Budget or cross-agent abuse alerts not reaching the team that can act",
+          "owner": "E12"
+        },
+        {
+          "problem": "Unusual fan-out or resource use going undetected",
+          "owner": "R09"
+        },
+        {
+          "problem": "Context size not logged for each action decision",
+          "owner": "R07"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "config/budgets.yaml",
+          "line": 3,
+          "note": "All six limits have finite values."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B07.1",
+          "check": "Limits on loop count, run time, tokens, cost, tool-call rate, and number of sub-agents started are set in code or config.",
+          "verify": "1) Search for `max_turns`, `recursion_limit`, `max_iterations`, `timeout`, `max_tokens`, cost or budget caps, rate limits, sub-agent caps. 2) Check each of the six limits has a value. 3) Answer no if any is missing, set to unlimited (`None`, `0`, `-1`, `inf`), or the loop is `while True` with no cap.",
+          "met": "yes",
+          "evidence": "config/budgets.yaml:3",
+          "quote": "maxTurns: 8",
+          "counter_search": "Looked for unlimited values and uncapped loops; loop.ts:56 for(;;) calls budget.turn() each pass. Classifier/countTokens calls are not covered by these limits (see B07.2).",
+          "note": "All six limits have finite values.",
+          "coverage": [
+            {
+              "subject": "loop count",
+              "status": "enforced",
+              "evidence": "config/budgets.yaml:3",
+              "quote": "maxTurns: 8",
+              "note": "Checked by RunBudget.turn() at src/agent/budget.ts:116 on this path, as the quoted line shows."
+            },
+            {
+              "subject": "run time",
+              "status": "enforced",
+              "evidence": "config/budgets.yaml:4",
+              "quote": "maxWallMs: 45000",
+              "note": "Timer abort at budget.ts:87 and checkWall at budget.ts:110."
+            },
+            {
+              "subject": "tokens",
+              "status": "enforced",
+              "evidence": "config/budgets.yaml:5",
+              "quote": "maxInputTokens: 120000",
+              "note": "Input and output (line 6) token caps checked in recordUsage at budget.ts:134-135."
+            },
+            {
+              "subject": "cost",
+              "status": "enforced",
+              "evidence": "config/budgets.yaml:7",
+              "quote": "maxCostUsd: 0.40",
+              "note": "Checked at budget.ts:136 on this path, as the quoted line shows."
+            },
+            {
+              "subject": "tool-call rate",
+              "status": "enforced",
+              "evidence": "config/budgets.yaml:9",
+              "quote": "maxToolCallsPerMinute: 12",
+              "note": "Checked at budget.ts:152 on this path, as the quoted line shows."
+            },
+            {
+              "subject": "sub-agents started",
+              "status": "enforced",
+              "evidence": "config/budgets.yaml:10",
+              "quote": "maxPeerCalls: 2",
+              "note": "Peer calls capped at 2; the agent starts no sub-agents (nothing spawns child loops)."
+            },
+            {
+              "subject": "agent loop",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:56",
+              "quote": "budget.turn();",
+              "note": "for(;;) loop calls budget.turn() each iteration, so it is capped."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B07.2",
+          "check": "The harness or a gateway outside the model enforces each limit and stops or escalates the run when it is hit; the model cannot raise, reset, or skip them.",
+          "verify": "1) Inventory every main/helper model invocation, tool call and retry. 2) For each, locate token/cost/rate enforcement and the stop/escalation branch. 3) Trace a boundary case: enforcement/reservation before work, or a documented finite overshoot bound with enforcement. 4) Answer no for unmetered helpers, uncounted retries, unbounded overshoot, model-controlled limits or catches that continue. Small max_tokens and timeouts do not substitute for shared token/cost accounting.",
+          "met": "no",
+          "evidence": "src/agent/classifier.ts:45",
+          "quote": "res = await client.messages.create(",
+          "counter_search": "",
+          "note": "The classifier model call is never passed to RunBudget: its usage is not in recordUsage, run cost or the subject/tenant/fleet quotas. measureBeforeCall (context-size.ts:35 countTokens) is also unmetered. The main call (loop.ts:61) is charged only after it returns (recordUsage at loop.ts:63), and the SDK client retries once (loop.ts:15 maxRetries: 1) uncounted.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B07.3",
+          "check": "Budgets apply to nested sub-agents, so their usage counts against the limits.",
+          "verify": "1) Find sub-agent spawning (`spawn`, `Task`, `handoff`, `create_agent`). 2) Check child runs share or deduct from the parent budget and depth is capped. 3) Answer no if each child gets a fresh budget, nested spawns are uncounted, or depth and count are unlimited.",
+          "met": "yes",
+          "evidence": "src/agent/budget.ts:154",
+          "quote": "if (tool.startsWith(\"insurance__\")) {",
+          "counter_search": "Searched for spawn, Task, create_agent, handoff and nested runAgent calls; none start a child agent. Only the eligibility peer call exists and it is counted.",
+          "note": "No sub-agents are started; peer calls share the run budget.",
+          "coverage": [
+            {
+              "subject": "peer/eligibility call (only nested agent)",
+              "status": "enforced",
+              "evidence": "src/agent/budget.ts:154",
+              "quote": "if (tool.startsWith(\"insurance__\")) {",
+              "note": "Peer calls count against the shared run budget and maxPeerCalls via the same RunBudget instance passed to executeTool."
+            },
+            {
+              "subject": "handoff to staff queue",
+              "status": "not_applicable",
+              "evidence": "src/agent/loop.ts:111",
+              "quote": "return { text: \"Sorry, we couldn't finish that here. Our front desk will follow up.\", handoff: { reason } };",
+              "note": "Handoff returns to humans; it starts no agent run."
+            },
+            {
+              "subject": "nested loop start",
+              "status": "not_applicable",
+              "evidence": "src/agent/loop.ts:34",
+              "quote": "const budget = new RunBudget(budgets, quotaStore, { tenantId: ctx.tenantId, subjectId: ctx.subject.id });",
+              "note": "RunBudget is created only in runAgent; no tool or integration calls runAgent."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B07.4",
+          "check": "Spend and rate quotas also apply per user or service, per tenant, and across the fleet, counted across runs, not only within one run.",
+          "verify": "1) Trace every model/tool path into persistent per-user/service, per-tenant and fleet spend/rate quotas. 2) Trace concurrent small runs and charging order; distinguish shared counters from enforcement. 3) Answer no if required calls escape accounting or quotas can be exceeded without a finite bound and stop. Answer unknown when the relevant gateway/provider is outside the repo.",
+          "met": "no",
+          "evidence": "src/agent/classifier.ts:45",
+          "quote": "res = await client.messages.create(",
+          "counter_search": "",
+          "note": "Classifier calls run for every inbound message before any budget exists in the call path, so the per-subject/tenant/fleet daily cost quotas do not count them. Main-call quotas are charged after the call (budget.ts:139-141), with no finite bound on concurrent runs.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "Enforce limits outside the model on loop count, run time, tokens, cost"
+      ],
+      "also_affects": [],
+      "summary": "The classifier and token-count model calls bypass all budgets, and the main call is charged only after it returns.",
+      "next_step": "Meter the classifier and count_tokens calls, reserve cost before each call, and count SDK retries against the run and shared quotas.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B08",
+      "gate": "G2",
+      "title": "Environment isolation",
+      "requirement": "Write down every system and data store the agent can reach. Test that it has no path to unapproved production resources, admin systems, host services, or other tenants. Enforce this in the infrastructure, not only in the prompt. For each allowed connection, also check input and response validation under R01\u2013R02, including API responses and messages from connected services. Being allowed on the network does not make their content trusted.",
+      "not_covered": [
+        {
+          "problem": "Outbound traffic to unapproved internet destinations",
+          "owner": "B09"
+        },
+        {
+          "problem": "Container running as root or shipping a shell it doesn't need",
+          "owner": "B11"
+        },
+        {
+          "problem": "Content from an allowed service trusted without validation",
+          "owner": "R01"
+        },
+        {
+          "problem": "Agent reaching an approved MCP server directly instead of through the gateway",
+          "owner": "E06"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 168,
+          "note": "Namespace policy is default-deny with named peers. The proxy's own allowlist is outside the repo (see B09)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B08.1",
+          "check": "Network policy or security groups default-deny and allow only the listed systems and data stores the agent needs.",
+          "verify": "1) Find NetworkPolicy, security groups, firewall rules, docker-compose networks. 2) Check for a default deny and named allowed peers. 3) Answer no if the agent's namespace has no policy, rules allow all, `0.0.0.0/0` or a broad CIDR is allowed, or allowed peers go beyond the listed systems. Answer unknown if network config lives outside this repo.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:168",
+          "quote": "podSelector: {}",
+          "counter_search": "Searched for 0.0.0.0/0 and other broad CIDRs; none. Rules name DNS, the egress proxy and one /28.",
+          "note": "Namespace policy is default-deny with named peers. The proxy's own allowlist is outside the repo (see B09).",
+          "coverage": [
+            {
+              "subject": "kube-dns egress",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:181",
+              "quote": "matchLabels: { k8s-app: kube-dns }",
+              "note": "Only kube-dns on port 53 on this path, as the quoted line shows."
+            },
+            {
+              "subject": "egress proxy",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:189",
+              "quote": "matchLabels: { app: egress-proxy }",
+              "note": "Only the platform egress-proxy pods on 3128."
+            },
+            {
+              "subject": "EHR private link",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:193",
+              "quote": "- ipBlock: { cidr: 10.60.12.0/28 }",
+              "note": "A /28 on port 443 for the EHR MCP endpoint."
+            },
+            {
+              "subject": "default deny",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:168",
+              "quote": "podSelector: {}",
+              "note": "Selects all pods in the namespace with policyTypes Egress and Ingress; anything not listed is denied."
+            },
+            {
+              "subject": "ingress",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:173",
+              "quote": "matchLabels: { kubernetes.io/metadata.name: ingress }",
+              "note": "Ingress only from the ingress namespace on 8080."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B08.2",
+          "check": "No route, mount, or credential gives the runtime a path to unapproved production resources, admin systems, host services, or other tenants. Egress to 0.0.0.0/0 or another broad range, even only on ports 80 and 443, is such a route: it reaches cloud metadata (169.254.169.254) and internal services unless they are explicitly blocked.",
+          "verify": "1) List routes, mounts, and credentials in the agent's runtime (egress rules, volumes, env secrets, `hostNetwork`, `docker.sock`). 2) Check each reaches only approved systems. 3) Answer no if egress allows `0.0.0.0/0` or a broad range on any port without blocking 169.254.169.254, if host services or the Docker socket are reachable, or credentials reach production admin or other tenants.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:63",
+          "quote": "const clinicId = typeof input.clinicId === \"string\" && input.clinicId ? input.clinicId : ctx.tenantId;",
+          "counter_search": "",
+          "note": "clinicId comes from model tool input, not from ctx.tenantId alone, and no check ties it to the caller's tenant or to a sibling group. It selects per-clinic secrets, EHR session and payment/SMS keys. The runtime IAM role reads all clinic-agent/* secrets (iam.tf:35), so one pod holds credentials for every tenant.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B08.3",
+          "check": "Isolation is enforced in infrastructure config, not by the prompt or by agent code the model can influence.",
+          "verify": "1) Find where isolation is defined. 2) Check it is in infrastructure (NetworkPolicy, VPC, IAM, separate namespace or account). 3) Answer no if it relies on prompt text or agent code (URL checks, host lists in the harness) that the model's output can steer, with no infrastructure rule behind it.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:63",
+          "quote": "const clinicId = typeof input.clinicId === \"string\" && input.clinicId ? input.clinicId : ctx.tenantId;",
+          "counter_search": "",
+          "note": "Tenant separation is decided by a value the model emits; no infrastructure rule (per-tenant role or namespace) sits behind it. The NetworkPolicy (deployment.yaml:162) is infrastructure but does not separate tenants.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "no path to unapproved production resources, admin systems, host services, or other tenants"
+      ],
+      "also_affects": [],
+      "summary": "The model picks the clinic id, and one runtime role reads every clinic's secrets, so nothing but agent code separates tenants.",
+      "next_step": "Take the clinic from the authenticated tenant (or a verified sibling list), and give each tenant its own scoped credentials in infrastructure.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B09",
+      "gate": "G2",
+      "title": "Egress allowlist",
+      "requirement": "Allow only the outside destinations the task needs. Test a blocked destination and ways around the block, such as going straight past a proxy or gateway. Cover redirects, DNS changes and rebinding, IPv4 and IPv6, and cloud metadata or loopback addresses where they apply. An allowed domain can still host an attacker's account or receive leaked data. So also limit which resources and tenants the agent can reach, and what data it can send. Record each block and confirm the right operator hears about it.",
+      "not_covered": [
+        {
+          "problem": "Data leaking through client-side Markdown images or link previews",
+          "owner": "R03"
+        },
+        {
+          "problem": "Network path to internal production or admin systems",
+          "owner": "B08"
+        },
+        {
+          "problem": "A loosened egress rule in the running setup raising no alert",
+          "owner": "C04"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/integrations/eligibility-a2a.ts",
+          "line": 83,
+          "note": "jku comes from the unverified JWS header and is fetched before signature verification, with no allowlist, redirect or resolved-IP check, and no 169.254.169.254/loopback block in code. Other fetch calls (eligibility-a2a.ts:36,58; payments.ts:29; sms.ts:31; ehr-mcp.ts:38) follow redirects by default with no checks. Only the external proxy could block these."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B09.1",
+          "check": "Outbound traffic is default-deny, with a destination allowlist enforced at a proxy, gateway, or network policy.",
+          "verify": "1) Find egress rules (NetworkPolicy egress, Cilium FQDN, proxy ACLs, cloud firewall). 2) Check outbound is default deny with a destination allowlist. 3) Answer no if egress allows `0.0.0.0/0` or broad CIDRs, no egress rules exist, or the allowlist is only in app code the agent runs. Answer unknown if egress is set outside this repo.",
+          "met": "unknown",
+          "evidence": "k8s/deployment.yaml:189",
+          "quote": "matchLabels: { app: egress-proxy }",
+          "counter_search": "",
+          "note": "NetworkPolicy allows egress only to DNS, the platform egress proxy and a /28. The destination allowlist lives in the proxy (platform namespace), described only in the comment at deployment.yaml:160; its rules are outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B09.2",
+          "check": "Network policy blocks direct routes around the proxy or gateway, for both IPv4 and IPv6.",
+          "verify": "1) Check whether the proxy is enforced by network policy or only by `HTTP_PROXY`/`HTTPS_PROXY` env. 2) Check IPv6 egress rules. 3) Answer no if pods can reach the internet except via the proxy, the proxy is only an env var, `NO_PROXY` is broad, or IPv6 is not restricted.",
+          "met": "unknown",
+          "evidence": "k8s/deployment.yaml:168",
+          "quote": "podSelector: {}",
+          "counter_search": "",
+          "note": "Policy lists no direct internet or IPv6 egress rule, so direct routes look blocked, but HTTPS_PROXY is only an env var (deployment.yaml:43) and the CNI's IPv6 policy handling is outside the repo. Node fetch calls in the code use no proxy agent.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B09.3",
+          "check": "Redirect targets and resolved IP addresses are checked against the allowlist, and cloud metadata and loopback addresses are blocked.",
+          "verify": "1) Find fetch and HTTP client code (`requests`, `fetch`, `http.Client`, `follow_redirects`, `allow_redirects`). 2) Check each redirect hop and resolved IP is checked. 3) Answer no if redirects are followed unchecked, the check uses the hostname but not the resolved IP, or 169.254.169.254, fd00:ec2::254, or 127.0.0.0/8 and ::1 are not blocked.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:83",
+          "quote": "const keys = createRemoteJWKSet(new URL(header.jku));",
+          "counter_search": "",
+          "note": "jku comes from the unverified JWS header and is fetched before signature verification, with no allowlist, redirect or resolved-IP check, and no 169.254.169.254/loopback block in code. Other fetch calls (eligibility-a2a.ts:36,58; payments.ts:29; sms.ts:31; ehr-mcp.ts:38) follow redirects by default with no checks. Only the external proxy could block these.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B09.4",
+          "check": "Allowed destinations are limited by resource, tenant, or path where needed, not only by domain.",
+          "verify": "1) List allowed destinations that are shared services (S3, GitHub, storage, paste sites). 2) Check rules limit bucket, account, repo, tenant, or path. 3) Answer no if a shared service is allowed by domain or wildcard (`*.s3.amazonaws.com`) alone, or path checks use string prefix without normalising.",
+          "met": "unknown",
+          "evidence": "k8s/deployment.yaml:160",
+          "quote": "# The proxy allows api.anthropic.com, the payments and SMS providers, the eligibility agent,",
+          "counter_search": "",
+          "note": "Per-resource, tenant or path limits would sit in the platform proxy; not in this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B09.5",
+          "check": "Each blocked request is logged and routed as an alert to a named operator.",
+          "verify": "1) Find where blocked requests are logged (proxy deny log, policy audit, app code). 2) Find the alert route to a named operator. 3) Answer no if blocks are not logged, only allowed requests are logged, or no alert route names an operator. Answer unknown if alerting lives outside this repo.",
+          "met": "unknown",
+          "evidence": "k8s/deployment.yaml:160",
+          "quote": "# The proxy allows api.anthropic.com, the payments and SMS providers, the eligibility agent,",
+          "counter_search": "",
+          "note": "Searched for deny logging and alert routes in config, k8s, terraform and src; none. Proxy logs and alerting are outside the repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "Cover redirects, DNS changes and rebinding"
+      ],
+      "also_affects": [],
+      "summary": "The peer attestation key URL is fetched from an unverified header with no destination checks; the proxy allowlist is outside the repo.",
+      "next_step": "Pin the JWKS URL to config, disable or check redirects and resolved IPs, and supply the proxy allowlist, IPv6 and alert evidence.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B10",
+      "gate": "G2",
+      "title": "Pinned, verified image",
+      "requirement": "Pin the container by digest. Before it runs, check its digest and signature against an approved signing key, or an approved certificate identity and issuer. Keep its build provenance (the record of how it was built) and its list of dependencies. Check provenance fields such as the builder, source repository, build type, and the parameters set from outside the build (SLSA `externalParameters`) against what you expect. Keep the verifier patched. Cosign versions before 2.6.2 and 3.0.4 could accept a bundle whose transparency-log entry didn't match the artifact. Confirm that the admission check covers production namespaces and is set to enforce, not just audit. Show that an unapproved or changed image is rejected.",
+      "not_covered": [
+        {
+          "problem": "Tool or MCP server package not vetted or pinned",
+          "owner": "E02"
+        },
+        {
+          "problem": "Model weights or adapters loaded without a signature or format check",
+          "owner": "C05"
+        },
+        {
+          "problem": "Image runs as root or includes a shell or package manager",
+          "owner": "B11"
+        },
+        {
+          "problem": "Secrets baked into the image",
+          "owner": "B03"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 76,
+          "note": "Both k8s images and both Dockerfile bases use digests."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B10.1",
+          "check": "Production manifests reference images by digest (`@sha256:`), not by tag alone.",
+          "verify": "1) Find every `image:` field in manifests, Helm values, compose, and Terraform. 2) Check each uses `@sha256:`. 3) Answer no if any production image uses only a tag (`:latest`, `:v1`), or a template defaults to a tag when the digest value is empty.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:76",
+          "quote": "clinic-agent@sha256:b81f3c0e9d2a4756c8e1f0a3b2d4c6e8f0a1b3c5d7e9f1a2b4c6d8e0f2a4b6c8",
+          "counter_search": "Grepped for image: and FROM in all files; found no tag-only image, Helm values or compose.",
+          "note": "Both k8s images and both Dockerfile bases use digests.",
+          "coverage": [
+            {
+              "subject": "Deployment agent image",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:76",
+              "quote": "clinic-agent@sha256:b81f3c0e9d2a4756c8e1f0a3b2d4c6e8f0a1b3c5d7e9f1a2b4c6d8e0f2a4b6c8",
+              "note": "Digest reference on this path, as the quoted line shows."
+            },
+            {
+              "subject": "CronJob reminders image",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:143",
+              "quote": "clinic-agent@sha256:b81f3c0e9d2a4756c8e1f0a3b2d4c6e8f0a1b3c5d7e9f1a2b4c6d8e0f2a4b6c8",
+              "note": "Digest reference on this path, as the quoted line shows."
+            },
+            {
+              "subject": "Dockerfile build base",
+              "status": "enforced",
+              "evidence": "Dockerfile:2",
+              "quote": "FROM node:22.11-bookworm-slim@sha256:3f1a8d2c9b7e4f6a5d0c8b1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a",
+              "note": "Base image digest on this path, as the quoted line shows."
+            },
+            {
+              "subject": "Dockerfile runtime base",
+              "status": "enforced",
+              "evidence": "Dockerfile:10",
+              "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:9b2e4c6a8d0f1e3c5a7b9d1f3e5c7a9b1d3f5e7c9a1b3d5f7e9c1a3b5d7f9e1c",
+              "note": "Base image digest on this path, as the quoted line shows."
+            },
+            {
+              "subject": "Terraform / Helm / compose images",
+              "status": "not_applicable",
+              "evidence": "infra/terraform/main.tf:89",
+              "quote": "resource \"aws_ecr_repository\" \"agent\" {",
+              "note": "Terraform defines only the ECR repository; no image: field, Helm values or compose file exists in the repo."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B10.2",
+          "check": "An admission policy verifies the signature against a pinned key, or a pinned certificate identity and issuer, with no wildcard identity or issuer.",
+          "verify": "1) Find admission policies (Kyverno `verifyImages`, `ClusterImagePolicy`, Gatekeeper). 2) Check the key or certificate identity and issuer are pinned. 3) Answer no if identity or issuer uses `.*` or wildcard regex, issuer is unset, or no admission policy exists. Answer unknown if admission config is outside this repo.",
+          "met": "unknown",
+          "evidence": ".github/workflows/deploy.yml:68",
+          "quote": "--certificate-oidc-issuer https://token.actions.githubusercontent.com",
+          "counter_search": "",
+          "note": "Searched for Kyverno, ClusterImagePolicy, Gatekeeper, admission; none in repo. deploy.yml:66-68 verifies with a pinned identity and issuer, but that is a CI step, not an admission policy. Cluster admission config may be outside the repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B10.3",
+          "check": "The policy checks provenance fields: builder, source repository, build type, and external parameters.",
+          "verify": "1) In the admission policy, find attestation or provenance conditions. 2) Check builder ID, source repository, build type, and `externalParameters` are each compared to expected values. 3) Answer no if any is missing, provenance is only generated in CI but not verified, or conditions use wildcards.",
+          "met": "no",
+          "evidence": ".github/workflows/ci.yml:74",
+          "quote": "uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0",
+          "counter_search": "",
+          "note": "Provenance is generated in CI, but nothing in the repo verifies it: deploy.yml runs only cosign verify (no verify-attestation) and no policy compares builder, source repo, build type or externalParameters.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B10.4",
+          "check": "The policy is in enforce mode, covers production namespaces, and denies images that match no policy.",
+          "verify": "1) Read the policy mode and scope (`validationFailureAction`, `failureAction`, `mode`, namespace selectors, exclusions). 2) Check for a no-match deny. 3) Answer no if mode is `Audit` or `warn`, production namespaces are excluded or unmatched, `failurePolicy: Ignore`, or images matching no policy are allowed.",
+          "met": "unknown",
+          "evidence": "k8s/deployment.yaml:6",
+          "quote": "pod-security.kubernetes.io/enforce: restricted",
+          "counter_search": "",
+          "note": "No admission policy for image signatures exists in the repo, so mode, namespace coverage and no-match deny cannot be assessed. The namespace only carries Pod Security labels, which do not check images.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B10.5",
+          "check": "The pinned Cosign or verifier version is at least 2.6.2 (2.x) or 3.0.4 (3.x).",
+          "verify": "1) Find Cosign or verifier versions in CI workflows (`cosign-installer`, `cosign-release`), Dockerfiles, and policy-controller charts. 2) Compare to 2.6.2 (2.x) and 3.0.4 (3.x). 3) Answer no if any pin is lower or uses `latest` or no version. Answer unknown if no verifier is in this repo.",
+          "met": "yes",
+          "evidence": ".github/workflows/deploy.yml:60",
+          "quote": "cosign-release: v2.6.2",
+          "counter_search": "Searched all workflows, Dockerfile and k8s for cosign, verifier, policy-controller; only ci.yml:71 and deploy.yml:60 pin it, both 2.6.2.",
+          "note": "Both pins meet the 2.x minimum.",
+          "coverage": [
+            {
+              "subject": "ci.yml cosign-installer",
+              "status": "enforced",
+              "evidence": ".github/workflows/ci.yml:71",
+              "quote": "cosign-release: v2.6.2",
+              "note": "Pinned to 2.6.2, the minimum for 2.x."
+            },
+            {
+              "subject": "deploy.yml cosign-installer",
+              "status": "enforced",
+              "evidence": ".github/workflows/deploy.yml:60",
+              "quote": "cosign-release: v2.6.2",
+              "note": "Pinned to 2.6.2, the minimum for 2.x."
+            },
+            {
+              "subject": "Dockerfile verifier",
+              "status": "not_applicable",
+              "evidence": "Dockerfile:2",
+              "quote": "FROM node:22.11-bookworm-slim@sha256",
+              "note": "Dockerfile installs no cosign or verifier."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        ".github/workflows/deploy.yml:69 grep -q only finds the manifest digest anywhere in k8s/deployment.yaml (the IMAGE_DIGEST env values also contain it), so an image: line with a different digest can pass the pre-deploy check and be applied unsigned."
+      ],
+      "violates": [
+        "Check provenance fields such as the builder, source repository, build type"
+      ],
+      "also_affects": [],
+      "summary": "Provenance is generated but never verified, and the pre-deploy digest check can be bypassed; no admission policy is in the repo.",
+      "next_step": "Add an enforcing admission policy that verifies signature and provenance fields, and make the deploy check compare each image: field exactly.",
+      "lead_role": "infrastructure"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

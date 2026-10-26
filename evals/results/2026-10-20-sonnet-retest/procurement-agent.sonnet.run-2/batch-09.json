@@ -1,0 +1,513 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-10-20T13:26:27Z",
+  "scope": "Batch review of C08, E01, E02, E03, E04 only. Read app/ (audit, loop, extractor, mcp_client, identity, startup, tools), release/manifest.yaml, config, Dockerfile, pyproject.toml, CI workflow, k8s manifests and migrations. Not reviewed: other items, the 7 prescan hits (all belong to B07/B08/B09/B11/R05), runtime/platform controls outside the repo (audit retention, ERP gateway). No challenges run; no .brace/ directory present. Model: claude-sonnet-5-5 (reasoning setting not recorded).",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "C08",
+      "gate": "G2",
+      "title": "Connect configuration to execution",
+      "requirement": "From a trace, look up the release manifest, the context sizes at each decision, and any prompts a parent passed to a sub-agent. Keep these links for the full audit retention period. Control access to sensitive artifacts.",
+      "not_covered": [
+        {
+          "problem": "Context size not measured or logged for each action decision",
+          "owner": "R07"
+        },
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        },
+        {
+          "problem": "Manifest missing components that define the release",
+          "owner": "C01"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "app/identity.py",
+          "line": 68,
+          "note": "agent_type_id is a one-way hash derived from the manifest and written on every audit row (audit.py:103), but nothing in the repo stores a manifest keyed by that id (no table, no registry publish step in CI). The hash also covers prompt paths, not prompt hashes, so a prompt edit does not change it."
+        }
+      ],
+      "checks": [
+        {
+          "id": "C08.1",
+          "check": "Each trace or audit record carries the agent-type-id or manifest reference that resolves to the stored release manifest.",
+          "verify": "1) Open the trace or audit record writer. 2) Check every record carries `agent.type.id` or a manifest reference. 3) Check that value is the key of a stored manifest. 4) Answer no if the field is missing on some paths (errors, background jobs) or holds a value that resolves to no stored manifest.",
+          "met": "no",
+          "evidence": "app/identity.py:68",
+          "quote": "\"system_prompt\": manifest[\"prompts\"][\"system\"][\"path\"],",
+          "counter_search": "",
+          "note": "agent_type_id is a one-way hash derived from the manifest and written on every audit row (audit.py:103), but nothing in the repo stores a manifest keyed by that id (no table, no registry publish step in CI). The hash also covers prompt paths, not prompt hashes, so a prompt edit does not change it.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C08.2",
+          "check": "The context size at each model decision is recorded in the trace.",
+          "verify": "1) Find model call sites and their spans. 2) Look for the context size recorded per call (for example `gen_ai.usage.input_tokens` or a context-length attribute). 3) Answer no if it is missing on any model call path, including retries and sub-agents.",
+          "met": "yes",
+          "evidence": "app/loop.py:154",
+          "quote": "decision = await audit.record(",
+          "counter_search": "Searched app/ for messages.create/count_tokens: only loop.py:150 and extractor.py:74 call the model; both are followed by a model_decision audit row carrying ctx.",
+          "note": "Context size is recorded on the model_decision row for the main agent and the sub-agent.",
+          "coverage": [
+            {
+              "subject": "app/loop.py:150 primary model call",
+              "status": "enforced",
+              "evidence": "app/loop.py:154",
+              "quote": "decision = await audit.record(",
+              "note": "model_decision audit row is written with context=ctx (count_tokens before the call, finalized from usage after) on every loop iteration."
+            },
+            {
+              "subject": "app/extractor.py:74 sub-agent model call",
+              "status": "enforced",
+              "evidence": "app/extractor.py:78",
+              "quote": "decision = await audit.record(",
+              "note": "Sub-agent model_decision row is written with context=ctx for each of up to MAX_TURNS calls."
+            },
+            {
+              "subject": "retry/fallback context measurement",
+              "status": "enforced",
+              "evidence": "app/context_size.py:51",
+              "quote": "return replace(self, tokens=total, method=\"usage_sum_estimate\")",
+              "note": "Count failure falls back to the response usage sum; absence is recorded as method unavailable with NULL, not dropped."
+            },
+            {
+              "subject": "audit schema context columns",
+              "status": "enforced",
+              "evidence": "migrations/001_init.sql:24",
+              "quote": "context_method      text NOT NULL,",
+              "note": "Every audit row must carry context_method and context_compacted."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C08.3",
+          "check": "Prompts passed from a parent to a sub-agent are stored and linked from the trace.",
+          "verify": "1) Find sub-agent spawn code. 2) Check the parent's prompt is stored and the trace holds a link to it (ID, hash, or URI). 3) Answer no if the prompt is not stored, prompt capture is off, or the trace has no link.",
+          "met": "no",
+          "evidence": "app/extractor.py:58",
+          "quote": "\"parent_prompt_ref\": format(span.get_span_context().span_id, \"016x\"),",
+          "counter_search": "",
+          "note": "The 'prompt ref' is only an OTel span id; the sub-agent task text (extractor.py:46) is never stored, and message-content capture is off (deployment.yaml:66-67).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C08.4",
+          "check": "Storage config keeps manifests, traces, and these links for at least the audit retention period, and limits access to sensitive artifacts by role.",
+          "verify": "1) Find storage config for manifests, traces, and prompt links: bucket lifecycle rules, log retention, TTLs. 2) Check retention covers the audit period for all of them. 3) Check IAM limits sensitive artifacts by role. 4) Answer no if any has a shorter TTL, no retention, or broad read access. Answer unknown if storage is configured outside this repo.",
+          "met": "unknown",
+          "evidence": "migrations/001_init.sql:4",
+          "quote": "CREATE TABLE audit_events (",
+          "counter_search": "",
+          "note": "Searched migrations, deploy, config and README for retention, TTL, lifecycle and partition rules: none. Audit table is Postgres and OTLP goes to an external collector, so retention is set outside this repo. Role grants exist (migrations:119-133) but no audit retention period or manifest/trace store config is visible.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "look up the release manifest",
+        "any prompts a parent passed to a sub-agent"
+      ],
+      "also_affects": [],
+      "summary": "Audit rows carry an agent type id and context size, but the id resolves to no stored manifest and parent prompts are not stored.",
+      "next_step": "Store manifests keyed by agent_type_id, store each sub-agent prompt and link it from the audit row, and document audit retention.",
+      "lead_role": "operations"
+    },
+    {
+      "item": "E01",
+      "gate": "G2",
+      "title": "Map shared responsibilities",
+      "requirement": "List the outside tools, MCP servers, peer agents, sub-agents, registries, identity services, gateways, stop channels, and audit services. For each control that applies, name the owner on the agent team and the owner on the shared platform or vendor side. Keep evidence for both halves. Using an upstream service doesn't make its controls N/A.",
+      "not_covered": [
+        {
+          "problem": "A tool call that skips the MCP gateway or reaches a tool server directly",
+          "owner": "E06"
+        },
+        {
+          "problem": "A vendor service dropping agent or tenant identity from its records",
+          "owner": "E10"
+        },
+        {
+          "problem": "Tool or MCP server approved without vetting or pinning",
+          "owner": "E02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "release/manifest.yaml",
+          "line": 63,
+          "note": "No inventory file exists. The only list is manifest mcp_servers with one entry (erp). Payments API, Slack proxy, STS, OIDC/JWKS, egress proxy, OTel collector, Anthropic API, mail gateway, the stop channel (control_flags) and the audit store are not listed; sub-agent appears only as a model entry."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E01.1",
+          "check": "An inventory file lists the outside tools, MCP servers, peer agents, sub-agents, registries, identity services, gateways, stop channels, and audit services.",
+          "verify": "1) Find the inventory file. 2) Check each category the agent uses is listed: outside tools, MCP servers, peer agents, sub-agents, registries, identity services, gateways, stop channels, audit services. 3) Answer no if no inventory exists or a category the agent uses is missing.",
+          "met": "no",
+          "evidence": "release/manifest.yaml:63",
+          "quote": "mcp_servers:",
+          "counter_search": "",
+          "note": "No inventory file exists. The only list is manifest mcp_servers with one entry (erp). Payments API, Slack proxy, STS, OIDC/JWKS, egress proxy, OTel collector, Anthropic API, mail gateway, the stop channel (control_flags) and the audit store are not listed; sub-agent appears only as a model entry.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E01.2",
+          "check": "Each inventory entry names both an agent-team owner and a platform or vendor owner.",
+          "verify": "1) Open each inventory entry. 2) Check it names an agent-team owner and a platform or vendor owner. 3) Answer no if any entry is missing either owner.",
+          "met": "no",
+          "evidence": "release/manifest.yaml:66",
+          "quote": "owner: team-erp-integrations",
+          "counter_search": "",
+          "note": "The one MCP entry names a single owner (the platform side). No entry pairs an agent-team owner with a platform/vendor owner.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E01.3",
+          "check": "Every outside service the code or config calls appears in the inventory.",
+          "verify": "1) Search code and config for outside calls: HTTP clients and base URLs, SDK clients, `*.mcp.json` servers, queue and webhook endpoints, identity providers, telemetry exporters. 2) Compare each with the inventory. 3) Answer no if any called service is not listed.",
+          "met": "no",
+          "evidence": "deploy/k8s/deployment.yaml:48",
+          "quote": "- name: PAYMENTS_API_URL",
+          "counter_search": "",
+          "note": "Code and config call payments API (deployment.yaml:48-49), Slack proxy (:50), STS (:52), OIDC JWKS (:56), egress proxy (:58), OTel collector (:62) and the Anthropic API (main.py:96); none appear in an inventory.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "List the outside tools, MCP servers, peer agents, sub-agents, registries, identity services, gateways, stop channels, and audit services",
+        "name the owner on the agent team and the owner on the shared platform or vendor side"
+      ],
+      "also_affects": [],
+      "summary": "There is no outside-service inventory, and the one manifest list covers only the ERP MCP server with one owner.",
+      "next_step": "Add an inventory covering every outside tool, MCP server, sub-agent, identity service, gateway, stop channel and audit service, with an agent-team owner and a platform/vendor owner for each.",
+      "lead_role": "governance"
+    },
+    {
+      "item": "E02",
+      "gate": "G2",
+      "title": "Vet and pin dependencies",
+      "requirement": "Before approving a tool or server, review its source code or available provenance, publisher, permissions, update path, and known vulnerabilities. Include model files, adapters, and datasets. Pin versions or digests, and verify signatures where they exist. A registry's namespace check shows who controls a publisher account, not that the code is safe. Record the limits of remote services and unsigned artifacts, and the extra checks you use instead.",
+      "not_covered": [
+        {
+          "problem": "A tool's description or schema changing after it was approved",
+          "owner": "E03"
+        },
+        {
+          "problem": "Hidden instructions inside a tool's metadata",
+          "owner": "E04"
+        },
+        {
+          "problem": "Lookalike or duplicate tool names across servers",
+          "owner": "E05"
+        },
+        {
+          "problem": "Container image not pinned by digest or signature-checked",
+          "owner": "B10"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "Dockerfile",
+          "line": 7,
+          "note": "Only direct deps are pinned (pyproject.toml:7-17). No lockfile or --require-hashes, so transitive packages float at build time. The ERP MCP server is referenced only by URL (manifest:65) with no version or digest."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E02.1",
+          "check": "Each tool, MCP server, package, model file, adapter, and dataset is pinned by exact version or digest, with no floating tags, ranges, or 'latest'.",
+          "verify": "1) Open lockfiles, `*.mcp.json`, Dockerfiles, and model or dataset download code. 2) Check each tool, MCP server, package, model file, adapter, and dataset uses an exact version or digest. 3) Answer no if any uses a range, `latest`, a branch, `npx` or `uvx` without a version, or an unpinned download URL.",
+          "met": "no",
+          "evidence": "Dockerfile:7",
+          "quote": "RUN pip install --target /opt/site .",
+          "counter_search": "",
+          "note": "Only direct deps are pinned (pyproject.toml:7-17). No lockfile or --require-hashes, so transitive packages float at build time. The ERP MCP server is referenced only by URL (manifest:65) with no version or digest.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E02.2",
+          "check": "Signature checks run in the build or load path where the publisher provides signatures, and a failed check stops the install or load.",
+          "verify": "1) Find install and load steps in CI and code. 2) Check signature checks (`cosign verify`, `npm audit signatures`, sigstore, GPG) run where the publisher signs. 3) Answer no if a check is missing, its failure is ignored (`|| true`, `continue-on-error`, `try/except` that continues), or a second install path skips it.",
+          "met": "no",
+          "evidence": "Dockerfile:7",
+          "quote": "RUN pip install --target /opt/site .",
+          "counter_search": "",
+          "note": "No signature or attestation verification of dependencies or the distroless/python base images in the Dockerfile or CI. Kyverno verifies only the project's own image (kyverno-verify-images.yaml:36).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E02.3",
+          "check": "A vulnerability scan of the pinned dependency list runs in CI and gates on the team's release policy.",
+          "verify": "1) Open CI workflows. 2) Find a vulnerability scan (`pip-audit`, `npm audit`, `osv-scanner`, `trivy`, `grype`) of the pinned dependency list. 3) Check it fails the build per the release policy. 4) Answer no if no scan exists, it is set not to fail (`--exit-zero`, `|| true`, `continue-on-error`), or it scans a different file than the lockfile actually used.",
+          "met": "no",
+          "evidence": ".github/workflows/ci.yaml:20",
+          "quote": "- run: pytest -q",
+          "counter_search": "",
+          "note": "CI has tests, gitleaks and a manifest hash check only. No pip-audit, osv-scanner, trivy or grype step.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E02.4",
+          "check": "Each approved dependency's record names its publisher, permissions, and update source, and remote services or unsigned artifacts have a recorded exception.",
+          "verify": "1) Find the dependency approval records. 2) Check each names publisher, permissions, and update source. 3) Check each remote service and unsigned artifact has a recorded exception. 4) Answer no if any approved dependency lacks these fields or the needed exception.",
+          "met": "no",
+          "evidence": "pyproject.toml:6",
+          "quote": "dependencies = [",
+          "counter_search": "",
+          "note": "No dependency approval records. The manifest names an owner and endpoint for the ERP server but no publisher, permissions, update source or exception for the remote service. Python packages and model snapshots have no such record.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "Pin versions or digests, and verify signatures where they exist",
+        "review its source code or available provenance, publisher, permissions, update path, and known vulnerabilities"
+      ],
+      "also_affects": [],
+      "summary": "Direct dependencies are pinned but transitive ones are not, and there is no signature check, vulnerability scan or approval record.",
+      "next_step": "Add a hashed lockfile, a pip-audit/osv gate in CI, signature or provenance checks for base images, and approval records with publisher, permissions, update source and exceptions.",
+      "lead_role": "security"
+    },
+    {
+      "item": "E03",
+      "gate": "G2",
+      "title": "Re-check tools on load",
+      "requirement": "Keep a tool publication lifecycle: discovery, review, approval, enablement, re-check, quarantine, and rollback. New servers and tools start disabled; their owner approves descriptions, schemas, permissions, and implementation references before use. Take a fingerprint of each approved tool's description and schema. Compare it whenever the tool loads, its cache refreshes, or its tool list changes. Block unexpected changes until reviewed, including when re-checking fails; don't serve a cached definition as a fallback. Record the policy/config version used at execution, bound propagation delay, and test rollback without restoring revoked access. A metadata hash cannot detect hidden changes to remote code. Pin or attest implementations where visible, record remote visibility limits and review dates, and track affected deployments when vulnerabilities are reported.",
+      "not_covered": [
+        {
+          "problem": "Hidden instructions in a tool's metadata when first approved",
+          "owner": "E04"
+        },
+        {
+          "problem": "Tool approved without reviewing its publisher and permissions",
+          "owner": "E02"
+        },
+        {
+          "problem": "A new server quietly swapping its tool in for an approved one",
+          "owner": "E05"
+        },
+        {
+          "problem": "Cached tool list shared across authorization contexts",
+          "owner": "E06"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "app/mcp_client.py",
+          "line": 110,
+          "note": "Startup pins only name/description/schema/annotations hashes (manifest:70+); no owner approval record for permissions or implementation reference. On refresh, newly discovered tools are enabled immediately with no pin lookup, so discovery auto-enables."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E03.1",
+          "check": "New tools start disabled, an owner approves versioned definitions and grants before enablement, and approved descriptions/schemas have stored fingerprints.",
+          "verify": "1) Trace discovery, approval and enablement on startup and dynamic registration. 2) Check the owner-approved version includes permissions and implementation references and has a stored description/schema hash. 3) Reject auto-enable on discovery, self-approval from untrusted metadata, or fingerprints covering only names. 4) Use unknown for approval service behavior not visible in this repo.",
+          "met": "no",
+          "evidence": "app/mcp_client.py:110",
+          "quote": "self._tools = {t[\"name\"]: t for t in tools}",
+          "counter_search": "",
+          "note": "Startup pins only name/description/schema/annotations hashes (manifest:70+); no owner approval record for permissions or implementation reference. On refresh, newly discovered tools are enabled immediately with no pin lookup, so discovery auto-enables.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E03.2",
+          "check": "The fingerprint is re-checked on every tool load, cache refresh, and list-changed notice from the server.",
+          "verify": "1) List every path that loads tool definitions: startup, cache refresh, reconnect, and the `notifications/tools/list_changed` handler. 2) Check each recomputes the fingerprint and compares it with the stored one. 3) Answer no if any path skips the compare, or both sides of the compare are computed from the new definition.",
+          "met": "no",
+          "evidence": "app/mcp_client.py:107",
+          "quote": "async def refresh_tools(self, service_ident: RunIdentity) -> None:",
+          "counter_search": "",
+          "note": "Fingerprint compare runs only in initialize (:95-98). refresh_tools (:107-111) replaces _tools with no compare; the list_changed handler (:103-105) calls it and is never wired to any transport (no caller in app/). Reconnect/cache paths do not exist, so startup is the only checked load.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E03.3",
+          "check": "When the re-check fails, the tool is blocked and the cached definition is not used.",
+          "verify": "1) Open the fingerprint mismatch branch. 2) Check it blocks the tool and does not fall back to the cached definition. 3) Answer no if it only logs, uses the cached or new definition anyway, or an error during the check lets the tool load.",
+          "met": "no",
+          "evidence": "app/mcp_client.py:110",
+          "quote": "self._tools = {t[\"name\"]: t for t in tools}",
+          "counter_search": "",
+          "note": "Startup mismatch raises ToolPinMismatch (:98) and stops the process, but the refresh path serves the new definition with no mismatch branch, and call() (:117) accepts any name in the refreshed set.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E03.4",
+          "check": "The implementation version is pinned or attested where it can be seen, and recorded separately from the metadata fingerprint.",
+          "verify": "1) Check how each tool server implementation is referenced: package version, image digest, or attestation. 2) Check that version is recorded in its own field, apart from the metadata fingerprint. 3) Answer no if a visible implementation is unpinned, or only the metadata hash is recorded.",
+          "met": "no",
+          "evidence": "release/manifest.yaml:65",
+          "quote": "endpoint: \"https://erp-mcp-gateway.erp-mcp-gateway.svc.cluster.local:8443/mcp\"",
+          "counter_search": "",
+          "note": "The ERP MCP server is recorded only as an endpoint and owner. No implementation version, image digest, attestation, remote-visibility limit or review date is recorded apart from the metadata fingerprints (tool_pins).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E03.6",
+          "check": "Tool quarantine, bounded config propagation, recorded execution config versions, and rollback preserve revocations.",
+          "verify": "1) Trace control-plane config to all executors, caches and reload paths. 2) Check a propagation bound and version in execution records. 3) Verify quarantine blocks calls and rollback cannot resurrect revoked grants. 4) Answer no for stale permissions surviving the bound or unsafe rollback; use unknown for runtime guarantees lacking evidence.",
+          "met": "no",
+          "evidence": "app/tools/__init__.py:53",
+          "quote": "@lru_cache(maxsize=1)",
+          "counter_search": "",
+          "note": "No tool quarantine control exists. _role_tools caches tools.yaml forever per process (:53-57). No propagation bound is stated. Audit rows record policy_version (audit.py:110) but not the tools config or tool-definition version used. No rollback/revocation handling is visible.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "Compare it whenever the tool loads, its cache refreshes, or its tool list changes",
+        "Block unexpected changes until reviewed"
+      ],
+      "also_affects": [],
+      "summary": "Tool pins are checked only at startup; the refresh path replaces tool definitions without any compare, and there is no quarantine or implementation pin.",
+      "next_step": "Re-check fingerprints (and run the metadata scan) in refresh_tools and wire the list_changed notice; block and fail closed on mismatch; add quarantine, an implementation pin and a recorded config version.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E04",
+      "gate": "G2",
+      "title": "Inspect tool metadata",
+      "requirement": "Before the model sees them, scan server instructions, tool names, titles, descriptions, input and output schemas, annotations, and prompt and resource templates. Look for hidden instructions, references to other servers' tools, invisible or control characters, role overrides, encoded payloads, and places data could be sent. Limit lengths, and clean or reject anything suspicious. Check that a scanner error doesn't quietly let unchecked metadata through.",
+      "not_covered": [
+        {
+          "problem": "A tool's description or schema changing after it was approved",
+          "owner": "E03"
+        },
+        {
+          "problem": "Hidden instructions in tool call results",
+          "owner": "R01"
+        },
+        {
+          "problem": "Lookalike or duplicate tool names across servers",
+          "owner": "E05"
+        },
+        {
+          "problem": "Allow decisions based on server hints such as read-only",
+          "owner": "B01"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "app/mcp_client.py",
+          "line": 99,
+          "note": "Scan runs only in initialize, not in refresh_tools (:107-111). Whole-tool json dump covers name, title, description, schemas and annotations (:57), but server instructions, prompt templates and resource templates are never fetched or scanned. Length limit applies to description only (:55)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E04.1",
+          "check": "A scanner runs on server instructions, tool names, titles, descriptions, input and output schemas, annotations, and prompt and resource templates before the model sees them.",
+          "verify": "1) Inventory every model-visible metadata field and loading path. 2) Build a field-by-rule matrix: names, titles, descriptions, schemas, annotations, instructions, prompts and resource templates. 3) For each field, trace the actual scanner rules applied before serialization to the model. A syntax regex alone is not proof that payload/instruction rules ran. 4) Try the same suspicious string in different fields; answer no for an unscanned required surface.",
+          "met": "no",
+          "evidence": "app/mcp_client.py:99",
+          "quote": "scan_metadata(tool)",
+          "counter_search": "",
+          "note": "Scan runs only in initialize, not in refresh_tools (:107-111). Whole-tool json dump covers name, title, description, schemas and annotations (:57), but server instructions, prompt templates and resource templates are never fetched or scanned. Length limit applies to description only (:55).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E04.2",
+          "check": "The scanner checks for hidden instructions, references to other servers' tools, invisible or control characters, role overrides, encoded payloads, and data-sending targets, and enforces length limits.",
+          "verify": "1) Trace rule application, not just rule declarations. 2) Attempt encoded strings and multi-line role overrides; record input, exact code path and outcome. 3) Verify hidden instructions, cross-tool references, control/invisible characters, role overrides, encoded payloads, data-sending targets and length limits. 4) Answer no when a required rule is absent or a demonstrated suspicious input bypasses it.",
+          "met": "no",
+          "evidence": "app/mcp_client.py:25",
+          "quote": "SUSPICIOUS_METADATA = [",
+          "counter_search": "",
+          "note": "Rules are weak: no data-sending-target rule (URLs/emails). Cross-tool rule matches only 'before|instead of calling x.y' (:28), so 'after using' or 'first call slack_post' passes. json.dumps escapes newlines/control characters (:57), and there is no role-marker rule (e.g. 'System:' on its own line). Encoded rule needs 120+ base64 chars (:30), so short, hex or percent-encoded payloads pass. Length limit covers description only.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E04.3",
+          "check": "Metadata the scanner flags is cleaned or rejected, not just logged.",
+          "verify": "1) Open the scanner's result handling. 2) Check flagged metadata is cleaned, or the tool rejected, before the model sees it. 3) Answer no if flagged items are only logged or warned about and passed through.",
+          "met": "no",
+          "evidence": "app/mcp_client.py:109",
+          "quote": "tools = await self._list_tools(token)",
+          "counter_search": "",
+          "note": "At startup a flagged tool raises and stops startup (:60). On refresh the list is fetched here and stored unscanned (:110), so changed metadata that would be flagged passes through to the registry.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E04.4",
+          "check": "A scanner error or outage blocks the metadata instead of letting it through unchecked.",
+          "verify": "1) Read every `try/except`, `catch`, and timeout around the scanner call. 2) Check an error blocks the metadata. 3) Answer no if any error branch passes metadata through, returns clean, or skips the scan, or a config flag disables scanning by default.",
+          "met": "no",
+          "evidence": "app/mcp_client.py:111",
+          "quote": "log.info(\"erp tools refreshed: %d\", len(self._tools))",
+          "counter_search": "",
+          "note": "The scan has no try/except and fails closed at startup, but the refresh path skips the scan entirely and stores the tool list. Scanning cannot be disabled by flag.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "Before the model sees them, scan server instructions",
+        "Look for hidden instructions, references to other servers' tools, invisible or control characters, role overrides, encoded payloads, and places data could be sent"
+      ],
+      "also_affects": [],
+      "summary": "The metadata scanner runs only at startup, has no data-target or real role-override rules, and is skipped on tool refresh.",
+      "next_step": "Scan every load path (including refresh), add rules for data-sending targets, role markers, other-tool references and control characters, and apply length limits to all fields.",
+      "lead_role": "security"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

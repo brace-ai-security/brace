@@ -2,14 +2,16 @@
 
 ## BRACE versioning
 
-`VERSION` is the authoritative BRACE semantic version. For every future update to
-framework content, documentation, website, or tooling, increment it once per delivered change set:
-patch for compatible corrections, references, or maintenance; minor for compatible
-additions; major for incompatible requirements, gates, IDs, or interfaces. Reset
-lower components when incrementing major or minor. Keep the version displayed in
-`index.html`, `README.md`, and `CITATION.cff` synchronized. The current update
-establishes 2.0.1; apply the next increment to the next update. Beads-only tracking
-changes do not require a bump. Mirror this rule in `CLAUDE.md`.
+`VERSION` is the authoritative BRACE semantic version. Keep changes unreleased
+while building, testing and evaluating. Change the version only when the user
+explicitly decides to release after review; routine content, documentation,
+website, tooling, evaluation and Beads work does not authorize a bump.
+
+At an authorized release, choose semantic versioning: patch for compatible
+corrections or maintenance; minor for compatible additions; major for incompatible
+requirements, gates, IDs or interfaces. Reset lower components as appropriate and
+synchronize `VERSION`, `index.html`, `README.md` and `CITATION.cff`.
+Mirror this rule in `CLAUDE.md`.
 
 This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
 

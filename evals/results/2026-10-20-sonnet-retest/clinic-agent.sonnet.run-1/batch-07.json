@@ -1,0 +1,720 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-10-20T12:36:56Z",
+  "scope": "TODO: what was reviewed and what wasn't.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "A05",
+      "gate": "G1",
+      "title": "Operational lookup",
+      "requirement": "Start from one suspicious action. Find the team responsible, the current operator, the deployment manifest, and the live instance. Show that you can contain the right instance or agent type without cutting off the launching user's other access.",
+      "not_covered": [
+        {
+          "problem": "Stop doesn't halt running work or open tool streams within a set time",
+          "owner": "R11"
+        },
+        {
+          "problem": "No drill for a compromised shared tool or agent type",
+          "owner": "E12"
+        },
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/control/kill-switch.ts",
+          "line": 57,
+          "note": "Stop scopes are only global and tenant#<clinic> (kill-switch.ts:57-58). No key for instance id or agent type id; AGENT_INSTANCE_ID is never consulted by the kill switch. Ops role can only write the control table (iam.tf:82-83). Revoking the IRSA role revokes the agent and reminder service accounts together (iam.tf:14-17). During a rolling deploy two type ids coexist and the bad one cannot be halted alone."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A05.1",
+          "check": "Each audit record carries the agent-type-id and agent-instance-id, which resolve to a stored deployment manifest and a live instance.",
+          "verify": "1) Open the audit record writer. 2) Check `agent.type.id` and `agent.instance.id` are written on every record. 3) Check the type ID can be looked up to a stored manifest (registry, manifest store, file keyed by hash). 4) Answer no if either field is missing or nothing stores manifests by that ID. Answer unknown if the lookup store is outside this repo.",
+          "met": "unknown",
+          "evidence": "src/agent/identity.ts:49",
+          "quote": "export const AGENT_INSTANCE_ID = randomUUID();",
+          "counter_search": "",
+          "note": "Both IDs are required on every audit record (src/audit/recorder.ts:12-13) and agentTypeId has a stored manifest entry (release/manifest.json:3). But instanceId is a per-process random UUID tied to a pod only by the pino hostname on the startup log (src/server.ts:37); the reminders worker never logs its instance id. Type id mismatch against the manifest only logs (src/server.ts:32-35). No registry resolves an instance id to a live pod, and the log store is outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A05.2",
+          "check": "An ownership record in code or config maps each agent type to a responsible team and a current operator or on-call rotation.",
+          "verify": "1) Look for CODEOWNERS, `catalog-info.yaml`, `.brace/deployment.yaml`, or another ownership file. 2) Check each agent type maps to a team and to a current operator or on-call rotation. 3) Answer no if an agent type has no owner, or owners exist only in prose with no link. Answer unknown if ownership lives in an outside catalog.",
+          "met": "unknown",
+          "evidence": "src/config.ts:64",
+          "quote": "  operationalOwner: \"team:agent-platform\",",
+          "counter_search": "",
+          "note": "Team is a hard-coded constant stamped on every record (src/config.ts:63-64), not a per-agent-type map. CODEOWNERS maps paths, not agent types. The current operator/on-call rotation (#agent-platform-oncall) appears only in README.md:73 prose; infra/terraform/iam.tf:69 names an on-call SSO group but nothing links it to the agent type. Catalog may live outside the repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A05.3",
+          "check": "A containment control can disable a single instance or a single agent type (for example revoke its principal or scale it to zero) without touching the launching user's credentials.",
+          "verify": "1) Find stop and revoke controls: admin endpoints, CLIs, feature flags, scale-to-zero, per-instance token revocation. 2) Check their scope is one instance or one agent type. 3) Answer no if the only control is a global switch or revoking a shared or user credential. Answer unknown if containment is run by an outside platform.",
+          "met": "no",
+          "evidence": "src/control/kill-switch.ts:57",
+          "quote": "    if (halted.has(\"global\")) throw new Halted(\"global\");",
+          "counter_search": "",
+          "note": "Stop scopes are only global and tenant#<clinic> (kill-switch.ts:57-58). No key for instance id or agent type id; AGENT_INSTANCE_ID is never consulted by the kill switch. Ops role can only write the control table (iam.tf:82-83). Revoking the IRSA role revokes the agent and reminder service accounts together (iam.tf:14-17). During a rolling deploy two type ids coexist and the bad one cannot be halted alone.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/control/kill-switch.ts:58 Containment is global or per-tenant only; no per-instance or per-agent-type stop, so one bad instance or release can only be stopped by halting every clinic (or a whole clinic)."
+      ],
+      "violates": [
+        "contain the right instance or agent type"
+      ],
+      "also_affects": [],
+      "summary": "Operators can halt all clinics or one clinic, but cannot contain a single instance or agent type.",
+      "next_step": "Add instance-id and agent-type-id keys to the control table and check them in assertRunning and the watcher; link instance id to pod name; add a machine-readable owner/on-call record per agent type.",
+      "lead_role": "operations"
+    },
+    {
+      "item": "A06",
+      "gate": "G3",
+      "title": "Parent and prompt provenance",
+      "requirement": "For every sub-agent, record its own type and instance IDs, a link to its parent, trace links, and the prompt the parent gave it. Trace a nested action back to that prompt. Protect sensitive prompt text with restricted storage and a clear redaction policy. Standard GenAI instrumentation records prompts only when you turn that on, so confirm it is on for this path.",
+      "not_covered": [
+        {
+          "problem": "Sub-agent given powers beyond its task",
+          "owner": "E08"
+        },
+        {
+          "problem": "Children still running after the parent is stopped",
+          "owner": "E09"
+        },
+        {
+          "problem": "No limit on how many sub-agents a run can start",
+          "owner": "B07"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/integrations/eligibility-a2a.ts",
+          "line": 70,
+          "note": "The only delegated agent task is the A2A message/send to the eligibility peer. The harness mints no type or instance id for it and sends none; the audit record names the peer by a fixed string (eligibility-check.ts:35). Local handoffs (loop.ts:46,111) go to human staff, not an agent."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A06.1",
+          "check": "Each sub-agent gets its own type ID and instance ID, assigned by the harness when it is started.",
+          "verify": "1) Find sub-agent spawn code (handoffs, subgraphs, subagents, A2A task creation). 2) Check the harness assigns the child a new `agent.instance.id` and a type ID at start. 3) Answer no if any spawn path reuses the parent's IDs, assigns none, or takes the IDs from the model's request.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:70",
+          "quote": "parts: [{ kind: \"data\", data: { type: \"eligibility.check\", ...req } }],",
+          "counter_search": "",
+          "note": "The only delegated agent task is the A2A message/send to the eligibility peer. The harness mints no type or instance id for it and sends none; the audit record names the peer by a fixed string (eligibility-check.ts:35). Local handoffs (loop.ts:46,111) go to human staff, not an agent.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A06.2",
+          "check": "Each sub-agent's records include its direct parent's instance ID and a trace link to the parent.",
+          "verify": "1) Open sub-agent spawn code and the child's record writer. 2) Look for a parent instance field (for example `agent.parent.instance_id`) and trace propagation (span parent, span link, `traceparent` in queued payloads). 3) Answer no if any spawn path, including remote or queued, starts a fresh trace or omits the parent ID.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:61",
+          "quote": "headers: { authorization: `Bearer ${token}`, \"content-type\": \"application/json\", traceparent: opts.traceparent },",
+          "counter_search": "",
+          "note": "traceparent is forwarded, so the trace link exists, but the parent's agent instance id is not in the request body or headers and not on the peer.call record's detail as a parent field.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A06.3",
+          "check": "The prompt the parent passed to the child is captured on this path, with prompt capture switched on in config rather than left at the default off.",
+          "verify": "1) Find where the parent's prompt to the child is recorded (for example `agent.parent.prompt`, or a hash plus stored text). 2) Check prompt content capture is turned on in config, for example a GenAI capture-content env var or SDK option. 3) Answer no if capture is left at its default off, or the setting falls back to false when unset.",
+          "met": "no",
+          "evidence": "src/workflows/eligibility-check.ts:35",
+          "quote": "detail: { peer: \"eligibility-agent\", status: result.status, depositWaived: result.depositWaived },",
+          "counter_search": "",
+          "note": "The request sent to the peer (appointment, patient, payer, service code) is not recorded or hashed in the audit event; only the peer name and result. No prompt/content capture setting exists anywhere in src or config.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A06.4",
+          "check": "Captured prompt text is stored with restricted access and a redaction policy, and only an approved audit role can read it.",
+          "verify": "1) Find where captured prompt text is stored (bucket, table, log index). 2) Check its IAM or ACL limits reads to an approved audit role. 3) Check a redaction policy is defined and applied. 4) Answer no if prompts go to general logs the whole team can read, or no redaction exists. Answer unknown if storage access is set outside this repo.",
+          "met": "unknown",
+          "evidence": "src/workflows/eligibility-check.ts:35",
+          "quote": "detail: { peer: \"eligibility-agent\", status: result.status, depositWaived: result.depositWaived },",
+          "counter_search": "",
+          "note": "No parent prompt text is captured, so no restricted prompt store or prompt redaction policy exists to check. The audit bucket is object-locked (infra/terraform/main.tf:133-139); read access to it is not defined in this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/workflows/eligibility-check.ts:35 peer.call audit records no child IDs, no parent instance link, and not the request the parent sent to the eligibility agent; the result then drives a deposit refund (line 39-44)."
+      ],
+      "violates": [
+        "record its own type and instance IDs, a link to its parent, trace links, and the prompt the parent gave it"
+      ],
+      "also_affects": [],
+      "summary": "The A2A eligibility call has no child IDs, no parent instance link, and no captured request.",
+      "next_step": "Generate and record a child id per peer task, pass the parent instance id with the traceparent, and store the outgoing request (or a hash plus text in a restricted, redacted store). If governance rules the peer is not a sub-agent, rate this N/A instead.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "A07",
+      "gate": "G3",
+      "title": "Every model in the loop",
+      "requirement": "List all helper models, such as verifiers, judges, rerankers, and world models. Give each one an identity based on its available model version or digest, its prompt, and its configuration, and record which decisions it made. Show that a swapped, drifting, or failing checker counts as a failure of the control that depends on it.",
+      "not_covered": [
+        {
+          "problem": "Main agent model changing behind a fixed name unnoticed",
+          "owner": "C05"
+        },
+        {
+          "problem": "Second-model review not tested against evasive behavior",
+          "owner": "R10"
+        },
+        {
+          "problem": "Self-hosted model weights loaded without a signature or format check",
+          "owner": "C05"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/config.ts",
+          "line": 50,
+          "note": "Dated snapshot; prompt and config hashed into CLASSIFIER_ID (classifier.ts:16-22)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A07.1",
+          "check": "A model inventory in code or config lists every helper model the agent calls (verifiers, judges, rerankers, embedding models, world models).",
+          "verify": "1) Search for every model call: provider SDK clients, model name strings, embedding, rerank, moderation, and judge calls. 2) Compare that list with the model inventory. 3) Answer no if any helper model called in code is missing from the inventory, or no inventory exists.",
+          "met": "unknown",
+          "evidence": "release/manifest.json:16",
+          "quote": "\"models\": [",
+          "counter_search": "",
+          "note": "Every SDK model call in src (classifier.ts:45, loop.ts:61, context-size.ts:35 count_tokens) maps to the two manifest records (agent, intent_classifier). But the eligibility peer agent (manifest.json:48-54, src/integrations/eligibility-a2a.ts) makes a coverage decision that triggers a refund (eligibility-check.ts:39) and its model(s) are not inventoried; they live outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A07.2",
+          "check": "Each helper model is identified by a pinned version or digest plus its prompt and configuration, not by an alias.",
+          "verify": "1) For each helper model, find its model ID and follow env vars to the final value. 2) Check it is a pinned version or digest, and that its prompt and configuration are also recorded. 3) Answer no if any is an alias (`-latest`, undated name), falls back to one by default, or is hard-coded inline outside the inventory.",
+          "met": "yes",
+          "evidence": "src/config.ts:50",
+          "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";",
+          "counter_search": "Searched src, config, k8s and manifest for -latest, alias model names, env overrides and fallback models (grep claude-): only config.ts:49-50, manifest.json:20,29 and budgets.yaml pricing; no env var overrides the id.",
+          "note": "Dated snapshot; prompt and config hashed into CLASSIFIER_ID (classifier.ts:16-22).",
+          "coverage": [
+            {
+              "subject": "classifier model id",
+              "status": "enforced",
+              "evidence": "src/config.ts:50",
+              "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";",
+              "note": "Dated snapshot id, constant, no env override or alias fallback; used at the only helper call site classifier.ts:47."
+            },
+            {
+              "subject": "classifier prompt and config identity",
+              "status": "enforced",
+              "evidence": "src/agent/classifier.ts:16",
+              "quote": "export const CLASSIFIER_ID = `sha256:${createHash(\"sha256\")",
+              "note": "Digest over model id, prompt file bytes and JSON of CLASSIFIER_CONFIG (lines 17-22); this id is logged with every decision."
+            },
+            {
+              "subject": "classifier manifest record",
+              "status": "enforced",
+              "evidence": "release/manifest.json:29",
+              "quote": "\"requestedId\": \"claude-haiku-4-5-20251001\",",
+              "note": "Manifest record matches the code constant and is marked pinned_snapshot."
+            },
+            {
+              "subject": "main agent model call (not a helper)",
+              "status": "not_applicable",
+              "evidence": "src/agent/loop.ts:59",
+              "quote": "const req = { model: AGENT_MODEL, system, tools, messages };",
+              "note": "Main model, pinned at config.ts:49; not a helper."
+            },
+            {
+              "subject": "count_tokens pre-call measurement",
+              "status": "not_applicable",
+              "evidence": "src/agent/context-size.ts:35",
+              "quote": "const r = await client.messages.countTokens(req, { signal });",
+              "note": "Uses the main agent request; counts tokens only, no model decision and no separate model id."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A07.3",
+          "check": "Each helper model's decisions are logged with that model's identity.",
+          "verify": "1) Open each helper or checker call site. 2) Check its decision is logged with that model's ID and version. 3) Answer no if decisions are logged without model identity, or logged only on the allow or success branch.",
+          "met": "yes",
+          "evidence": "src/agent/loop.ts:42",
+          "quote": "await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });",
+          "counter_search": "Searched all audit.record callers and every classifyIntent return path for a branch that omits classifierId/requestedModel or logs only on success; the record is written before the route check and all returns spread base.",
+          "note": "Decision logged with classifierId, requestedModel and servedModel on all outcomes.",
+          "coverage": [
+            {
+              "subject": "classifier decision audit",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:42",
+              "quote": "await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });",
+              "note": "Written before the route check, so success, staff-route and every failure outcome are logged; intent carries classifierId, requestedModel, servedModel."
+            },
+            {
+              "subject": "identity in every classifier return",
+              "status": "enforced",
+              "evidence": "src/agent/classifier.ts:42",
+              "quote": "const base = { classifierId: CLASSIFIER_ID, requestedModel: CLASSIFIER_MODEL };",
+              "note": "base is spread into the timeout, mismatch, invalid-output, low-confidence and success returns (lines 57,61,69,73,76); served model is added where a response exists."
+            },
+            {
+              "subject": "count_tokens call",
+              "status": "not_applicable",
+              "evidence": "src/agent/context-size.ts:35",
+              "quote": "const r = await client.messages.countTokens(req, { signal });",
+              "note": "Not a decision-making helper; produces a size estimate only."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A07.4",
+          "check": "A checker timeout, error, invalid output, or version mismatch makes the control that depends on it fail (block or escalate), not pass by default.",
+          "verify": "1) Open each checker call site (judge, guardrail, moderation, verifier). 2) Read every `try/except`, `catch`, timeout, and parse-error branch. 3) Check each one blocks or escalates. 4) Answer no if any branch returns allow, skips the check, treats unparseable output as safe, or logs and continues. Also no if the returned model version is never compared with the expected one.",
+          "met": "yes",
+          "evidence": "src/agent/classifier.ts:60",
+          "quote": "if (res.model !== CLASSIFIER_MODEL) {",
+          "counter_search": "Read every try/catch and branch in classifyIntent and its caller for allow-on-error, skip or default-to-agent: timeout/API error, model mismatch, parse error, low confidence all return route staff; loop.ts:44 honours it.",
+          "note": "Version mismatch is compared; all failures escalate to staff.",
+          "coverage": [
+            {
+              "subject": "API error or timeout",
+              "status": "enforced",
+              "evidence": "src/agent/classifier.ts:57",
+              "quote": "return { ...base, servedModel: null, intent: null, confidence: null, route: \"staff\", failure: timeout ? \"timeout\" : \"api_error\" };",
+              "note": "Any thrown error (including the 4000 ms timeout, maxRetries 0) routes to staff."
+            },
+            {
+              "subject": "served model differs from pinned",
+              "status": "enforced",
+              "evidence": "src/agent/classifier.ts:60",
+              "quote": "if (res.model !== CLASSIFIER_MODEL) {",
+              "note": "Returned model compared to the expected id; mismatch routes to staff (line 61)."
+            },
+            {
+              "subject": "unparseable, truncated, refusal or unknown label",
+              "status": "enforced",
+              "evidence": "src/agent/classifier.ts:69",
+              "quote": "return { ...base, servedModel: res.model, intent: null, confidence: null, route: \"staff\", failure: \"invalid_output\" };",
+              "note": "JSON.parse and strict zod parse inside try; a missing text block parses as empty string and fails to the catch."
+            },
+            {
+              "subject": "low confidence",
+              "status": "enforced",
+              "evidence": "src/agent/classifier.ts:72",
+              "quote": "if (parsed.confidence < MIN_CONFIDENCE) {",
+              "note": "A confidence below 0.6 returns route staff with a low_confidence failure (line 73)."
+            },
+            {
+              "subject": "caller honours route",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:44",
+              "quote": "if (intent.route === \"staff\") {",
+              "note": "Run stops and hands off before any agent model call; failure only adds a warn log (line 43)."
+            },
+            {
+              "subject": "classifier exception outside the function",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:95",
+              "quote": "} catch (err) {",
+              "note": "classifyIntent catches its own errors; an unexpected throw lands in the run-level catch, which stops and hands off, never continuing to the agent."
+            },
+            {
+              "subject": "count_tokens failure",
+              "status": "not_applicable",
+              "evidence": "src/agent/context-size.ts:37",
+              "quote": "} catch {",
+              "note": "Not a checker; failure yields status unavailable for logging only."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "The classifier is pinned, logged with its identity and fails to staff, but the eligibility peer's model is not inventoried.",
+      "next_step": "Record the eligibility agent's model provenance (or get it from its owner) and confirm with the A07 swap/timeout drill.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "C01",
+      "gate": "G2",
+      "title": "Complete release manifest",
+      "requirement": "Write a release manifest: a list of everything that makes up this release. Include the container, harness, system prompt, rules files, model, built-in tools, MCP servers, permission scopes, memory and retrieval settings, identity bindings, network rules, and execution budgets. Include security-policy versions, MCP protocol and extension versions, approved tool-publication config, issuer/audience bindings, and cache/task isolation settings. Add a separate model record for every model: the main agent model, sub-agent models, and helper models such as embedding models and rerankers. For each, record the provider, model ID, exact version or checkpoint, and any adapter or fine-tune version. For training or fine-tuning you run yourself, also record the training job ID, base-model version, training code and config version, dataset version, and the digest of the output. The agent app's release number alone is not enough. Use the [model provenance fields](CHECKLIST-VERIFICATION.md#model-provenance-fields) to separate recorded versions from details a provider doesn't share. Check each model ID you request against the provider's versioning docs. Mark it as a pinned snapshot or as an alias that can change, and record which doc you used and its date. Naming rules differ by provider and model generation. Name each artifact's owner and a reference that can't change, where one exists. A machine-readable format, such as CycloneDX ML-BOM or the SPDX 3.0 AI and Dataset profiles, lets tools check the manifest.",
+      "not_covered": [
+        {
+          "problem": "Running setup not checked against the approved manifest",
+          "owner": "C03"
+        },
+        {
+          "problem": "Manifest changes made without a reviewed diff and named author",
+          "owner": "C02"
+        },
+        {
+          "problem": "Running config drifting from the approved baseline unnoticed",
+          "owner": "C04"
+        },
+        {
+          "problem": "Agent-type-id not computed as a hash of its identity inputs",
+          "owner": "A03"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/config.ts",
+          "line": 58,
+          "note": "Manifest (release/manifest.json) covers container, harness, prompts, models, tools, scopes, memory, network ref, budgets and policy version. Missing: issuer/audience bindings (config.ts:58-62 plus audience strings in eligibility-a2a.ts:43,87), MCP protocol/extension versions, tool-publication/metadata-scan config, cache/task isolation settings, and rules files are not stated. Config files are listed by path with no digest."
+        }
+      ],
+      "checks": [
+        {
+          "id": "C01.1",
+          "check": "A release manifest file lists the container, harness, system prompt, rules files, model, built-in tools, MCP servers, permission scopes, memory and retrieval settings, identity bindings, network rules, execution budgets, and security-policy versions.",
+          "verify": "1) Find the release manifest (`.brace/manifest.yaml`, release manifest, ML-BOM). 2) Check each category: container, harness, system prompt, rules files, model, built-in tools, MCP servers, permission scopes, memory and retrieval, identity bindings, network rules, budgets, security-policy versions. 3) Compare with what config sets up (`*.mcp.json`, NetworkPolicy). 4) Answer no if any category is missing or configured items are left out.",
+          "met": "no",
+          "evidence": "src/config.ts:58",
+          "quote": "  chatJwksUrl: process.env.CHAT_JWKS_URL ?? \"https://auth.northbay-clinics.example/.well-known/jwks.json\",",
+          "counter_search": "",
+          "note": "Manifest (release/manifest.json) covers container, harness, prompts, models, tools, scopes, memory, network ref, budgets and policy version. Missing: issuer/audience bindings (config.ts:58-62 plus audience strings in eligibility-a2a.ts:43,87), MCP protocol/extension versions, tool-publication/metadata-scan config, cache/task isolation settings, and rules files are not stated. Config files are listed by path with no digest.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C01.2",
+          "check": "The manifest has a separate model record for every model (main, sub-agent, and helper models such as embedding models and rerankers), each with provider, model ID, exact version or checkpoint, and adapter or fine-tune version.",
+          "verify": "1) Search code for every model used: main, sub-agent, embedding, reranker, judge. 2) Check the manifest has a separate record for each. 3) Check each record has provider, model ID, exact version or checkpoint, and adapter or fine-tune version. 4) Answer no if any model in code has no record, or a record is missing a field.",
+          "met": "unknown",
+          "evidence": "release/manifest.json:16",
+          "quote": "\"models\": [",
+          "counter_search": "",
+          "note": "Agent and classifier have separate records with provider, id and adapter null (manifest.json:17-34), matching every SDK call in src. The eligibility peer (manifest.json:48-54) is a remote agent with no model record; its models are outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C01.3",
+          "check": "Each requested model ID is labeled as a pinned snapshot or a changeable alias, with the provider doc and date used.",
+          "verify": "1) Open each model record in the manifest. 2) Check it has a pinned-or-alias label, the provider doc used, and a date. 3) Answer no if any record lacks one of these, or labels an undated or `-latest` name as pinned.",
+          "met": "yes",
+          "evidence": "release/manifest.json:21",
+          "quote": "\"kind\": \"pinned_snapshot\",",
+          "counter_search": "Checked both records for a missing label, missing doc/date, or an undated or -latest id labelled pinned; none found.",
+          "note": "Both models carry pinned_snapshot, versionDoc url and checked date.",
+          "coverage": [
+            {
+              "subject": "agent model record",
+              "status": "enforced",
+              "evidence": "release/manifest.json:21",
+              "quote": "\"kind\": \"pinned_snapshot\",",
+              "note": "Label present; versionDoc url and checked date 2026-09-15 on the next line; id claude-sonnet-4-5-20250929 is dated."
+            },
+            {
+              "subject": "intent_classifier model record",
+              "status": "enforced",
+              "evidence": "release/manifest.json:30",
+              "quote": "\"kind\": \"pinned_snapshot\",",
+              "note": "Label present; versionDoc url and checked date 2026-09-15 on the next line; id claude-haiku-4-5-20251001 is dated."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C01.4",
+          "check": "Each artifact has a named owner and a reference that can't change (digest or commit) where one exists, not a mutable tag or the app's release number.",
+          "verify": "1) For each manifest artifact, check for a named owner. 2) Check its reference is a digest (`sha256:`) or commit SHA where one exists. 3) Answer no if any artifact has no owner, or uses a mutable tag (`:latest`, branch name) or the app release number where a digest or commit was available.",
+          "met": "no",
+          "evidence": "release/manifest.json:37",
+          "quote": "\"allowlist\": \"config/tools.allowlist.yaml\",",
+          "counter_search": "",
+          "note": "Only the ehr server and the eligibility peer name an owner (manifest.json:43,52). Image, harness, prompts, models, allowlist, budgets and policy have no owner. Allowlist, budgets and policy are referenced by path (lines 37,64,65) with no digest although one is available.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C01.5",
+          "check": "For training the team runs itself, the manifest records the training job ID, base-model version, training code and config version, dataset version, and output digest.",
+          "verify": "1) Search for training or fine-tuning code (training jobs, `Trainer`, fine-tune API calls, pipeline configs). 2) If found, check the manifest records job ID, base-model version, training code and config version, dataset version, and output digest. 3) Answer no if training runs here and any field is missing. Answer unknown if training may run in another repo.",
+          "met": "yes",
+          "evidence": "release/manifest.json:23",
+          "quote": "\"adapter\": null,",
+          "counter_search": "Searched the whole repo for training, fine-tuning, LoRA, adapter, embedding and reranker code or config; only the two manifest adapter/providerHidden lines matched.",
+          "note": "No self-run training; hosted snapshots only.",
+          "coverage": [
+            {
+              "subject": "training or fine-tuning in this repo",
+              "status": "not_applicable",
+              "evidence": "release/manifest.json:23",
+              "quote": "\"adapter\": null,",
+              "note": "Hosted provider snapshots with no adapter; repo search for train, fine-tune, LoRA, embedding, rerank found nothing outside the manifest."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "release/manifest.json:37 Allowlist, budgets and action policy are listed by path only, with no digest, so a manifest diff cannot show they changed."
+      ],
+      "violates": [
+        "Name each artifact's owner and a reference that can't change"
+      ],
+      "also_affects": [],
+      "summary": "The manifest omits issuer/audience bindings, MCP and tool-publication settings, and per-artifact owners and digests.",
+      "next_step": "Add the missing categories, owners for every artifact, and sha256 for config files; add a model record or provenance for the eligibility peer.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "C02",
+      "gate": "G2",
+      "title": "Review security-relevant changes",
+      "requirement": "Require diffs with a named author, plus review, for changes to the manifest and its policies. Show who is allowed to change production config. Record emergency changes with an owner, a reason, an end date, and a follow-up review.",
+      "not_covered": [
+        {
+          "problem": "Running config drifting from the approved baseline unnoticed",
+          "owner": "C04"
+        },
+        {
+          "problem": "Release candidate not re-tested against attack cases",
+          "owner": "C06"
+        },
+        {
+          "problem": "No tested rollback to an approved setup",
+          "owner": "C07"
+        }
+      ],
+      "rating": "likely_pass",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "infra/terraform/github.tf",
+          "line": 26,
+          "note": "Two reviews plus code-owner review, enforced for admins."
+        }
+      ],
+      "checks": [
+        {
+          "id": "C02.1",
+          "check": "The manifest, prompts, tool config, and policy files live in version control, and merges require review by someone other than the named author.",
+          "verify": "1) Check the manifest, prompts, tool config, and policy files are tracked in git, not loaded at runtime from an untracked path or remote URL. 2) Look for branch protection or ruleset config requiring approving review, and CODEOWNERS covering those paths. 3) Answer no if any of these files is untracked or not covered. Answer unknown if review rules are set only in the hosting service.",
+          "met": "yes",
+          "evidence": "infra/terraform/github.tf:26",
+          "quote": "required_approving_review_count = 2",
+          "counter_search": "Searched for prompts, tools, policy or manifest loaded from a database, URL, flag service or untracked path (grep loadYaml, readFileSync, fetch in src): none; checked CODEOWNERS and branch protection cover /prompts, /config, /release. The snapshot has no .git, so tracking is inferred from the repo layout.",
+          "note": "Two reviews plus code-owner review, enforced for admins.",
+          "coverage": [
+            {
+              "subject": "merge review on main",
+              "status": "enforced",
+              "evidence": "infra/terraform/github.tf:26",
+              "quote": "required_approving_review_count = 2",
+              "note": "Two approvals with code-owner review, stale dismissal and last-push approval, enforced for admins (lines 18, 27-29), so the author cannot self-approve."
+            },
+            {
+              "subject": "prompts",
+              "status": "enforced",
+              "evidence": ".github/CODEOWNERS:4",
+              "quote": "/prompts/            @northbay-clinics/agent-platform-leads",
+              "note": "Prompt files are in the repo and code-owner reviewed; Dockerfile:17 bakes them into the image, no remote loading."
+            },
+            {
+              "subject": "tool config and policy files",
+              "status": "enforced",
+              "evidence": ".github/CODEOWNERS:5",
+              "quote": "/config/             @northbay-clinics/agent-platform-leads",
+              "note": "Covers tools.allowlist.yaml, policy.yaml and budgets.yaml, which are loaded from the image (config.ts:44-46)."
+            },
+            {
+              "subject": "release manifest",
+              "status": "enforced",
+              "evidence": ".github/CODEOWNERS:6",
+              "quote": "/release/            @northbay-clinics/agent-platform-leads",
+              "note": "Manifest changes need platform-lead review; CI checks prompt digests against it (ci.yml:29-42)."
+            },
+            {
+              "subject": "deployment manifest and CI",
+              "status": "enforced",
+              "evidence": ".github/CODEOWNERS:8",
+              "quote": "/k8s/                @northbay-clinics/agent-platform-leads @northbay-clinics/cloud-security",
+              "note": "Network policy and pod spec need leads and cloud-security; /.github/ and /infra/ are covered the same way."
+            },
+            {
+              "subject": "config loaded at runtime from outside the repo",
+              "status": "not_applicable",
+              "evidence": "src/config.ts:44",
+              "quote": "export const policy = loadYaml<Policy>(\"config/policy.yaml\");",
+              "note": "All config is read from files in the image; no database, flag service or URL supplies prompts, tools or policy."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C02.2",
+          "check": "Only named roles in config (CODEOWNERS, IAM, or protected CI environments) can change production configuration.",
+          "verify": "1) Open CODEOWNERS, IAM policies, and CI environment config (protected `environment:` entries). 2) Check production config paths and deploy jobs are limited to named roles. 3) Answer no if a catch-all `*` owner, a broad group, or the agent's own credentials can change production config, or a deploy job skips the protected environment.",
+          "met": "yes",
+          "evidence": ".github/workflows/deploy.yml:37",
+          "quote": "environment: ${{ inputs.emergency && 'production-emergency' || 'production' }}",
+          "counter_search": "Looked for a deploy path outside the protected environments, a broad group or the agent's own credentials with cluster write access, and kubectl from laptops: only the deploy role has an access entry and it is assumable only from the two environments. The catch-all '*' owner cannot ship to production without leads approval.",
+          "note": "Named reviewer team gates both environments.",
+          "coverage": [
+            {
+              "subject": "deploy role assumption",
+              "status": "enforced",
+              "evidence": "infra/terraform/github.tf:82",
+              "quote": "\"repo:northbay-clinics/clinic-agent:environment:production\",",
+              "note": "Only workflows running in the production or production-emergency environments can assume the deploy role (lines 82-83)."
+            },
+            {
+              "subject": "production environment reviewers",
+              "status": "enforced",
+              "evidence": "infra/terraform/github.tf:44",
+              "quote": "prevent_self_review = true",
+              "note": "Environment requires the agent-platform-leads team and blocks self review; production only deploys from protected branches (line 46-47)."
+            },
+            {
+              "subject": "emergency environment",
+              "status": "enforced",
+              "evidence": "infra/terraform/github.tf:55",
+              "quote": "teams = [data.github_team.leads.id]",
+              "note": "Emergency environment has the same named reviewers and is limited to hotfix/* branches (lines 64-68)."
+            },
+            {
+              "subject": "cluster write access",
+              "status": "enforced",
+              "evidence": "infra/terraform/main.tf:49",
+              "quote": "principal_arn = aws_iam_role.deploy.arn",
+              "note": "The deploy role is the only EKS access entry, scoped to the clinic-agent namespace; the cluster endpoint is private (main.tf:44)."
+            },
+            {
+              "subject": "agent runtime credentials",
+              "status": "enforced",
+              "evidence": "infra/terraform/iam.tf:30",
+              "quote": "Statement = [",
+              "note": "Runtime role grants only secrets read, agent DynamoDB tables and audit put (lines 31-54); no Kubernetes, ECR or IAM write."
+            },
+            {
+              "subject": "deploy job protected environment",
+              "status": "enforced",
+              "evidence": ".github/workflows/deploy.yml:37",
+              "quote": "environment: ${{ inputs.emergency && 'production-emergency' || 'production' }}",
+              "note": "The only deploy job always runs inside one of the two protected environments."
+            },
+            {
+              "subject": "catch-all code owner",
+              "status": "enforced",
+              "evidence": ".github/CODEOWNERS:3",
+              "quote": "*                    @northbay-clinics/clinic-agent-devs",
+              "note": "Catch-all group can merge src changes with two approvals, but cannot reach production: the image digest lives in leads-owned release/ and k8s/, and deploy needs leads approval."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C02.3",
+          "check": "An emergency change path exists that records an owner, a reason, an end date, and a follow-up review.",
+          "verify": "1) Search for an emergency or break-glass path (runbook, workflow, CLI). 2) Check it records owner, reason, end date, and follow-up review. 3) Answer no if any of the four is missing, or the path bypasses review with no record. Answer unknown if the procedure lives outside this repo.",
+          "met": "yes",
+          "evidence": ".github/workflows/deploy.yml:92",
+          "quote": "--label emergency-change,needs-review \\",
+          "counter_search": "Looked for an emergency path missing owner, reason, end date or follow-up, or one that skips the protected environment: all four are required and recorded; the date is only checked for format, not for being near-term.",
+          "note": "Owner, reason, end date and follow-up issue are all recorded.",
+          "coverage": [
+            {
+              "subject": "owner",
+              "status": "enforced",
+              "evidence": ".github/workflows/deploy.yml:48",
+              "quote": "test -n \"$OWNER\" || { echo \"owner is required\"; exit 1; }",
+              "note": "Emergency deploy fails without a named owner; owner also becomes the follow-up assignee (line 93)."
+            },
+            {
+              "subject": "reason",
+              "status": "enforced",
+              "evidence": ".github/workflows/deploy.yml:49",
+              "quote": "test -n \"$REASON\" || { echo \"reason is required\"; exit 1; }",
+              "note": "Emergency deploy fails without a reason, which is copied into the follow-up issue body."
+            },
+            {
+              "subject": "end date",
+              "status": "enforced",
+              "evidence": ".github/workflows/deploy.yml:50",
+              "quote": "date -d \"$EXPIRES_ON\" +%F >/dev/null || { echo \"expires_on must be a date\"; exit 1; }",
+              "note": "A valid date is required and recorded in the issue as Ends: (line 96)."
+            },
+            {
+              "subject": "follow-up review",
+              "status": "enforced",
+              "evidence": ".github/workflows/deploy.yml:92",
+              "quote": "--label emergency-change,needs-review \\",
+              "note": "A needs-review issue is opened for every emergency deploy, assigned to the owner, with commit and approval run id."
+            },
+            {
+              "subject": "branch and approval for emergency",
+              "status": "enforced",
+              "evidence": ".github/workflows/deploy.yml:51",
+              "quote": "[[ \"$GITHUB_REF_NAME\" == hotfix/* ]] || { echo \"emergency deploys come from hotfix/* branches\"; exit 1; }",
+              "note": "Emergency path is limited to hotfix branches and the production-emergency environment with a required reviewer."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Reviewed merges, named deploy roles and a recorded emergency path are all enforced in repo config.",
+      "next_step": "Prove with the C02 drill: attempt unreviewed prompt, tool and network edits and review one real emergency record.",
+      "lead_role": "governance"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

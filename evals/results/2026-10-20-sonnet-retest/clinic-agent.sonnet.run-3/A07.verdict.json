@@ -1,0 +1,203 @@
+{
+  "verdict": "upheld",
+  "applicability": "present",
+  "evidence": "src/agent/classifier.ts:45",
+  "quote": "    res = await client.messages.create(",
+  "note": "The intent classifier (Claude Haiku 4.5 snapshot) is a helper model that gates routing, so A07 applies. Search covered SDK clients, model strings, embed/rerank/moderation/judge terms, and fetch calls. The only other Anthropic calls are the main agent loop and a count_tokens call. The eligibility peer is an external A2A agent, not an in-loop helper model.",
+  "search": "Grepped the agent tree for model, claude, anthropic, openai, embed, rerank, judge, moderat, messages., count_tokens, fetch( and ANTHROPIC/BASE_URL overrides. Found two model IDs in src/config.ts (agent and classifier), both listed in release/manifest.json. Found no embedding, rerank, moderation or judge calls and no env overrides of model IDs. count_tokens takes the same agent request and makes no decision. fetch calls go to the EHR, SMS, payments and eligibility integrations, not to models.",
+  "checks": [
+    {
+      "id": "A07.1",
+      "result": "holds",
+      "evidence": "release/manifest.json:29, src/config.ts:50",
+      "quote": "      \"requestedId\": \"claude-haiku-4-5-20251001\",\nexport const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";",
+      "note": "The manifest lists both models in use (agent and intent_classifier). The code calls only these two, plus count_tokens on the agent request. The inventory is complete.",
+      "coverage": [
+        {
+          "subject": "intent classifier (classifier.ts messages.create)",
+          "status": "enforced",
+          "evidence": "release/manifest.json:27",
+          "quote": "      \"role\": \"intent_classifier\",",
+          "note": "Listed in manifest.models."
+        },
+        {
+          "subject": "main agent model (loop.ts)",
+          "status": "enforced",
+          "evidence": "release/manifest.json:18",
+          "quote": "      \"role\": \"agent\",",
+          "note": "Listed in manifest.models. It is the primary model, not a helper."
+        },
+        {
+          "subject": "count_tokens pre-call estimate (context-size.ts)",
+          "status": "not_applicable",
+          "evidence": "src/agent/context-size.ts:35",
+          "quote": "    const r = await client.messages.countTokens(req, { signal });",
+          "note": "Token counting endpoint only. Makes no model decision."
+        },
+        {
+          "subject": "embedding / reranker / moderation / judge / world model",
+          "status": "not_applicable",
+          "evidence": "release/manifest.json:62",
+          "quote": "  \"retrieval\": \"none\",",
+          "note": "No such calls found in the code. Retrieval is none and memory is none."
+        },
+        {
+          "subject": "eligibility peer agent (A2A)",
+          "status": "not_applicable",
+          "evidence": "src/integrations/eligibility-a2a.ts:58",
+          "quote": "  const res = await fetch(env.eligibilityUrl, {",
+          "note": "External peer service listed under manifest peers. Not a helper model controlled by this agent."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "missed model call path",
+          "input": "grep for embed|rerank|moderat|judge|openai and for fetch( to model endpoints",
+          "trace": "Only fetch calls go to the SMS, payments, EHR token and eligibility URLs. The only Anthropic client is created in loop.ts and passed to classifyIntent.",
+          "outcome": "blocked",
+          "evidence": "src/agent/loop.ts:15",
+          "quote": "const anthropic = new Anthropic({ maxRetries: 1 });"
+        }
+      ]
+    },
+    {
+      "id": "A07.2",
+      "result": "holds",
+      "evidence": "src/agent/classifier.ts:16",
+      "quote": "export const CLASSIFIER_ID = `sha256:${createHash(\"sha256\")",
+      "note": "The model ID is a dated snapshot and is a hard-coded constant with no env var or alias fallback. The classifier ID hashes the model, the prompt and the config. The manifest records the prompt sha256 and kind pinned_snapshot.",
+      "coverage": [
+        {
+          "subject": "classifier model id",
+          "status": "enforced",
+          "evidence": "src/config.ts:50",
+          "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";",
+          "note": "Dated snapshot. No env override."
+        },
+        {
+          "subject": "classifier prompt and config",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:14",
+          "quote": "export const CLASSIFIER_CONFIG = { max_tokens: 64, temperature: 0, timeoutMs: 4000 } as const;",
+          "note": "Folded into CLASSIFIER_ID with the prompt text."
+        },
+        {
+          "subject": "agent model id",
+          "status": "enforced",
+          "evidence": "src/config.ts:49",
+          "quote": "export const AGENT_MODEL = \"claude-sonnet-4-5-20250929\";",
+          "note": "Dated snapshot."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "alias or env fallback",
+          "input": "set an env var to override the model",
+          "trace": "No process.env read for model names. config.ts hard-codes both IDs and the tests check the dated IDs.",
+          "outcome": "blocked",
+          "evidence": "src/config.ts:50",
+          "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";"
+        }
+      ]
+    },
+    {
+      "id": "A07.3",
+      "result": "holds",
+      "evidence": "src/agent/loop.ts:42",
+      "quote": "    await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });",
+      "note": "The decision is recorded before the route is branched on, so the success and failure paths are both logged. The record carries classifierId, requestedModel, servedModel, route and failure.",
+      "coverage": [
+        {
+          "subject": "classifier decision logging",
+          "status": "enforced",
+          "evidence": "src/agent/loop.ts:42",
+          "quote": "    await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });",
+          "note": "Logged on every outcome, including staff-routed ones."
+        },
+        {
+          "subject": "decision fields",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:30",
+          "quote": "  classifierId: string;",
+          "note": "Also requestedModel and servedModel."
+        },
+        {
+          "subject": "agent model decision logging",
+          "status": "enforced",
+          "evidence": "src/agent/loop.ts:71",
+          "quote": "          servedModel: res.model,",
+          "note": "Each agent turn is logged with the served model."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "log only on allow branch",
+          "input": "classifier timeout, so route is staff",
+          "trace": "classifyIntent returns a decision object and does not throw. The audit call at line 42 runs before the staff-route return at line 44.",
+          "outcome": "blocked",
+          "evidence": "src/agent/loop.ts:44",
+          "quote": "    if (intent.route === \"staff\") {"
+        }
+      ]
+    },
+    {
+      "id": "A07.4",
+      "result": "holds",
+      "evidence": "src/agent/classifier.ts:60",
+      "quote": "  if (res.model !== CLASSIFIER_MODEL) {",
+      "note": "Timeout, API error, model mismatch, invalid output and low confidence each return route staff. A failed classifier never routes to the agent. Served model is compared to the pinned ID.",
+      "coverage": [
+        {
+          "subject": "timeout / API error catch",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:57",
+          "quote": "    return { ...base, servedModel: null, intent: null, confidence: null, route: \"staff\", failure: timeout ? \"timeout\" : \"api_error\" };",
+          "note": "The catch routes to staff. maxRetries is 0."
+        },
+        {
+          "subject": "version mismatch",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:61",
+          "quote": "    return { ...base, servedModel: res.model, intent: null, confidence: null, route: \"staff\", failure: \"model_mismatch\" };",
+          "note": "The served model is compared with the pinned one."
+        },
+        {
+          "subject": "unparseable or unknown-label output",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:69",
+          "quote": "    return { ...base, servedModel: res.model, intent: null, confidence: null, route: \"staff\", failure: \"invalid_output\" };",
+          "note": "Strict zod schema. Empty text also fails the parse."
+        },
+        {
+          "subject": "low confidence",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:73",
+          "quote": "    return { ...base, servedModel: res.model, ...parsed, route: \"staff\", failure: \"low_confidence\" };",
+          "note": "Routes to staff."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "fail-open on error",
+          "input": "classifier returns prose, a refusal, or no text block",
+          "trace": "textOut is undefined, so JSON.parse('') throws and the catch returns route staff. A refusal is not valid JSON and fails the same way.",
+          "outcome": "blocked",
+          "evidence": "src/agent/classifier.ts:68",
+          "quote": "  } catch {"
+        },
+        {
+          "category": "model swap",
+          "input": "API serves the alias claude-haiku-4-5 instead of the snapshot",
+          "trace": "res.model !== CLASSIFIER_MODEL, so it returns staff with model_mismatch. A unit test covers this case.",
+          "outcome": "blocked",
+          "evidence": "test/controls.test.ts:110",
+          "quote": "    const d = await classifyIntent(fake(reply(\"claude-haiku-4-5\", '{\"intent\":\"book\",\"confidence\":0.99}')), \"book me\");"
+        }
+      ]
+    }
+  ]
+}

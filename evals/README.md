@@ -1,5 +1,13 @@
 # BRACE skill evals
 
+The [2026-10-26 real-source advice evaluation](field-reviews/2026-10-26/README.md) completed six fresh
+Sonnet reviews of official GitHub, Notion self-hosted and reference filesystem
+implementations. All six contained incorrect/unsupported assertions (plain: eight
+grouped claims; skill: five, including minor inventories). Independent audits
+separate useful findings, conditional remedies and material false assurances.
+One report per arm per implementation establishes neither skill gain nor
+deployment safety; the candidate skill remains unchanged.
+
 The dedicated MCP review uses a separate [source-only qualification protocol](mcp/README.md)
 with four HTTP/stdio fixtures and hidden case-level keys. Its reports and
 criteria are independent of the full 53-item assessment below.
@@ -13,7 +21,84 @@ Three small agent codebases with known problems, plus answer keys, for measuring
 | `fixtures/ops-agent/` | DevOps agent: kubectl, helm, git, worker sub-agents | 12 | 3 | no |
 | `fixtures/research-agent/` | Read-only web research agent: no memory, sub-agents, or write tools | 4 | 6 | no |
 
+## Stateful difficulty-pilot fixtures: 2026-10-25
+
+The [stateful edition](mcp/stateful/README.md) adds 12 source repositories in six
+issue/corrected pairs: credential decision caching, revocation/resume, identifier
+representation, retry context, idempotency namespace and mutable review objects.
+Each case includes local host/session/discovery/journal context, hidden static
+witnesses, blocked near misses and source-anchored keys. Existing suites and the
+BRACE MCP skill remain unchanged. Source-first audit records and acceptance live
+in the [audit packet](results/2026-10-25-mcp-stateful-key-audit/README.md).
+
+This is difficulty-development material, not a scored benchmark result. There
+are six distinct required bugs (18 observations at three repetitions). The
+[2026-10-26 plain-request pilot](results/2026-10-26-mcp-stateful-plain-pilot/README.md)
+completed 36 Sonnet reviews with independent source grading: **18/18 required
+findings**, so the desired 40–60% range was not reached. Incorrect/unsupported
+assertions occurred in 29/36 reports (48 grouped assertions), assessed separately
+from discovery and reporting completeness. The construction snapshot records its
+zero-trial preparation state; the new pilot records subsequent use. Later
+assessment cases must be built separately from pilot-selected failures. Fixture
+code has not been executed/imported; static witnesses are not runtime proof.
+
+## Dedicated MCP cases and repair: 2026-10-25
+
+The [deeper source suite](mcp/deep/README.md) adds eight independently authored
+components with eight required multi-file findings, 42 guard assessments and
+64 coverage checks. Source-first auditors checked reachability, prerequisites,
+paired fixes and decoys; direct answer cues were removed in a preserved second
+freeze. Audits finished before any skill edits. The
+[first deeper campaign](results/2026-10-25-mcp-deep-source-graded/README.md)
+now contains 72 fresh Sonnet reviews of the frozen candidate and separate
+source-evidence grading; these cases are known regressions going forward.
+
+The [latest skill repair trial](results/2026-10-25-mcp-skill-repair-v3/README.md)
+ran nine fresh known-case reviews after entrypoint, source-provenance and report
+scope changes. All three required findings and all Python operation assessments
+were present, and all nine provenance checks passed. One launch mapping remained
+partial; four reports contained incorrect or unsupported assertions. Earlier
+repair trials and their failures remain preserved. This does not establish
+Sonnet qualification or transfer.
+
+The [prepared candidate](results/2026-10-25-mcp-deep-candidate-v3/README.md)
+remains preserved. Earlier automated count graders failed known-report targets.
+The replacement [source-evidence calibration](results/2026-10-25-mcp-source-calibration/README.md)
+matched 9/9 clear critical targets (including two constructed controls), with
+three disputed targets preserved and excluded. The deeper comparison uses that
+protocol and six preselected independent grading spot checks. Discovery and
+incorrect claims are scored separately from completeness; neither the skill nor
+the deeper fixture keys were tuned using these new outcomes.
+
+The completed deeper comparison found all 24 required finding observations in
+**every arm**. Coverage was detailed 155/192, plain 74/192 and skill 171/192.
+Reports containing incorrect/unsupported claims were 14/24, 19/24 and 15/24,
+respectively (23, 41 and 17 grouped claims). Six independent spot audits exposed
+missed provenance/inventory errors and inconsistent completeness credit; raw
+judgments and source resolutions remain visible. These results show a coverage
+advantage in this sample, a discovery ceiling, and continuing factual errors—not
+general Sonnet qualification. Synthetic canary output is reported separately.
+
+
 ## Dedicated MCP review: 2026-10-23
+
+An [evaluation-first coverage suite](mcp/coverage/README.md) now provides eight
+fixtures in four paired families, prompt/skill comparisons and separate findings,
+coverage, tool-compatibility and evaluator-health metrics. The
+[2026-10-24 matched Sonnet comparison](results/2026-10-24-mcp-coverage-baseline/README.md)
+completed 48 reviews: both arms found all four required issues in all three
+repetitions and met every keyed guard and coverage check. The detailed report
+separates reporting errors, unsupported claims, launch recovery and adjudications;
+it makes no general reliability or deployment claim.
+
+The corrected [three-arm comparison](results/2026-10-24-mcp-three-arm/README.md)
+uses fresh reviews with the detailed prompt, a plain brief review request, and
+a brief skill invocation. The short requests receive no detailed prompt.
+The same observable outcome rubric applies to all three arms. The completed
+72-review Sonnet run found all required issues in every arm. Assessed coverage
+was 84/84 for detailed, 65/84 for plain and 83/84 for skill; skill loading was
+24/24. Two raw grader faults and targeted author adjudications are preserved.
+These known cases establish neither general reliability nor native host routing.
 
 The [Sonnet repair retest](results/2026-10-23-mcp-source-table/README.md)
 found all nine keyed issues in three reviews each, with all positive/unknown guards
@@ -26,6 +111,13 @@ These are four fixtures in two paired HTTP/stdio families, retested after repair
 This is bounded regression evidence, not a fresh holdout, general qualification,
 current-advisory discovery test or live MCP assessment. The fixtures and keys are
 public under CC BY 4.0; future qualification needs fresh cases.
+
+The subsequent [public-product source exercise](field-reviews/2026-10-23/README.md)
+ran the repaired skill on Notion, GitHub and Stripe's open adapter. Follow-up
+inspection found two source-supported gaps that the skill missed. Official
+Trello's public repository contained no server implementation. These results
+limit what the synthetic scores establish; the audit preserves raw reports and
+distinguishes code findings, conditional exposure and unknown deployed behavior.
 
 ## Layout
 

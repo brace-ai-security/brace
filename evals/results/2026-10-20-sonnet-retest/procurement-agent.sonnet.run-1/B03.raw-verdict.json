@@ -1,0 +1,193 @@
+{
+  "verdict": "unclear",
+  "checks": [
+    {
+      "id": "B03.1",
+      "result": "unclear",
+      "evidence": "agent/app/main.py:96",
+      "quote": "    client = AsyncAnthropic()",
+      "note": "ERP, payments and Slack tokens are fetched at run time via STS token exchange of the projected workload token. The Anthropic client is built with no explicit credential, so it reads ANTHROPIC_API_KEY from the environment. Neither deployment.yaml nor any other repo file supplies it, so its source and whether it is a static key cannot be determined. The Slack signing secret and mail HMAC key are mounted static secrets, but they only verify inbound requests.",
+      "coverage": [
+        {
+          "subject": "STS token exchange (ERP/payments/slack)",
+          "status": "enforced",
+          "evidence": "agent/app/identity.py:100",
+          "quote": "resp = await client.post(",
+          "note": "Short-lived audience-bound tokens, fetched at run time; there is no static-key fallback."
+        },
+        {
+          "subject": "Workload token source",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/deployment.yaml:104",
+          "quote": "- serviceAccountToken:",
+          "note": "Projected service-account token."
+        },
+        {
+          "subject": "Anthropic model API credential",
+          "status": "unclear",
+          "evidence": "agent/app/main.py:96",
+          "quote": "    client = AsyncAnthropic()",
+          "note": "Implicit ANTHROPIC_API_KEY. No source is defined in the manifests."
+        },
+        {
+          "subject": "Database credential",
+          "status": "unclear",
+          "evidence": "agent/deploy/k8s/deployment.yaml:45",
+          "quote": "value: \"postgresql://procurement_agent@procurement-db.procurement-data.svc.cluster.local:5432/procurement?sslmode=verify-full\"",
+          "note": "No password in the URL. The auth method is not shown."
+        },
+        {
+          "subject": "Slack signing secret and mail HMAC key",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/deployment.yaml:109",
+          "quote": "secretName: procurement-slack-signing",
+          "note": "Inbound verification keys, mounted from Secrets at run time and not in the image."
+        }
+      ],
+      "deviations": [
+        "Anthropic API credential source and lifetime are not shown in the repo"
+      ],
+      "attempts": [
+        {
+          "category": "static-key fallback",
+          "input": "STS unavailable",
+          "trace": "token_for calls raise_for_status and propagates the error; there is no fallback to an env key",
+          "outcome": "blocked",
+          "evidence": "agent/app/identity.py:113",
+          "quote": "resp.raise_for_status()"
+        }
+      ]
+    },
+    {
+      "id": "B03.2",
+      "result": "unclear",
+      "evidence": "agent/deploy/k8s/deployment.yaml:107",
+      "quote": "                  expirationSeconds: 600",
+      "note": "The workload token is bounded to 600s and the broker honors the STS expires_in with a 30s skew. The STS-issued lifetime is set outside this repo. The Anthropic key, Slack signing secret and HMAC key have no rotation or lifetime config and no documented overlap.",
+      "coverage": [
+        {
+          "subject": "Projected workload token",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/deployment.yaml:107",
+          "quote": "                  expirationSeconds: 600",
+          "note": "Bounded."
+        },
+        {
+          "subject": "STS access token lifetime",
+          "status": "unclear",
+          "evidence": "agent/app/identity.py:115",
+          "quote": "token = _CachedToken(body[\"access_token\"], time.time() + int(body[\"expires_in\"]))",
+          "note": "Value comes from an external STS."
+        },
+        {
+          "subject": "Static mounted secrets (slack signing, mail hmac) and Anthropic key",
+          "status": "missing",
+          "evidence": "agent/deploy/k8s/deployment.yaml:109",
+          "quote": "secretName: procurement-slack-signing",
+          "note": "No rotation policy or lifetime recorded."
+        }
+      ],
+      "deviations": [
+        "No rotation or lifetime configured for the Slack signing secret, mail HMAC key and Anthropic key"
+      ],
+      "attempts": [
+        {
+          "category": "expired token reuse",
+          "input": "cached token near expiry",
+          "trace": "the cache is used only if expires_at - 30 > now",
+          "outcome": "blocked",
+          "evidence": "agent/app/identity.py:97",
+          "quote": "if cached and cached.expires_at - 30 > time.time():"
+        }
+      ]
+    },
+    {
+      "id": "B03.3",
+      "result": "holds",
+      "evidence": "agent/Dockerfile:17",
+      "quote": "COPY prompts /app/prompts",
+      "note": "No key-like literals in the Dockerfile, k8s env, config, prompts or manifests. Secrets are mounted from Kubernetes Secrets. The only secret-like strings found are test markers and redaction patterns.",
+      "coverage": [
+        {
+          "subject": "Dockerfile ENV/ARG/COPY",
+          "status": "enforced",
+          "evidence": "agent/Dockerfile:12",
+          "quote": "ENV PYTHONPATH=/opt/site:/app \\",
+          "note": "No secrets."
+        },
+        {
+          "subject": "deployment env",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/deployment.yaml:52",
+          "quote": "- name: STS_URL",
+          "note": "URLs only."
+        },
+        {
+          "subject": "prompts",
+          "status": "enforced",
+          "evidence": "agent/Dockerfile:17",
+          "quote": "COPY prompts /app/prompts",
+          "note": "No env values inserted into the prompts."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "literal secret search",
+          "input": "grep for AKIA, sk-, xox, password, api_key",
+          "trace": "matches only in redact.py patterns and tests",
+          "outcome": "blocked",
+          "evidence": "agent/app/redact.py:22",
+          "quote": "(\"password_kv\", re.compile(r\"(?i)\\b(password|passwd|secret|api[_-]?key)\\s*[:=]\\s*\\S+\")),"
+        }
+      ]
+    },
+    {
+      "id": "B03.4",
+      "result": "unclear",
+      "evidence": "agent/app/tools/payments.py:32",
+      "quote": "\"Authorization\": f\"Bearer {token}\",",
+      "note": "All outbound calls use plain bearer tokens, and there is no mTLS, DPoP or cnf binding in the repo. Whether the STS, payments API or ERP gateway support holder binding is not stated.",
+      "coverage": [
+        {
+          "subject": "payments API",
+          "status": "unclear",
+          "evidence": "agent/app/tools/payments.py:32",
+          "quote": "\"Authorization\": f\"Bearer {token}\",",
+          "note": "Plain bearer. Support for holder binding is unknown."
+        },
+        {
+          "subject": "ERP MCP gateway",
+          "status": "unclear",
+          "evidence": "agent/app/mcp_client.py:77",
+          "quote": "headers={\"Authorization\": f\"Bearer {token}\", \"Mcp-Protocol-Version\": \"2025-06-18\"},",
+          "note": "Plain bearer."
+        },
+        {
+          "subject": "slack proxy",
+          "status": "unclear",
+          "evidence": "agent/app/tools/slack.py:38",
+          "quote": "headers={\"Authorization\": f\"Bearer {await self._token()}\"},",
+          "note": "Plain bearer."
+        }
+      ],
+      "deviations": [
+        "No holder binding (mTLS, DPoP or workload proof tokens) is implemented or documented"
+      ],
+      "attempts": [
+        {
+          "category": "token replay",
+          "input": "stolen access token",
+          "trace": "the token is sent as a bearer with no proof of possession; only the audience and short lifetime limit its use",
+          "outcome": "unclear",
+          "evidence": "agent/app/identity.py:102",
+          "quote": "data={"
+        }
+      ]
+    }
+  ],
+  "applicability": "present",
+  "evidence": "agent/app/identity.py:100",
+  "quote": "resp = await client.post(",
+  "note": "The agent uses credentials for ERP, payments, Slack, the model API and the database. STS-issued tokens are good, but the Anthropic key source, rotation and holder binding are unresolved. I searched all of agent/ for credential, token, ttl, expiry, rotation, mTLS and DPoP terms, and for key-like literals."
+}

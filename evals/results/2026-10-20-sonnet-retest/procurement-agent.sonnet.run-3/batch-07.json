@@ -1,0 +1,577 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-10-20T14:46:17Z",
+  "scope": "Batch review of A05, A06, A07, C01, C02 only, from code and config in the agent folder (app/, config/, deploy/k8s, release/manifest.yaml, migrations, CI, prompts). No .brace/ directory, CODEOWNERS or git history exists. Nothing was run. Hosting-service review rules, platform on-call data and OTLP backend access are outside the repo. Pre-scan hits H001-H007 map to B07, B08, B09, B11 and R05, none in this batch. Sub-agent spawn path: only LineItemExtractor.extract; model calls: loop.py:150, extractor.py:74 (plus count_tokens at context_size.py:65). Challenges not run (separate process). Normal mode, not conservative.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "A05",
+      "gate": "G1",
+      "title": "Operational lookup",
+      "requirement": "Start from one suspicious action. Find the team responsible, the current operator, the deployment manifest, and the live instance. Show that you can contain the right instance or agent type without cutting off the launching user's other access.",
+      "not_covered": [
+        {
+          "problem": "Stop doesn't halt running work or open tool streams within a set time",
+          "owner": "R11"
+        },
+        {
+          "problem": "No drill for a compromised shared tool or agent type",
+          "owner": "E12"
+        },
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "app/startup.py",
+          "line": 44,
+          "note": "Audit rows carry agent_type_id and agent_instance_id (audit.py:86-88, migrations/001_init.sql:13-14). But the type id is only computed and logged at startup; no store maps it back to a manifest, and no registry lists live instances. The only way to find an instance is to search audit rows."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A05.1",
+          "check": "Each audit record carries the agent-type-id and agent-instance-id, which resolve to a stored deployment manifest and a live instance.",
+          "verify": "1) Open the audit record writer. 2) Check `agent.type.id` and `agent.instance.id` are written on every record. 3) Check the type ID can be looked up to a stored manifest (registry, manifest store, file keyed by hash). 4) Answer no if either field is missing or nothing stores manifests by that ID. Answer unknown if the lookup store is outside this repo.",
+          "met": "no",
+          "evidence": "app/startup.py:44",
+          "quote": "agent_type_id = compute_agent_type_id(manifest)",
+          "counter_search": "",
+          "note": "Audit rows carry agent_type_id and agent_instance_id (audit.py:86-88, migrations/001_init.sql:13-14). But the type id is only computed and logged at startup; no store maps it back to a manifest, and no registry lists live instances. The only way to find an instance is to search audit rows.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A05.2",
+          "check": "An ownership record in code or config maps each agent type to a responsible team and a current operator or on-call rotation.",
+          "verify": "1) Look for CODEOWNERS, `catalog-info.yaml`, `.brace/deployment.yaml`, or another ownership file. 2) Check each agent type maps to a team and to a current operator or on-call rotation. 3) Answer no if an agent type has no owner, or owners exist only in prose with no link. Answer unknown if ownership lives in an outside catalog.",
+          "met": "no",
+          "evidence": "app/settings.py:86",
+          "quote": "operational_owner=_env(\"OPERATIONAL_OWNER\", \"team-procurement-platform\"),",
+          "counter_search": "",
+          "note": "Owner is a team name from an env default, plus an owner label (deploy/k8s/deployment.yaml:8) and manifest owner (release/manifest.yaml:4). No CODEOWNERS or catalog file, and nothing names a current operator or on-call rotation.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A05.3",
+          "check": "A containment control can disable a single instance or a single agent type (for example revoke its principal or scale it to zero) without touching the launching user's credentials.",
+          "verify": "1) Find stop and revoke controls: admin endpoints, CLIs, feature flags, scale-to-zero, per-instance token revocation. 2) Check their scope is one instance or one agent type. 3) Answer no if the only control is a global switch or revoking a shared or user credential. Answer unknown if containment is run by an outside platform.",
+          "met": "no",
+          "evidence": "app/killswitch.py:19",
+          "quote": "AND (scope = 'fleet' OR scope = $1)",
+          "counter_search": "",
+          "note": "Halt scopes are fleet or one tenant (migrations/001_init.sql:96). No per-instance or per-agent-type halt or principal revocation exists. The check also runs only at run start (loop.py:127).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "app/killswitch.py:19 Containment only at fleet or tenant scope; cannot contain one instance or agent type."
+      ],
+      "violates": [
+        "Show that you can contain the right instance or agent type"
+      ],
+      "also_affects": [],
+      "summary": "Audit rows carry type and instance IDs, but nothing resolves them to a stored manifest or live instance, there is no on-call owner record, and containment is fleet or tenant only.",
+      "next_step": "Add a manifest store keyed by agent_type_id, an owner/on-call record per agent type, and per-instance and per-type halt flags checked on every step.",
+      "lead_role": "operations"
+    },
+    {
+      "item": "A06",
+      "gate": "G3",
+      "title": "Parent and prompt provenance",
+      "requirement": "For every sub-agent, record its own type and instance IDs, a link to its parent, trace links, and the prompt the parent gave it. Trace a nested action back to that prompt. Protect sensitive prompt text with restricted storage and a clear redaction policy. Standard GenAI instrumentation records prompts only when you turn that on, so confirm it is on for this path.",
+      "not_covered": [
+        {
+          "problem": "Sub-agent given powers beyond its task",
+          "owner": "E08"
+        },
+        {
+          "problem": "Children still running after the parent is stopped",
+          "owner": "E09"
+        },
+        {
+          "problem": "No limit on how many sub-agents a run can start",
+          "owner": "B07"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "app/identity.py",
+          "line": 51,
+          "note": "child() gets a new instance id (identity.py:53) but replace(self, ...) keeps the parent agent_type_id, so the extractor has no type ID of its own even though it uses a different model, prompt and tool role."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A06.1",
+          "check": "Each sub-agent gets its own type ID and instance ID, assigned by the harness when it is started.",
+          "verify": "1) Find sub-agent spawn code (handoffs, subgraphs, subagents, A2A task creation). 2) Check the harness assigns the child a new `agent.instance.id` and a type ID at start. 3) Answer no if any spawn path reuses the parent's IDs, assigns none, or takes the IDs from the model's request.",
+          "met": "no",
+          "evidence": "app/identity.py:51",
+          "quote": "return replace(",
+          "counter_search": "",
+          "note": "child() gets a new instance id (identity.py:53) but replace(self, ...) keeps the parent agent_type_id, so the extractor has no type ID of its own even though it uses a different model, prompt and tool role.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A06.2",
+          "check": "Each sub-agent's records include its direct parent's instance ID and a trace link to the parent.",
+          "verify": "1) Open sub-agent spawn code and the child's record writer. 2) Look for a parent instance field (for example `agent.parent.instance_id`) and trace propagation (span parent, span link, `traceparent` in queued payloads). 3) Answer no if any spawn path, including remote or queued, starts a fresh trace or omits the parent ID.",
+          "met": "yes",
+          "evidence": "app/identity.py:54",
+          "quote": "parent_instance_id=self.agent_instance_id,",
+          "counter_search": "Searched app/ for other child/spawn paths (handoff, queue, create_task, A2A); only extractor.extract spawns a child. It keeps the parent trace_id and sets parent_instance_id.",
+          "note": "Child identity carries the parent instance id and parent trace id. Note extractor.py:51-61 subagent_started has no parent_node_id, so the audit-graph link to the parent tool_proposed node is missing, but the instance and trace links are present.",
+          "coverage": [
+            {
+              "subject": "extractor spawn (LineItemExtractor.extract, only sub-agent spawn path)",
+              "status": "enforced",
+              "evidence": "app/identity.py:54",
+              "quote": "parent_instance_id=self.agent_instance_id,",
+              "note": "child() sets the parent's instance id on the child identity; trace_id is inherited unchanged and audit.record writes parent_instance_id and trace_id on every child row (audit.py:109,105)."
+            },
+            {
+              "subject": "extractor span link",
+              "status": "enforced",
+              "evidence": "app/extractor.py:50",
+              "quote": "span.set_attribute(\"procurement.parent_instance_id\", parent.agent_instance_id)",
+              "note": "The child span is started inside the parent's current span context and carries the parent instance id."
+            },
+            {
+              "subject": "remote or queued spawn",
+              "status": "not_applicable",
+              "evidence": "app/tools/documents.py:36",
+              "quote": "return await deps.extractor.extract(ident, args[\"doc_id\"], deps.current_budget(ident))",
+              "note": "The extractor is called in-process; no queue, A2A or handoff path exists (searched app/ for spawn/handoff/queue)."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A06.3",
+          "check": "The prompt the parent passed to the child is captured on this path, with prompt capture switched on in config rather than left at the default off.",
+          "verify": "1) Find where the parent's prompt to the child is recorded (for example `agent.parent.prompt`, or a hash plus stored text). 2) Check prompt content capture is turned on in config, for example a GenAI capture-content env var or SDK option. 3) Answer no if capture is left at its default off, or the setting falls back to false when unset.",
+          "met": "no",
+          "evidence": "deploy/k8s/deployment.yaml:66",
+          "quote": "name: OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
+          "counter_search": "",
+          "note": "Capture is set to \"false\" on the next line (deployment.yaml:67). The audit payload stores only a span id as parent_prompt_ref (extractor.py:58) and never the task text or a hash of it.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A06.4",
+          "check": "Captured prompt text is stored with restricted access and a redaction policy, and only an approved audit role can read it.",
+          "verify": "1) Find where captured prompt text is stored (bucket, table, log index). 2) Check its IAM or ACL limits reads to an approved audit role. 3) Check a redaction policy is defined and applied. 4) Answer no if prompts go to general logs the whole team can read, or no redaction exists. Answer unknown if storage access is set outside this repo.",
+          "met": "unknown",
+          "evidence": "migrations/001_init.sql:132",
+          "quote": "GRANT SELECT ON audit_events TO procurement_ops;",
+          "counter_search": "",
+          "note": "No prompt text is stored today, so no prompt store exists to check. Audit rows are readable by procurement_ops only (migrations/001_init.sql:132) and redact_value runs on payloads (audit.py:116), but no audit-role restriction or redaction policy is defined for prompt text. OTLP backend access is outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "app/extractor.py:58 parent_prompt_ref is a span id, not the prompt the parent gave the child; capture env is false."
+      ],
+      "violates": [
+        "record its own type and instance IDs, a link to its parent, trace links, and the prompt the parent gave it"
+      ],
+      "also_affects": [],
+      "summary": "The extractor gets its own instance ID and parent link but shares the parent type ID, and the parent prompt is not captured at all.",
+      "next_step": "Give sub-agents their own type ID, record the delegated task text (or hash plus restricted store) in subagent_started, and turn on prompt capture with an audit-only store.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "A07",
+      "gate": "G3",
+      "title": "Every model in the loop",
+      "requirement": "List all helper models, such as verifiers, judges, rerankers, and world models. Give each one an identity based on its available model version or digest, its prompt, and its configuration, and record which decisions it made. Show that a swapped, drifting, or failing checker counts as a failure of the control that depends on it.",
+      "not_covered": [
+        {
+          "problem": "Main agent model changing behind a fixed name unnoticed",
+          "owner": "C05"
+        },
+        {
+          "problem": "Second-model review not tested against evasive behavior",
+          "owner": "R10"
+        },
+        {
+          "problem": "Self-hosted model weights loaded without a signature or format check",
+          "owner": "C05"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "release/manifest.yaml",
+          "line": 54,
+          "note": "Inventory lists both models the code calls."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A07.1",
+          "check": "A model inventory in code or config lists every helper model the agent calls (verifiers, judges, rerankers, embedding models, world models).",
+          "verify": "1) Search for every model call: provider SDK clients, model name strings, embedding, rerank, moderation, and judge calls. 2) Compare that list with the model inventory. 3) Answer no if any helper model called in code is missing from the inventory, or no inventory exists.",
+          "met": "yes",
+          "evidence": "release/manifest.yaml:54",
+          "quote": "model_id: \"claude-haiku-4-5-20251001\"",
+          "counter_search": "Searched app/ for embed, rerank, judge, moderat, messages.create and model-name strings; only loop.py:150 and extractor.py:74 call a model, and both models are in manifest models.",
+          "note": "Inventory lists both models the code calls.",
+          "coverage": [
+            {
+              "subject": "I11d074af40 main agent messages.create",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:42",
+              "quote": "model_id: \"claude-sonnet-4-5-20250929\"",
+              "note": "loop.py:150 uses settings.model_id; the manifest models.primary record lists it."
+            },
+            {
+              "subject": "I1bba76f5c extractor messages.create",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:54",
+              "quote": "model_id: \"claude-haiku-4-5-20251001\"",
+              "note": "extractor.py:74 uses settings.extractor_model_id; the manifest models.extractor record lists it."
+            },
+            {
+              "subject": "app/context_size.py:65 count_tokens",
+              "status": "not_applicable",
+              "evidence": "app/context_size.py:65",
+              "quote": "counted = await client.messages.count_tokens(",
+              "note": "Token counting endpoint called with request['model'], the same two models; not a separate model."
+            },
+            {
+              "subject": "embedding, reranker, judge, moderation calls",
+              "status": "not_applicable",
+              "evidence": "app/budget.py:30",
+              "quote": "PRICES = {",
+              "note": "Only two model IDs exist in code (budget PRICES has just these two); searched app/ for embed, rerank, judge, moderat and found none; retrieval is none (manifest.yaml:91)."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A07.2",
+          "check": "Each helper model is identified by a pinned version or digest plus its prompt and configuration, not by an alias.",
+          "verify": "1) For each helper model, find its model ID and follow env vars to the final value. 2) Check it is a pinned version or digest, and that its prompt and configuration are also recorded. 3) Answer no if any is an alias (`-latest`, undated name), falls back to one by default, or is hard-coded inline outside the inventory.",
+          "met": "no",
+          "evidence": "app/budget.py:32",
+          "quote": "\"claude-haiku-4-5-20251001\": (Decimal(\"1.00\"), Decimal(\"5.00\")),",
+          "counter_search": "",
+          "note": "IDs are dated snapshots with no fallback default (settings.py:80-81). But they are repeated inline in budget.py:31-32 and deployment.yaml:41-43 outside the inventory. The manifest model records (manifest.yaml:38-60) do not tie a prompt or call config to each model; max_tokens 4096 is hard-coded in extractor.py:71 and loop.py:147.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A07.3",
+          "check": "Each helper model's decisions are logged with that model's identity.",
+          "verify": "1) Open each helper or checker call site. 2) Check its decision is logged with that model's ID and version. 3) Answer no if decisions are logged without model identity, or logged only on the allow or success branch.",
+          "met": "yes",
+          "evidence": "app/extractor.py:80",
+          "quote": "payload={\"requested_model\": request[\"model\"], \"served_model\": response.model,",
+          "counter_search": "Searched for model calls not followed by audit.record(kind=model_decision); both call sites write it unconditionally before branching. count_tokens (context_size.py:65) makes no decision.",
+          "note": "Both call sites log requested and served model on every turn.",
+          "coverage": [
+            {
+              "subject": "I11d074af40 main model call",
+              "status": "enforced",
+              "evidence": "app/loop.py:157",
+              "quote": "\"requested_model\": request[\"model\"],",
+              "note": "model_decision is written right after every call, before any branch on tool use, with requested_model and served_model (loop.py:158)."
+            },
+            {
+              "subject": "I1bba76f5c extractor model call",
+              "status": "enforced",
+              "evidence": "app/extractor.py:80",
+              "quote": "payload={\"requested_model\": request[\"model\"], \"served_model\": response.model,",
+              "note": "model_decision is written on every turn before the tool-use branch."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A07.4",
+          "check": "A checker timeout, error, invalid output, or version mismatch makes the control that depends on it fail (block or escalate), not pass by default.",
+          "verify": "1) Open each checker call site (judge, guardrail, moderation, verifier). 2) Read every `try/except`, `catch`, timeout, and parse-error branch. 3) Check each one blocks or escalates. 4) Answer no if any branch returns allow, skips the check, treats unparseable output as safe, or logs and continues. Also no if the returned model version is never compared with the expected one.",
+          "met": "no",
+          "evidence": "app/startup.py:43",
+          "quote": "log.error(\"running state differs from release manifest: %s\", \", \".join(mismatches))",
+          "counter_search": "",
+          "note": "Model or version mismatch against the manifest is logged and startup continues (startup.py:41-47). served_model is recorded (loop.py:158, extractor.py:80) but never compared with the expected model, so a swapped or drifting model does not fail any control. Extractor parse errors do fail closed (extractor.py:106-112).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "app/startup.py:43 Model mismatch with manifest is logged only; served model never compared to expected."
+      ],
+      "violates": [
+        "Show that a swapped, drifting, or failing checker counts as a failure of the control that depends on it"
+      ],
+      "also_affects": [],
+      "summary": "Both models are inventoried and logged, but model IDs are repeated outside the inventory and a swapped or drifting model is only logged, never made to fail a control.",
+      "next_step": "Fail startup on any mismatch, compare response.model to the pinned ID on each call and block or escalate on difference, and tie prompt and call config to each model record.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "C01",
+      "gate": "G2",
+      "title": "Complete release manifest",
+      "requirement": "Write a release manifest: a list of everything that makes up this release. Include the container, harness, system prompt, rules files, model, built-in tools, MCP servers, permission scopes, memory and retrieval settings, identity bindings, network rules, and execution budgets. Include security-policy versions, MCP protocol and extension versions, approved tool-publication config, issuer/audience bindings, and cache/task isolation settings. Add a separate model record for every model: the main agent model, sub-agent models, and helper models such as embedding models and rerankers. For each, record the provider, model ID, exact version or checkpoint, and any adapter or fine-tune version. For training or fine-tuning you run yourself, also record the training job ID, base-model version, training code and config version, dataset version, and the digest of the output. The agent app's release number alone is not enough. Use the [model provenance fields](CHECKLIST-VERIFICATION.md#model-provenance-fields) to separate recorded versions from details a provider doesn't share. Check each model ID you request against the provider's versioning docs. Mark it as a pinned snapshot or as an alias that can change, and record which doc you used and its date. Naming rules differ by provider and model generation. Name each artifact's owner and a reference that can't change, where one exists. A machine-readable format, such as CycloneDX ML-BOM or the SPDX 3.0 AI and Dataset profiles, lets tools check the manifest.",
+      "not_covered": [
+        {
+          "problem": "Running setup not checked against the approved manifest",
+          "owner": "C03"
+        },
+        {
+          "problem": "Manifest changes made without a reviewed diff and named author",
+          "owner": "C02"
+        },
+        {
+          "problem": "Running config drifting from the approved baseline unnoticed",
+          "owner": "C04"
+        },
+        {
+          "problem": "Agent-type-id not computed as a hash of its identity inputs",
+          "owner": "A03"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "release/manifest.yaml",
+          "line": 34,
+          "note": "Container, harness, prompts, model, tools, MCP server, memory, retrieval, identity and budgets are listed. Network and image policy are bare paths with no version or digest (manifest.yaml:34-35); permission scopes and budgets are only referenced by path into policy.yaml; payments API and Slack proxy bindings are not listed as integrations; no MCP protocol/extension version, tool-publication config or cache/task isolation settings; no rules-files entry."
+        }
+      ],
+      "checks": [
+        {
+          "id": "C01.1",
+          "check": "A release manifest file lists the container, harness, system prompt, rules files, model, built-in tools, MCP servers, permission scopes, memory and retrieval settings, identity bindings, network rules, execution budgets, and security-policy versions.",
+          "verify": "1) Find the release manifest (`.brace/manifest.yaml`, release manifest, ML-BOM). 2) Check each category: container, harness, system prompt, rules files, model, built-in tools, MCP servers, permission scopes, memory and retrieval, identity bindings, network rules, budgets, security-policy versions. 3) Compare with what config sets up (`*.mcp.json`, NetworkPolicy). 4) Answer no if any category is missing or configured items are left out.",
+          "met": "no",
+          "evidence": "release/manifest.yaml:34",
+          "quote": "network_policy: deploy/k8s/networkpolicy.yaml",
+          "counter_search": "",
+          "note": "Container, harness, prompts, model, tools, MCP server, memory, retrieval, identity and budgets are listed. Network and image policy are bare paths with no version or digest (manifest.yaml:34-35); permission scopes and budgets are only referenced by path into policy.yaml; payments API and Slack proxy bindings are not listed as integrations; no MCP protocol/extension version, tool-publication config or cache/task isolation settings; no rules-files entry.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C01.2",
+          "check": "The manifest has a separate model record for every model (main, sub-agent, and helper models such as embedding models and rerankers), each with provider, model ID, exact version or checkpoint, and adapter or fine-tune version.",
+          "verify": "1) Search code for every model used: main, sub-agent, embedding, reranker, judge. 2) Check the manifest has a separate record for each. 3) Check each record has provider, model ID, exact version or checkpoint, and adapter or fine-tune version. 4) Answer no if any model in code has no record, or a record is missing a field.",
+          "met": "yes",
+          "evidence": "release/manifest.yaml:54",
+          "quote": "model_id: \"claude-haiku-4-5-20251001\"",
+          "counter_search": "Searched app/ for every messages.create/count_tokens call and model strings; only the two models exist and both have separate records.",
+          "note": "Separate records with provider, dated model_id (exact snapshot), adapter and fine_tune fields.",
+          "coverage": [
+            {
+              "subject": "main model (loop.py:150)",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:42",
+              "quote": "model_id: \"claude-sonnet-4-5-20250929\"",
+              "note": "models.primary has provider (line 41), model_id, adapter none, fine_tune none, served_version."
+            },
+            {
+              "subject": "extractor sub-agent model (extractor.py:74)",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:54",
+              "quote": "model_id: \"claude-haiku-4-5-20251001\"",
+              "note": "models.extractor has provider (line 53), model_id, adapter none, fine_tune none, served_version."
+            },
+            {
+              "subject": "embedding, reranker, judge models",
+              "status": "not_applicable",
+              "evidence": "release/manifest.yaml:91",
+              "quote": "retrieval: none",
+              "note": "No other model calls exist in app/ (see A07.1 inventory)."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C01.3",
+          "check": "Each requested model ID is labeled as a pinned snapshot or a changeable alias, with the provider doc and date used.",
+          "verify": "1) Open each model record in the manifest. 2) Check it has a pinned-or-alias label, the provider doc used, and a date. 3) Answer no if any record lacks one of these, or labels an undated or `-latest` name as pinned.",
+          "met": "yes",
+          "evidence": "release/manifest.yaml:56",
+          "quote": "id_kind_source: \"Anthropic models overview, checked 2026-09-22\"",
+          "counter_search": "Checked both model records for an undated or -latest ID labelled pinned; both IDs carry a date suffix. The doc is named but has no URL.",
+          "note": "Both records label snapshot status with doc and date.",
+          "coverage": [
+            {
+              "subject": "models.primary",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:44",
+              "quote": "id_kind_source: \"Anthropic models overview, checked 2026-09-22\"",
+              "note": "Labeled pinned snapshot (line 43) with doc and date; ID is dated."
+            },
+            {
+              "subject": "models.extractor",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:56",
+              "quote": "id_kind_source: \"Anthropic models overview, checked 2026-09-22\"",
+              "note": "Labeled pinned snapshot (line 55) with doc and date; ID is dated."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C01.4",
+          "check": "Each artifact has a named owner and a reference that can't change (digest or commit) where one exists, not a mutable tag or the app's release number.",
+          "verify": "1) For each manifest artifact, check for a named owner. 2) Check its reference is a digest (`sha256:`) or commit SHA where one exists. 3) Answer no if any artifact has no owner, or uses a mutable tag (`:latest`, branch name) or the app release number where a digest or commit was available.",
+          "met": "no",
+          "evidence": "release/manifest.yaml:34",
+          "quote": "network_policy: deploy/k8s/networkpolicy.yaml",
+          "counter_search": "",
+          "note": "Only the two models and the ERP MCP server have their own owner (manifest.yaml:40,52,66), plus the top-level release owner (line 4). Image, harness, prompts, policy and tools config have no per-artifact owner. Network and image policy have no owner and no digest or commit although a file hash is available (manifest.yaml:34-35).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C01.5",
+          "check": "For training the team runs itself, the manifest records the training job ID, base-model version, training code and config version, dataset version, and output digest.",
+          "verify": "1) Search for training or fine-tuning code (training jobs, `Trainer`, fine-tune API calls, pipeline configs). 2) If found, check the manifest records job ID, base-model version, training code and config version, dataset version, and output digest. 3) Answer no if training runs here and any field is missing. Answer unknown if training may run in another repo.",
+          "met": "yes",
+          "evidence": "release/manifest.yaml:47",
+          "quote": "training_run: \"not applicable\"",
+          "counter_search": "Searched for Trainer, fine_tune, fine-tune API calls, training jobs and pipeline configs across app/, tests/, .github/ and pyproject.toml; none found. Training could live in another repo, but both models are hosted provider models with fine_tune none.",
+          "note": "No team-run training exists in this repo.",
+          "coverage": [
+            {
+              "subject": "training or fine-tuning code in repo",
+              "status": "not_applicable",
+              "evidence": "release/manifest.yaml:47",
+              "quote": "training_run: \"not applicable\"",
+              "note": "Manifest says no self-run training; searched app/, tests/, pyproject.toml and CI for Trainer, fine-tune and training pipeline and found none."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "Name each artifact's owner and a reference that can't change"
+      ],
+      "also_affects": [],
+      "summary": "The manifest covers the main parts and both models, but network and image policy are bare paths, several categories are missing, and most artifacts have no owner or immutable reference.",
+      "next_step": "Add owner and digest or commit for every artifact, version or hash the network and image policies, and add the missing categories (integrations, MCP protocol versions, isolation settings).",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "C02",
+      "gate": "G2",
+      "title": "Review security-relevant changes",
+      "requirement": "Require diffs with a named author, plus review, for changes to the manifest and its policies. Show who is allowed to change production config. Record emergency changes with an owner, a reason, an end date, and a follow-up review.",
+      "not_covered": [
+        {
+          "problem": "Running config drifting from the approved baseline unnoticed",
+          "owner": "C04"
+        },
+        {
+          "problem": "Release candidate not re-tested against attack cases",
+          "owner": "C06"
+        },
+        {
+          "problem": "No tested rollback to an approved setup",
+          "owner": "C07"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yaml",
+          "line": 40,
+          "note": "No CODEOWNERS, IAM or role list names who may change production config. The release job builds, pushes and signs on any merge to main with no protected environment: entry (ci.yaml:39-47), and the manifest hash check (ci.yaml:23-37) only covers the prompts and config groups."
+        }
+      ],
+      "checks": [
+        {
+          "id": "C02.1",
+          "check": "The manifest, prompts, tool config, and policy files live in version control, and merges require review by someone other than the named author.",
+          "verify": "1) Check the manifest, prompts, tool config, and policy files are tracked in git, not loaded at runtime from an untracked path or remote URL. 2) Look for branch protection or ruleset config requiring approving review, and CODEOWNERS covering those paths. 3) Answer no if any of these files is untracked or not covered. Answer unknown if review rules are set only in the hosting service.",
+          "met": "unknown",
+          "evidence": ".github/workflows/ci.yaml:40",
+          "quote": "if: github.ref == 'refs/heads/main'",
+          "counter_search": "",
+          "note": "Manifest, prompts and config are files in the repo, baked into the image (Dockerfile:17-19). The repo has no CODEOWNERS and no ruleset or branch-protection config, and this copy has no git history. Whether merges need a second reviewer lives in the hosting service, so I cannot tell.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C02.2",
+          "check": "Only named roles in config (CODEOWNERS, IAM, or protected CI environments) can change production configuration.",
+          "verify": "1) Open CODEOWNERS, IAM policies, and CI environment config (protected `environment:` entries). 2) Check production config paths and deploy jobs are limited to named roles. 3) Answer no if a catch-all `*` owner, a broad group, or the agent's own credentials can change production config, or a deploy job skips the protected environment.",
+          "met": "no",
+          "evidence": ".github/workflows/ci.yaml:40",
+          "quote": "if: github.ref == 'refs/heads/main'",
+          "counter_search": "",
+          "note": "No CODEOWNERS, IAM or role list names who may change production config. The release job builds, pushes and signs on any merge to main with no protected environment: entry (ci.yaml:39-47), and the manifest hash check (ci.yaml:23-37) only covers the prompts and config groups.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C02.3",
+          "check": "An emergency change path exists that records an owner, a reason, an end date, and a follow-up review.",
+          "verify": "1) Search for an emergency or break-glass path (runbook, workflow, CLI). 2) Check it records owner, reason, end date, and follow-up review. 3) Answer no if any of the four is missing, or the path bypasses review with no record. Answer unknown if the procedure lives outside this repo.",
+          "met": "unknown",
+          "evidence": "README.md:57",
+          "quote": "* **Halt.** Insert or update a row in `control_flags` (`scope = 'fleet' or",
+          "counter_search": "",
+          "note": "Searched the whole repo for emergency and break-glass wording and found none. The only related text is the halt procedure in README.md, a stop control and not an emergency config change with owner, reason, end date and review. A procedure may exist outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        ".github/workflows/ci.yaml:40 Release job runs on main with no protected environment and no named-role restriction; no CODEOWNERS in repo."
+      ],
+      "violates": [
+        "Show who is allowed to change production config"
+      ],
+      "also_affects": [],
+      "summary": "No CODEOWNERS, role list or protected environment limits who can change production config, and no emergency-change path is in the repo.",
+      "next_step": "Add CODEOWNERS for manifest, prompts, policy and deploy paths, put the release job behind a protected environment, and add an emergency-change record with owner, reason, end date and follow-up review.",
+      "lead_role": "governance"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

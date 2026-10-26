@@ -1,0 +1,174 @@
+{
+  "verdict": "upheld",
+  "checks": [
+    {
+      "id": "B11.1",
+      "result": "holds",
+      "evidence": "agent/deploy/k8s/deployment.yaml:69",
+      "quote": "allowPrivilegeEscalation: false",
+      "note": "Single container (no init/sidecars) sets allowPrivilegeEscalation false, runAsNonRoot true, drop ALL, seccomp RuntimeDefault; pod-level also non-root and seccomp; namespace enforces restricted; Dockerfile USER 65532.",
+      "coverage": [
+        {
+          "subject": "allowPrivilegeEscalation",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/deployment.yaml:69",
+          "quote": "allowPrivilegeEscalation: false",
+          "note": "agent container"
+        },
+        {
+          "subject": "runAsNonRoot",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/deployment.yaml:72",
+          "quote": "runAsNonRoot: true",
+          "note": "container and pod level, not overridden"
+        },
+        {
+          "subject": "capabilities drop ALL",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/deployment.yaml:74",
+          "quote": "drop: [\"ALL\"]",
+          "note": "agent container"
+        },
+        {
+          "subject": "seccompProfile",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/deployment.yaml:76",
+          "quote": "type: RuntimeDefault",
+          "note": "container and pod level"
+        },
+        {
+          "subject": "namespace PSS label",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/serviceaccount.yaml:8",
+          "quote": "pod-security.kubernetes.io/enforce: restricted",
+          "note": "namespace procurement-prod"
+        },
+        {
+          "subject": "Dockerfile user",
+          "status": "enforced",
+          "evidence": "agent/Dockerfile:20",
+          "quote": "USER 65532:65532",
+          "note": "non-root"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "override/missing container",
+          "input": "search for init containers or sidecars lacking securityContext",
+          "trace": "deployment.yaml has only one container 'agent'; no initContainers",
+          "outcome": "blocked",
+          "evidence": "agent/deploy/k8s/deployment.yaml:30",
+          "quote": "containers:"
+        }
+      ]
+    },
+    {
+      "id": "B11.2",
+      "result": "holds",
+      "evidence": "agent/Dockerfile:10",
+      "quote": "FROM gcr.io/distroless/python3-debian12:nonroot@sha256:8f3c1a6e2b9d4f7a0c5e8b1d3f6a9c2e5b8d1f4a7c0e3b6d9f2a5c8e1b4d7f0a",
+      "note": "Final stage is distroless, with no shell or package manager; pip runs only in the build stage and only site-packages, app and config are copied over.",
+      "coverage": [
+        {
+          "subject": "final stage base image",
+          "status": "enforced",
+          "evidence": "agent/Dockerfile:10",
+          "quote": "FROM gcr.io/distroless/python3-debian12:nonroot",
+          "note": "distroless"
+        },
+        {
+          "subject": "final stage installs",
+          "status": "enforced",
+          "evidence": "agent/Dockerfile:15",
+          "quote": "COPY --from=build /opt/site /opt/site",
+          "note": "only copies artifacts, no RUN in final stage"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "tools in final image",
+          "input": "look for RUN apt/apk/pip/curl/wget after last FROM",
+          "trace": "final stage has no RUN; ENTRYPOINT is exec form python, not a shell",
+          "outcome": "blocked",
+          "evidence": "agent/Dockerfile:22",
+          "quote": "ENTRYPOINT [\"python\", \"-m\", \"uvicorn\", \"app.main:app\""
+        }
+      ]
+    },
+    {
+      "id": "B11.3",
+      "result": "holds",
+      "evidence": "agent/deploy/k8s/deployment.yaml:70",
+      "quote": "privileged: false",
+      "note": "No hostPath, docker.sock, hostNetwork, hostPID or hostIPC anywhere; volumes are projected, secret and emptyDir only; hostUsers false.",
+      "coverage": [
+        {
+          "subject": "privileged",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/deployment.yaml:70",
+          "quote": "privileged: false",
+          "note": "explicit false"
+        },
+        {
+          "subject": "volumes",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/deployment.yaml:100",
+          "quote": "volumes:",
+          "note": "projected, secret, emptyDir only; no hostPath"
+        },
+        {
+          "subject": "host namespaces",
+          "status": "enforced",
+          "evidence": "agent/deploy/k8s/deployment.yaml:21",
+          "quote": "hostUsers: false",
+          "note": "no hostNetwork/hostPID/hostIPC fields present"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "grep host access",
+          "input": "grep hostPath|docker.sock|hostNetwork|hostPID|hostIPC|network_mode in agent/",
+          "trace": "only match is privileged: false; no compose file",
+          "outcome": "blocked",
+          "evidence": "agent/deploy/k8s/deployment.yaml:70",
+          "quote": "privileged: false"
+        }
+      ]
+    },
+    {
+      "id": "B11.4",
+      "result": "holds",
+      "evidence": "agent/app/tools/__init__.py",
+      "quote": "",
+      "note": "No subprocess, exec, eval, os.system or code interpreter in app code; the only compile( hits are re.compile regexes. Tools are payments, erp, memory, documents and slack, none executing code.",
+      "coverage": [
+        {
+          "subject": "app code execution primitives",
+          "status": "not_applicable",
+          "evidence": "agent/app/ingest.py:34",
+          "quote": "re.compile(r\"(?i)ignore (all|any|the|previous|prior|above) (instructions|rules)\"),",
+          "note": "only regex compile; no code-exec tool found"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "code execution search",
+          "input": "grep subprocess|exec(|eval(|os.system|os.popen|importlib|pickle|sandbox|shell across agent/",
+          "trace": "no matches other than re.compile",
+          "outcome": "not_applicable",
+          "evidence": "agent/app/ingest.py:34",
+          "quote": "re.compile(r\"(?i)ignore (all|any|the|previous|prior|above) (instructions|rules)\"),"
+        }
+      ]
+    }
+  ],
+  "applicability": "present",
+  "evidence": "agent/Dockerfile:22",
+  "quote": "ENTRYPOINT [\"python\", \"-m\", \"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8080\", \"--no-server-header\"]",
+  "search": "Listed all files under agent/, read the Dockerfile and deployment, serviceaccount (namespace) manifests, and grepped the whole tree for exec, host-access and sandbox terms.",
+  "note": "Containerized deployment present (N/A never); all four checks hold: restricted PSS controls, distroless final image, no host access, no code execution."
+}

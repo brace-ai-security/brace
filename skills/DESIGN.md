@@ -1,6 +1,6 @@
 # BRACE skill design and evidence
 
-Design recorded 2026-10-22. Four directly invocable sibling skills separate the
+Design recorded 2026-10-22; threat-model skill added 2026-10-23. Five directly invocable sibling skills separate the
 user's jobs. Conditional reference files supply detail within a job. This is an
 engineering choice informed by the sources below, not a research-proven optimum.
 
@@ -8,6 +8,7 @@ engineering choice informed by the sources below, not a research-proven optimum.
 
 | User's job | Entrypoint | Output and boundary |
 |---|---|---|
+| Model a proposed agent design | `brace-threat-model` | Assets, data/authority boundaries, capability combinations, harm scenarios, proposed controls and verification needs. No audit Pass or incident-response workflow. |
 | Review an entire agent | `brace-review` | Canonical 53-item findings JSON, coverage ledger and report. Preserves its existing validation and challenge workflow. |
 | Review MCP servers/configuration | `brace-mcp-review` | Focused evidence/coverage report with BRACE and primary-source mappings. No server launch, scanner execution or whole-checklist completion claim. |
 | Produce enforcement evidence | `brace-tests` | Tests/drills and dated results for named items in an authorized controlled environment. A proposed test is not permission to run it. |
@@ -29,6 +30,8 @@ Handoffs preserve component/transport scope, code evidence, BRACE IDs, versions,
 source URLs/dates, owners and unknowns. Review vocabulary remains `likely_pass`,
 `gap`, `needs_evidence`, `na_candidate`; those are drafts, not approved record states.
 MCP Markdown reports are not interchangeable with the full-review JSON schema.
+Threat-model scenarios instead distinguish proposed controls, design claims and
+implementation evidence; they do not assign review ratings to an unbuilt system.
 
 ## Official authoring guidance
 
@@ -78,3 +81,12 @@ to clarifications on grouped coverage, platform/version unknowns and speculative
 bypasses. These checks used delegated agents, not native host invocation telemetry
 or a controlled comparison against the full review; the forward reports precede
 the documented wording refinements.
+
+The [2026-10-23 threat-model smoke exercise](../evals/results/2026-10-23-threat-model-smoke/run.json)
+uses an invoice-agent proposal and an offline summarizer. It checks design-versus-
+implementation claims, capability combinations, hostile input handling and
+proportional scope. Two iterations exposed overly broad item mappings; the final
+reference makes item purposes explicit and requires provisional control-level
+mapping when an item definition is unavailable. Saved reports retain the observed
+mistakes. Final mapping clarifications were structurally checked, not independently
+qualified; these exercises do not establish reviewer reliability.

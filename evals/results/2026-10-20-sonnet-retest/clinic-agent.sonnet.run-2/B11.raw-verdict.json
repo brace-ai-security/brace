@@ -1,0 +1,167 @@
+{
+  "verdict": "upheld",
+  "checks": [
+    {
+      "id": "B11.1",
+      "result": "holds",
+      "evidence": "agent/k8s/deployment.yaml:87, agent/k8s/deployment.yaml:92",
+      "quote": "allowPrivilegeEscalation: false\ncapabilities:\n              drop: [\"ALL\"]",
+      "note": "Both workloads (Deployment agent, CronJob reminders) set pod-level runAsNonRoot and seccomp RuntimeDefault, with container-level allowPrivilegeEscalation false and drop ALL. No container overrides pod-level values. Namespace enforces restricted. Dockerfile uses USER 65532. No init containers or sidecars.",
+      "coverage": [
+        {
+          "subject": "Deployment agent container",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:90",
+          "quote": "runAsNonRoot: true",
+          "note": "also seccomp RuntimeDefault at line 94, drop ALL at 92"
+        },
+        {
+          "subject": "CronJob reminders container",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:136",
+          "quote": "runAsNonRoot: true",
+          "note": "pod-level runAsNonRoot and seccomp RuntimeDefault (line 140) inherited; container sets allowPrivilegeEscalation false and drop ALL (lines 153,157)"
+        },
+        {
+          "subject": "Namespace PSS label",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:6",
+          "quote": "pod-security.kubernetes.io/enforce: restricted",
+          "note": "enforce, audit and warn all restricted"
+        },
+        {
+          "subject": "Dockerfile user",
+          "status": "enforced",
+          "evidence": "agent/Dockerfile:20",
+          "quote": "USER 65532:65532",
+          "note": "non-root"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "per-container override",
+          "input": "look for container securityContext that overrides pod-level non-root or seccomp, or init/sidecar containers",
+          "trace": "only one container per workload; no override of runAsNonRoot or seccompProfile; no initContainers",
+          "outcome": "blocked",
+          "evidence": "agent/k8s/deployment.yaml:74",
+          "quote": "containers:"
+        }
+      ]
+    },
+    {
+      "id": "B11.2",
+      "result": "holds",
+      "evidence": "agent/Dockerfile:10",
+      "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:9b2e4c6a8d0f1e3c5a7b9d1f3e5c7a9b1d3f5e7c9a1b3d5f7e9c1a3b5d7f9e1c",
+      "note": "Final stage is distroless with no shell or package manager; npm ci and build occur only in the build stage; CMD runs node directly.",
+      "coverage": [
+        {
+          "subject": "final stage base image",
+          "status": "enforced",
+          "evidence": "agent/Dockerfile:10",
+          "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot",
+          "note": "distroless"
+        },
+        {
+          "subject": "final stage installs",
+          "status": "enforced",
+          "evidence": "agent/Dockerfile:14",
+          "quote": "COPY --from=build --chown=65532:65532 /app/node_modules ./node_modules",
+          "note": "only COPY, no RUN in final stage"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "shell/downloader in final stage",
+          "input": "search final stage for RUN, apt, apk, curl, wget, sh",
+          "trace": "final stage has no RUN; CMD is exec form",
+          "outcome": "blocked",
+          "evidence": "agent/Dockerfile:22",
+          "quote": "CMD [\"dist/server.js\"]"
+        }
+      ]
+    },
+    {
+      "id": "B11.3",
+      "result": "holds",
+      "evidence": "agent/k8s/deployment.yaml:63",
+      "quote": "hostNetwork: false",
+      "note": "hostNetwork, hostPID and hostIPC explicitly false; privileged false; the only volumes are emptyDir and a projected service account token. No hostPath or docker.sock anywhere.",
+      "coverage": [
+        {
+          "subject": "Deployment host namespaces",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:64",
+          "quote": "hostPID: false",
+          "note": "hostIPC false at line 65"
+        },
+        {
+          "subject": "Volumes",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:104",
+          "quote": "emptyDir: { medium: Memory, sizeLimit: 32Mi }",
+          "note": "no hostPath"
+        },
+        {
+          "subject": "privileged flag",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:88",
+          "quote": "privileged: false",
+          "note": "also on CronJob line 154"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "grep host access",
+          "input": "privileged|hostPath|docker.sock|hostNetwork|hostPID|network_mode",
+          "trace": "searched all of agent/; only false values found; no compose file",
+          "outcome": "blocked",
+          "evidence": "agent/k8s/deployment.yaml:65",
+          "quote": "hostIPC: false"
+        }
+      ]
+    },
+    {
+      "id": "B11.4",
+      "result": "holds",
+      "evidence": "agent/src/tools/executor.ts:20",
+      "quote": "const ALLOWED = new Set(allowlist.tools.map((t) => t.tool));",
+      "note": "No code execution (child_process, exec, spawn, eval, vm, Function, interpreter) in src; tools are fixed, allowlisted integrations, so no model-written code runs.",
+      "coverage": [
+        {
+          "subject": "tool executor",
+          "status": "not_applicable",
+          "evidence": "agent/src/tools/executor.ts:49",
+          "quote": "if (!ALLOWED.has(call.name)) return deny(\"not_allowlisted\");",
+          "note": "dispatches only to registered native or MCP tools; no code interpreter"
+        },
+        {
+          "subject": "src code-execution search",
+          "status": "not_applicable",
+          "evidence": "agent/src/tools/metadata-scan.ts:64",
+          "quote": "const m = re.exec(s);",
+          "note": "only match is RegExp.exec, not code execution"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "model-written code execution",
+          "input": "model asks for arbitrary code run",
+          "trace": "executeTool denies tools not in allowlist; no exec/eval/spawn sinks exist in src",
+          "outcome": "not_applicable",
+          "evidence": "agent/src/tools/executor.ts:49",
+          "quote": "if (!ALLOWED.has(call.name)) return deny(\"not_allowlisted\");"
+        }
+      ]
+    }
+  ],
+  "applicability": "present",
+  "evidence": "agent/k8s/deployment.yaml:75",
+  "quote": "- name: agent",
+  "search_explanation": "Applicability can never be N/A for B11 because the agent runs in a container. Searched Dockerfile, k8s manifests, src, config, infra and workflows for runtime settings, host access flags and code execution sinks.",
+  "note": "Restricted PSS controls, distroless final image, no host access, and no code execution all verified; no failures."
+}

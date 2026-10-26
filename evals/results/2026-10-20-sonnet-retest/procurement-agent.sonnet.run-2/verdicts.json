@@ -1,0 +1,1016 @@
+{
+  "B03": {
+    "verdict": "unclear",
+    "checks": [
+      {
+        "id": "B03.1",
+        "result": "unclear",
+        "evidence": "app/main.py:96, app/identity.py:98",
+        "quote": "client = AsyncAnthropic()\n\"subject_token\": self._workload_token(),",
+        "note": "ERP, payments and Slack tokens are fetched at run time via STS token exchange with no static fallback. The Anthropic client is built with the SDK default credential, a static API key. Nothing in the repo (deployment env, volumes, settings) shows where it comes from or whether it is federated or short-lived, so this is unresolved.",
+        "coverage": [
+          {
+            "subject": "ERP/payments/Slack access tokens",
+            "status": "enforced",
+            "evidence": "app/identity.py:98",
+            "quote": "\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\",",
+            "note": "Runtime STS exchange; no static fallback in TokenBroker"
+          },
+          {
+            "subject": "Anthropic model API credential",
+            "status": "unclear",
+            "evidence": "app/main.py:96",
+            "quote": "client = AsyncAnthropic()",
+            "note": "Default SDK key lookup; no source provisioned in deployment.yaml or settings.py"
+          },
+          {
+            "subject": "Slack signing secret and mail HMAC key (inbound verification)",
+            "status": "unclear",
+            "evidence": "app/settings.py:77",
+            "quote": "\"SLACK_SIGNING_SECRET_PATH\", \"/var/run/secrets/slack/signing-secret\"",
+            "note": "Static secrets mounted from k8s Secrets; they verify inbound requests rather than authenticate outbound API calls"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "static-fallback",
+            "input": "STS unavailable",
+            "trace": "token_for calls resp.raise_for_status() and raises; no fallback key path exists",
+            "outcome": "blocked",
+            "evidence": "app/identity.py:111",
+            "quote": "resp.raise_for_status()"
+          }
+        ]
+      },
+      {
+        "id": "B03.2",
+        "result": "unclear",
+        "evidence": "deploy/k8s/deployment.yaml:100, app/identity.py:112",
+        "quote": "expirationSeconds: 600\ntoken = _CachedToken(body[\"access_token\"], time.time() + int(body[\"expires_in\"]))",
+        "note": "The projected workload token is bounded to 600s and exchanged tokens honour the STS expires_in with a 30s refresh margin. The exchanged-token lifetime is set by the external STS and not in this repo. The Anthropic key lifetime and rotation are not shown. The mounted signing and HMAC secrets have no rotation configuration.",
+        "coverage": [
+          {
+            "subject": "projected workload token",
+            "status": "enforced",
+            "evidence": "deploy/k8s/deployment.yaml:100",
+            "quote": "expirationSeconds: 600",
+            "note": "Bounded at 10 minutes"
+          },
+          {
+            "subject": "STS-issued access tokens",
+            "status": "unclear",
+            "evidence": "app/identity.py:112",
+            "quote": "time.time() + int(body[\"expires_in\"])",
+            "note": "Lifetime is decided by the external STS"
+          },
+          {
+            "subject": "Anthropic key, Slack signing secret, mail HMAC key",
+            "status": "unclear",
+            "evidence": "deploy/k8s/deployment.yaml:111",
+            "quote": "secretName: procurement-slack-signing",
+            "note": "No lifetime or rotation configuration in the repo"
+          }
+        ],
+        "deviations": [],
+        "attempts": []
+      },
+      {
+        "id": "B03.3",
+        "result": "holds",
+        "evidence": "Dockerfile:14, .github/workflows/ci.yaml:21",
+        "quote": "COPY config /app/config\n- name: Secret scan",
+        "note": "The Dockerfile has no ENV/ARG secrets and no .env copy. The k8s env contains only URLs and ids. Secrets are mounted from k8s Secrets. Prompts contain no credentials, and gitleaks runs in CI. Grep for sk-, AKIA and ANTHROPIC found no literals.",
+        "coverage": [
+          {
+            "subject": "Dockerfile ENV/ARG/COPY",
+            "status": "enforced",
+            "evidence": "Dockerfile:14",
+            "quote": "COPY config /app/config",
+            "note": "Only prompts, config and the manifest are copied; no secrets"
+          },
+          {
+            "subject": "deployment.yaml env",
+            "status": "enforced",
+            "evidence": "deploy/k8s/deployment.yaml:40",
+            "quote": "value: \"postgresql://procurement_agent@procurement-db.procurement-data.svc.cluster.local:5432/procurement?sslmode=verify-full\"",
+            "note": "Database URL has no password"
+          },
+          {
+            "subject": "prompts and prompt building",
+            "status": "enforced",
+            "evidence": "app/main.py:109",
+            "quote": "system_prompt=(settings.prompt_dir / \"system.md\").read_text()",
+            "note": "Prompts are read from files; no env values inserted"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "literal-secret-search",
+            "input": "grep sk-, AKIA, ANTHROPIC across agent/",
+            "trace": "no matches",
+            "outcome": "blocked",
+            "evidence": "Dockerfile:1",
+            "quote": "# syntax=docker/dockerfile:1.10"
+          }
+        ]
+      },
+      {
+        "id": "B03.4",
+        "result": "unclear",
+        "evidence": "app/tools/payments.py:32, app/mcp_client.py:77",
+        "quote": "\"Authorization\": f\"Bearer {token}\",\nheaders={\"Authorization\": f\"Bearer {token}\", \"Mcp-Protocol-Version\": \"2025-06-18\"},",
+        "note": "Exchanged tokens are sent as plain bearer tokens with no mTLS, DPoP or cert-bound client setup. Whether the STS, ERP gateway or payments API support holder binding is not stated in the repo, so this is unresolved. The manifest's spiffe_id is only an identity label.",
+        "coverage": [
+          {
+            "subject": "ERP MCP gateway token",
+            "status": "unclear",
+            "evidence": "app/mcp_client.py:77",
+            "quote": "headers={\"Authorization\": f\"Bearer {token}\", \"Mcp-Protocol-Version\": \"2025-06-18\"},",
+            "note": "Bearer; support unstated"
+          },
+          {
+            "subject": "payments API token",
+            "status": "unclear",
+            "evidence": "app/tools/payments.py:32",
+            "quote": "\"Authorization\": f\"Bearer {token}\",",
+            "note": "Bearer; support unstated"
+          },
+          {
+            "subject": "Slack proxy token",
+            "status": "unclear",
+            "evidence": "app/tools/slack.py:38",
+            "quote": "headers={\"Authorization\": f\"Bearer {await self._token()}\"},",
+            "note": "Bearer; support unstated"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "token-replay",
+            "input": "stolen exchanged access token",
+            "trace": "requests carry only an Authorization bearer header; no proof-of-possession is sent",
+            "outcome": "unclear",
+            "evidence": "app/tools/payments.py:32",
+            "quote": "\"Authorization\": f\"Bearer {token}\","
+          }
+        ]
+      }
+    ],
+    "applicability": "present",
+    "evidence": "app/identity.py:98",
+    "quote": "\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\",",
+    "search_explanation": "Searched agent/ for key, token, secret, password, ttl, expire, mtls, dpop, cert, bearer, environ and ANTHROPIC, and for literals (sk-, AKIA). Read identity.py, settings.py, main.py, payments.py, the Dockerfile, deployment.yaml, the CI workflow and the README. The agent makes credentialed API calls, so the requirement applies.",
+    "note": "STS token exchange gives short-lived audience-bound tokens, but the Anthropic credential source, STS lifetimes and holder-binding support are not shown in the repo."
+  },
+  "B10": {
+    "verdict": "unclear",
+    "applicability": "present",
+    "evidence": "deploy/k8s/deployment.yaml:32",
+    "quote": "image: registry.example-corp.test/procurement/agent@sha256:7c1e4a0f9b3d2e85a6c4f1b0d9e8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0",
+    "search": "Listed every file under agent/ and grepped for image:, FROM, cosign, sha256. Read the Deployment, Kyverno ClusterPolicy, CI workflow, Dockerfile and release manifest in full. The team builds and deploys its own container image, so the N/A condition does not apply.",
+    "search_explanation": "Listed every file under agent/ and grepped for image:, FROM, cosign, sha256. Read the Deployment, Kyverno ClusterPolicy, CI workflow, Dockerfile and release manifest in full. The team builds and deploys its own container image, so the N/A condition does not apply.",
+    "note": "Digest pinning, pinned keyless identity, provenance conditions and enforce-mode admission are all present, but the admission verifier's patch level (Kyverno 1.15.2, embedded cosign) cannot be shown to be at or above 2.6.2/3.0.4 from the repo, so the result is unclear.",
+    "checks": [
+      {
+        "id": "B10.1",
+        "result": "holds",
+        "evidence": "deploy/k8s/deployment.yaml:32",
+        "quote": "image: registry.example-corp.test/procurement/agent@sha256:7c1e4a0f9b3d2e85a6c4f1b0d9e8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0",
+        "note": "The only deployed container image is pinned by digest. Both Dockerfile base images are also pinned with @sha256. No Helm, compose or Terraform files exist. The CI tag push (agent:${{ github.sha }}) is a build output, not a deployed reference.",
+        "coverage": [
+          {
+            "subject": "Deployment container agent",
+            "status": "enforced",
+            "evidence": "deploy/k8s/deployment.yaml:32",
+            "quote": "image: registry.example-corp.test/procurement/agent@sha256:7c1e4a0f9b3d2e85a6c4f1b0d9e8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0",
+            "note": "digest-pinned"
+          },
+          {
+            "subject": "Dockerfile build stage base image",
+            "status": "enforced",
+            "evidence": "Dockerfile:2",
+            "quote": "FROM python:3.11.10-slim-bookworm@sha256:2a6386ad2db20e7f55073f69a98d6da2cf9f168e05e7487d2670c22e4ad2a1bd AS build",
+            "note": "digest-pinned"
+          },
+          {
+            "subject": "Dockerfile runtime base image",
+            "status": "enforced",
+            "evidence": "Dockerfile:10",
+            "quote": "FROM gcr.io/distroless/python3-debian12:nonroot@sha256:8f3c1a6e2b9d4f7a0c5e8b1d3f6a9c2e5b8d1f4a7c0e3b6d9f2a5c8e1b4d7f0a",
+            "note": "digest-pinned"
+          },
+          {
+            "subject": "Admission rule only-approved-registry",
+            "status": "enforced",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:25",
+            "quote": "- image: \"registry.example-corp.test/procurement/*@sha256:*\"",
+            "note": "rejects tag-only images in procurement-prod"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "tag-only image",
+            "input": "Pod in procurement-prod with image agent:latest",
+            "trace": "Rule only-approved-registry pattern requires @sha256: in containers[].image and in optional initContainers",
+            "outcome": "blocked",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:27",
+            "quote": "- image: \"registry.example-corp.test/procurement/*@sha256:*\""
+          }
+        ]
+      },
+      {
+        "id": "B10.2",
+        "result": "holds",
+        "evidence": "deploy/k8s/kyverno-verify-images.yaml:43-44",
+        "quote": "issuer: \"https://token.actions.githubusercontent.com\"\nsubject: \"https://github.com/example-corp/procurement-agent/.github/workflows/ci.yaml@refs/heads/main\"",
+        "note": "Keyless attestor uses an exact issuer and exact subject. There are no regex or wildcard identity fields. The same pair is used for the SLSA and CycloneDX attestors.",
+        "coverage": [
+          {
+            "subject": "Image signature attestor",
+            "status": "enforced",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:42-46",
+            "quote": "subject: \"https://github.com/example-corp/procurement-agent/.github/workflows/ci.yaml@refs/heads/main\"",
+            "note": "exact issuer and subject, rekor set"
+          },
+          {
+            "subject": "Attestation attestors (SLSA, CycloneDX)",
+            "status": "enforced",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:52-53, 75-76",
+            "quote": "subject: \"https://github.com/example-corp/procurement-agent/.github/workflows/ci.yaml@refs/heads/main\"",
+            "note": "exact identity"
+          },
+          {
+            "subject": "Digest verification",
+            "status": "enforced",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:38",
+            "quote": "verifyDigest: true",
+            "note": "digest checked"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "wrong signer identity",
+            "input": "Image signed by a different repo or workflow via the same GitHub OIDC issuer",
+            "trace": "Subject is an exact string, so a different subject fails attestor matching",
+            "outcome": "blocked",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:44",
+            "quote": "subject: \"https://github.com/example-corp/procurement-agent/.github/workflows/ci.yaml@refs/heads/main\""
+          }
+        ]
+      },
+      {
+        "id": "B10.3",
+        "result": "holds",
+        "evidence": "deploy/k8s/kyverno-verify-images.yaml:56-70",
+        "quote": "- key: \"{{ buildDefinition.buildType }}\"\n- key: \"{{ runDetails.builder.id }}\"",
+        "note": "The SLSA v1 attestation conditions use Equals on buildType, workflow repository, ref, path and builder id. The workflow repository, ref and path are the externalParameters. Nothing uses a wildcard. CI emits the provenance with actions/attest-build-provenance. Residual: other externalParameters, such as workflow inputs, are not compared.",
+        "coverage": [
+          {
+            "subject": "buildType",
+            "status": "enforced",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:56-58",
+            "quote": "value: \"https://actions.github.io/buildtypes/workflow/v1\"",
+            "note": "Equals"
+          },
+          {
+            "subject": "source repository (externalParameters.workflow.repository)",
+            "status": "enforced",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:59-61",
+            "quote": "value: \"https://github.com/example-corp/procurement-agent\"",
+            "note": "Equals"
+          },
+          {
+            "subject": "externalParameters ref and path",
+            "status": "enforced",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:62-67",
+            "quote": "value: \".github/workflows/ci.yaml\"",
+            "note": "Equals"
+          },
+          {
+            "subject": "builder id",
+            "status": "enforced",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:68-70",
+            "quote": "value: \"https://github.com/actions/runner/github-hosted\"",
+            "note": "Equals"
+          },
+          {
+            "subject": "CI provenance generation",
+            "status": "enforced",
+            "evidence": ".github/workflows/ci.yaml:79",
+            "quote": "- uses: actions/attest-build-provenance@1c608d11d69870c2092266b3f9a6f3abbf17002c # v1.4.3",
+            "note": "provenance is produced and then verified at admission"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "provenance from a different ref",
+            "input": "Image built from a feature branch or a fork",
+            "trace": "externalParameters.workflow.ref and repository are compared with Equals, and the signer subject is pinned to refs/heads/main",
+            "outcome": "blocked",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:62-64",
+            "quote": "value: \"refs/heads/main\""
+          }
+        ]
+      },
+      {
+        "id": "B10.4",
+        "result": "holds",
+        "evidence": "deploy/k8s/kyverno-verify-images.yaml:9-12",
+        "quote": "validationFailureAction: Enforce\nfailurePolicy: Fail",
+        "note": "The policy is in Enforce mode with failurePolicy Fail. It matches Pods in procurement-prod, which is the only prod namespace in the repo, and has no exclusions. Any non-conforming image is denied by the registry and digest pattern rule. verifyImages sets required: true.",
+        "coverage": [
+          {
+            "subject": "mode and failure policy",
+            "status": "enforced",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:9, 12",
+            "quote": "validationFailureAction: Enforce",
+            "note": "Enforce and Fail"
+          },
+          {
+            "subject": "namespace scope",
+            "status": "enforced",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:19",
+            "quote": "namespaces: [procurement-prod]",
+            "note": "matches the Deployment namespace procurement-prod; no exclude block"
+          },
+          {
+            "subject": "no-match deny",
+            "status": "enforced",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:25, 39",
+            "quote": "required: true",
+            "note": "images from other registries fail the pattern rule; matching images must verify"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "unapproved image",
+            "input": "docker.io/evil/agent@sha256:... deployed into procurement-prod",
+            "trace": "Fails the registry pattern in only-approved-registry, so the policy denies it",
+            "outcome": "blocked",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:21",
+            "quote": "message: \"Images in procurement-prod must come from registry.example-corp.test/procurement and be pinned by digest.\""
+          }
+        ]
+      },
+      {
+        "id": "B10.5",
+        "result": "unclear",
+        "evidence": ".github/workflows/ci.yaml:52, deploy/k8s/kyverno-verify-images.yaml:7",
+        "quote": "cosign-release: \"v2.6.2\"\nkyverno.io/kyverno-version: \"1.15.2\"",
+        "note": "The CI signer pin of v2.6.2 meets the 2.6.2 minimum. The admission verifier is Kyverno 1.15.2, which embeds its own cosign library, and the repo does not show that embedded version. 1.15.2 is an annotation, not a deployment pin. The embedded cosign cannot be shown to be at or above 2.6.2 or 3.0.4 from the repo, so this is unresolved.",
+        "coverage": [
+          {
+            "subject": "CI cosign-installer release",
+            "status": "enforced",
+            "evidence": ".github/workflows/ci.yaml:52",
+            "quote": "cosign-release: \"v2.6.2\"",
+            "note": "equals the minimum for 2.x"
+          },
+          {
+            "subject": "Admission verifier (Kyverno embedded cosign)",
+            "status": "unclear",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:7",
+            "quote": "kyverno.io/kyverno-version: \"1.15.2\"",
+            "note": "embedded cosign version is not stated in the repo; there is no Kyverno chart or install pin"
+          },
+          {
+            "subject": "Dockerfile verifier",
+            "status": "not_applicable",
+            "evidence": "Dockerfile:1",
+            "quote": "# syntax=docker/dockerfile:1.10",
+            "note": "no cosign in the image"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "vulnerable verifier at admission",
+            "input": "A bundle whose transparency-log entry does not match the artifact",
+            "trace": "Admission verification runs in Kyverno 1.15.2. Its embedded cosign version is not in the repo, so whether it has the fix cannot be determined.",
+            "outcome": "unclear",
+            "evidence": "deploy/k8s/kyverno-verify-images.yaml:7",
+            "quote": "kyverno.io/kyverno-version: \"1.15.2\""
+          }
+        ]
+      }
+    ]
+  },
+  "B11": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "B11.1",
+        "result": "holds",
+        "evidence": "deploy/k8s/deployment.yaml:69",
+        "quote": "allowPrivilegeEscalation: false",
+        "note": "Single container (no init/sidecars) sets allowPrivilegeEscalation false, runAsNonRoot true, drop ALL, seccomp RuntimeDefault; pod-level also non-root and seccomp; namespace enforces restricted; Dockerfile USER 65532.",
+        "coverage": [
+          {
+            "subject": "allowPrivilegeEscalation",
+            "status": "enforced",
+            "evidence": "deploy/k8s/deployment.yaml:69",
+            "quote": "allowPrivilegeEscalation: false",
+            "note": "agent container"
+          },
+          {
+            "subject": "runAsNonRoot",
+            "status": "enforced",
+            "evidence": "deploy/k8s/deployment.yaml:72",
+            "quote": "runAsNonRoot: true",
+            "note": "container and pod level, not overridden"
+          },
+          {
+            "subject": "capabilities drop ALL",
+            "status": "enforced",
+            "evidence": "deploy/k8s/deployment.yaml:74",
+            "quote": "drop: [\"ALL\"]",
+            "note": "agent container"
+          },
+          {
+            "subject": "seccompProfile",
+            "status": "enforced",
+            "evidence": "deploy/k8s/deployment.yaml:76",
+            "quote": "type: RuntimeDefault",
+            "note": "container and pod level"
+          },
+          {
+            "subject": "namespace PSS label",
+            "status": "enforced",
+            "evidence": "deploy/k8s/serviceaccount.yaml:8",
+            "quote": "pod-security.kubernetes.io/enforce: restricted",
+            "note": "namespace procurement-prod"
+          },
+          {
+            "subject": "Dockerfile user",
+            "status": "enforced",
+            "evidence": "Dockerfile:20",
+            "quote": "USER 65532:65532",
+            "note": "non-root"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "override/missing container",
+            "input": "search for init containers or sidecars lacking securityContext",
+            "trace": "deployment.yaml has only one container 'agent'; no initContainers",
+            "outcome": "blocked",
+            "evidence": "deploy/k8s/deployment.yaml:30",
+            "quote": "containers:"
+          }
+        ]
+      },
+      {
+        "id": "B11.2",
+        "result": "holds",
+        "evidence": "Dockerfile:10",
+        "quote": "FROM gcr.io/distroless/python3-debian12:nonroot@sha256:8f3c1a6e2b9d4f7a0c5e8b1d3f6a9c2e5b8d1f4a7c0e3b6d9f2a5c8e1b4d7f0a",
+        "note": "Final stage is distroless, with no shell or package manager; pip runs only in the build stage and only site-packages, app and config are copied over.",
+        "coverage": [
+          {
+            "subject": "final stage base image",
+            "status": "enforced",
+            "evidence": "Dockerfile:10",
+            "quote": "FROM gcr.io/distroless/python3-debian12:nonroot",
+            "note": "distroless"
+          },
+          {
+            "subject": "final stage installs",
+            "status": "enforced",
+            "evidence": "Dockerfile:15",
+            "quote": "COPY --from=build /opt/site /opt/site",
+            "note": "only copies artifacts, no RUN in final stage"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "tools in final image",
+            "input": "look for RUN apt/apk/pip/curl/wget after last FROM",
+            "trace": "final stage has no RUN; ENTRYPOINT is exec form python, not a shell",
+            "outcome": "blocked",
+            "evidence": "Dockerfile:22",
+            "quote": "ENTRYPOINT [\"python\", \"-m\", \"uvicorn\", \"app.main:app\""
+          }
+        ]
+      },
+      {
+        "id": "B11.3",
+        "result": "holds",
+        "evidence": "deploy/k8s/deployment.yaml:70",
+        "quote": "privileged: false",
+        "note": "No hostPath, docker.sock, hostNetwork, hostPID or hostIPC anywhere; volumes are projected, secret and emptyDir only; hostUsers false.",
+        "coverage": [
+          {
+            "subject": "privileged",
+            "status": "enforced",
+            "evidence": "deploy/k8s/deployment.yaml:70",
+            "quote": "privileged: false",
+            "note": "explicit false"
+          },
+          {
+            "subject": "volumes",
+            "status": "enforced",
+            "evidence": "deploy/k8s/deployment.yaml:100",
+            "quote": "volumes:",
+            "note": "projected, secret, emptyDir only; no hostPath"
+          },
+          {
+            "subject": "host namespaces",
+            "status": "enforced",
+            "evidence": "deploy/k8s/deployment.yaml:21",
+            "quote": "hostUsers: false",
+            "note": "no hostNetwork/hostPID/hostIPC fields present"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "grep host access",
+            "input": "grep hostPath|docker.sock|hostNetwork|hostPID|hostIPC|network_mode in agent/",
+            "trace": "only match is privileged: false; no compose file",
+            "outcome": "blocked",
+            "evidence": "deploy/k8s/deployment.yaml:70",
+            "quote": "privileged: false"
+          }
+        ]
+      },
+      {
+        "id": "B11.4",
+        "result": "holds",
+        "evidence": "app/tools/__init__.py",
+        "quote": "",
+        "note": "No subprocess, exec, eval, os.system or code interpreter in app code; the only compile( hits are re.compile regexes. Tools are payments, erp, memory, documents and slack, none executing code.",
+        "coverage": [
+          {
+            "subject": "app code execution primitives",
+            "status": "not_applicable",
+            "evidence": "app/ingest.py:34",
+            "quote": "re.compile(r\"(?i)ignore (all|any|the|previous|prior|above) (instructions|rules)\"),",
+            "note": "only regex compile; no code-exec tool found"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "code execution search",
+            "input": "grep subprocess|exec(|eval(|os.system|os.popen|importlib|pickle|sandbox|shell across agent/",
+            "trace": "no matches other than re.compile",
+            "outcome": "not_applicable",
+            "evidence": "app/ingest.py:34",
+            "quote": "re.compile(r\"(?i)ignore (all|any|the|previous|prior|above) (instructions|rules)\"),"
+          }
+        ]
+      }
+    ],
+    "applicability": "present",
+    "evidence": "Dockerfile:22",
+    "quote": "ENTRYPOINT [\"python\", \"-m\", \"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8080\", \"--no-server-header\"]",
+    "search": "Listed all files under agent/, read the Dockerfile and deployment, serviceaccount (namespace) manifests, and grepped the whole tree for exec, host-access and sandbox terms.",
+    "note": "Containerized deployment present (N/A never); all four checks hold: restricted PSS controls, distroless final image, no host access, no code execution."
+  },
+  "R14": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "R14.1",
+        "result": "holds",
+        "evidence": "app/audit.py:3",
+        "quote": "Every step of a run is one row in ``audit_events``.",
+        "note": "Not applicable: audit_events is write-only (INSERT/SELECT for ops); no code reads it or any checkpoint to drive recovery, and there is no automatic replay, so this control has nothing to apply to.",
+        "coverage": [
+          {
+            "subject": "audit_events table (audit.record writer)",
+            "status": "not_applicable",
+            "evidence": "app/audit.py:93",
+            "quote": "await pool.execute(",
+            "note": "Only INSERT path; no reader feeds recovery. Grep of app/ for audit_events SELECT, replay, resume, recover, checkpoint finds none."
+          },
+          {
+            "subject": "run state / loop restart",
+            "status": "not_applicable",
+            "evidence": "app/loop.py:137",
+            "quote": "messages: list[dict[str, Any]] = [{\"role\": \"user\", \"content\": task}]",
+            "note": "Run state is in-memory only, started fresh per /runs request; no resume from stored state."
+          },
+          {
+            "subject": "pay_invoice and ERP call handoffs",
+            "status": "not_applicable",
+            "evidence": "app/tools/payments.py:29",
+            "quote": "resp = await client.post(",
+            "note": "Single send per tool invocation, no retry loop; Idempotency-Key is sent but no replay exists. Failures return an error to the model (loop.py:93), not a resend."
+          },
+          {
+            "subject": "background jobs",
+            "status": "not_applicable",
+            "evidence": "app/main.py:68",
+            "quote": "async def expire_approvals_forever(app: FastAPI) -> None:",
+            "note": "Only sweeps expired approvals; does not replay actions."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "hash chain/signature",
+            "input": "Tamper with or truncate audit_events, then restart the service",
+            "trace": "On restart lifespan() builds new state and never reads audit_events; runs start only via POST /runs, so there is no recovery path consuming the records.",
+            "outcome": "not_applicable",
+            "evidence": "app/main.py:159",
+            "quote": "asyncio.create_task(request.app.state.agent.run(ident, task))"
+          },
+          {
+            "category": "hash chain/signature",
+            "input": "Tool call times out or errors mid-payment",
+            "trace": "execute_tool catches the exception, records tool_error and returns an error to the model; no code resends.",
+            "outcome": "not_applicable",
+            "evidence": "app/loop.py:86",
+            "quote": "except Exception as exc:"
+          }
+        ]
+      },
+      {
+        "id": "R14.2",
+        "result": "holds",
+        "evidence": "app/audit.py:3",
+        "quote": "Every step of a run is one row in ``audit_events``.",
+        "note": "Not applicable: audit_events is write-only (INSERT/SELECT for ops); no code reads it or any checkpoint to drive recovery, and there is no automatic replay, so this control has nothing to apply to.",
+        "coverage": [
+          {
+            "subject": "audit_events table (audit.record writer)",
+            "status": "not_applicable",
+            "evidence": "app/audit.py:93",
+            "quote": "await pool.execute(",
+            "note": "Only INSERT path; no reader feeds recovery. Grep of app/ for audit_events SELECT, replay, resume, recover, checkpoint finds none."
+          },
+          {
+            "subject": "run state / loop restart",
+            "status": "not_applicable",
+            "evidence": "app/loop.py:137",
+            "quote": "messages: list[dict[str, Any]] = [{\"role\": \"user\", \"content\": task}]",
+            "note": "Run state is in-memory only, started fresh per /runs request; no resume from stored state."
+          },
+          {
+            "subject": "pay_invoice and ERP call handoffs",
+            "status": "not_applicable",
+            "evidence": "app/tools/payments.py:29",
+            "quote": "resp = await client.post(",
+            "note": "Single send per tool invocation, no retry loop; Idempotency-Key is sent but no replay exists. Failures return an error to the model (loop.py:93), not a resend."
+          },
+          {
+            "subject": "background jobs",
+            "status": "not_applicable",
+            "evidence": "app/main.py:68",
+            "quote": "async def expire_approvals_forever(app: FastAPI) -> None:",
+            "note": "Only sweeps expired approvals; does not replay actions."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "trust anchor on load",
+            "input": "Tamper with or truncate audit_events, then restart the service",
+            "trace": "On restart lifespan() builds new state and never reads audit_events; runs start only via POST /runs, so there is no recovery path consuming the records.",
+            "outcome": "not_applicable",
+            "evidence": "app/main.py:159",
+            "quote": "asyncio.create_task(request.app.state.agent.run(ident, task))"
+          },
+          {
+            "category": "trust anchor on load",
+            "input": "Tool call times out or errors mid-payment",
+            "trace": "execute_tool catches the exception, records tool_error and returns an error to the model; no code resends.",
+            "outcome": "not_applicable",
+            "evidence": "app/loop.py:86",
+            "quote": "except Exception as exc:"
+          }
+        ]
+      },
+      {
+        "id": "R14.3",
+        "result": "holds",
+        "evidence": "app/audit.py:3",
+        "quote": "Every step of a run is one row in ``audit_events``.",
+        "note": "Not applicable: audit_events is write-only (INSERT/SELECT for ops); no code reads it or any checkpoint to drive recovery, and there is no automatic replay, so this control has nothing to apply to.",
+        "coverage": [
+          {
+            "subject": "audit_events table (audit.record writer)",
+            "status": "not_applicable",
+            "evidence": "app/audit.py:93",
+            "quote": "await pool.execute(",
+            "note": "Only INSERT path; no reader feeds recovery. Grep of app/ for audit_events SELECT, replay, resume, recover, checkpoint finds none."
+          },
+          {
+            "subject": "run state / loop restart",
+            "status": "not_applicable",
+            "evidence": "app/loop.py:137",
+            "quote": "messages: list[dict[str, Any]] = [{\"role\": \"user\", \"content\": task}]",
+            "note": "Run state is in-memory only, started fresh per /runs request; no resume from stored state."
+          },
+          {
+            "subject": "pay_invoice and ERP call handoffs",
+            "status": "not_applicable",
+            "evidence": "app/tools/payments.py:29",
+            "quote": "resp = await client.post(",
+            "note": "Single send per tool invocation, no retry loop; Idempotency-Key is sent but no replay exists. Failures return an error to the model (loop.py:93), not a resend."
+          },
+          {
+            "subject": "background jobs",
+            "status": "not_applicable",
+            "evidence": "app/main.py:68",
+            "quote": "async def expire_approvals_forever(app: FastAPI) -> None:",
+            "note": "Only sweeps expired approvals; does not replay actions."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "truncation/rollback/chain replacement",
+            "input": "Tamper with or truncate audit_events, then restart the service",
+            "trace": "On restart lifespan() builds new state and never reads audit_events; runs start only via POST /runs, so there is no recovery path consuming the records.",
+            "outcome": "not_applicable",
+            "evidence": "app/main.py:159",
+            "quote": "asyncio.create_task(request.app.state.agent.run(ident, task))"
+          },
+          {
+            "category": "truncation/rollback/chain replacement",
+            "input": "Tool call times out or errors mid-payment",
+            "trace": "execute_tool catches the exception, records tool_error and returns an error to the model; no code resends.",
+            "outcome": "not_applicable",
+            "evidence": "app/loop.py:86",
+            "quote": "except Exception as exc:"
+          }
+        ]
+      },
+      {
+        "id": "R14.4",
+        "result": "holds",
+        "evidence": "app/audit.py:3",
+        "quote": "Every step of a run is one row in ``audit_events``.",
+        "note": "Not applicable: audit_events is write-only (INSERT/SELECT for ops); no code reads it or any checkpoint to drive recovery, and there is no automatic replay, so this control has nothing to apply to.",
+        "coverage": [
+          {
+            "subject": "audit_events table (audit.record writer)",
+            "status": "not_applicable",
+            "evidence": "app/audit.py:93",
+            "quote": "await pool.execute(",
+            "note": "Only INSERT path; no reader feeds recovery. Grep of app/ for audit_events SELECT, replay, resume, recover, checkpoint finds none."
+          },
+          {
+            "subject": "run state / loop restart",
+            "status": "not_applicable",
+            "evidence": "app/loop.py:137",
+            "quote": "messages: list[dict[str, Any]] = [{\"role\": \"user\", \"content\": task}]",
+            "note": "Run state is in-memory only, started fresh per /runs request; no resume from stored state."
+          },
+          {
+            "subject": "pay_invoice and ERP call handoffs",
+            "status": "not_applicable",
+            "evidence": "app/tools/payments.py:29",
+            "quote": "resp = await client.post(",
+            "note": "Single send per tool invocation, no retry loop; Idempotency-Key is sent but no replay exists. Failures return an error to the model (loop.py:93), not a resend."
+          },
+          {
+            "subject": "background jobs",
+            "status": "not_applicable",
+            "evidence": "app/main.py:68",
+            "quote": "async def expire_approvals_forever(app: FastAPI) -> None:",
+            "note": "Only sweeps expired approvals; does not replay actions."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "idempotent replay",
+            "input": "Tamper with or truncate audit_events, then restart the service",
+            "trace": "On restart lifespan() builds new state and never reads audit_events; runs start only via POST /runs, so there is no recovery path consuming the records.",
+            "outcome": "not_applicable",
+            "evidence": "app/main.py:159",
+            "quote": "asyncio.create_task(request.app.state.agent.run(ident, task))"
+          },
+          {
+            "category": "idempotent replay",
+            "input": "Tool call times out or errors mid-payment",
+            "trace": "execute_tool catches the exception, records tool_error and returns an error to the model; no code resends.",
+            "outcome": "not_applicable",
+            "evidence": "app/loop.py:86",
+            "quote": "except Exception as exc:"
+          }
+        ]
+      },
+      {
+        "id": "R14.5",
+        "result": "holds",
+        "evidence": "app/audit.py:3",
+        "quote": "Every step of a run is one row in ``audit_events``.",
+        "note": "Not applicable: audit_events is write-only (INSERT/SELECT for ops); no code reads it or any checkpoint to drive recovery, and there is no automatic replay, so this control has nothing to apply to.",
+        "coverage": [
+          {
+            "subject": "audit_events table (audit.record writer)",
+            "status": "not_applicable",
+            "evidence": "app/audit.py:93",
+            "quote": "await pool.execute(",
+            "note": "Only INSERT path; no reader feeds recovery. Grep of app/ for audit_events SELECT, replay, resume, recover, checkpoint finds none."
+          },
+          {
+            "subject": "run state / loop restart",
+            "status": "not_applicable",
+            "evidence": "app/loop.py:137",
+            "quote": "messages: list[dict[str, Any]] = [{\"role\": \"user\", \"content\": task}]",
+            "note": "Run state is in-memory only, started fresh per /runs request; no resume from stored state."
+          },
+          {
+            "subject": "pay_invoice and ERP call handoffs",
+            "status": "not_applicable",
+            "evidence": "app/tools/payments.py:29",
+            "quote": "resp = await client.post(",
+            "note": "Single send per tool invocation, no retry loop; Idempotency-Key is sent but no replay exists. Failures return an error to the model (loop.py:93), not a resend."
+          },
+          {
+            "subject": "background jobs",
+            "status": "not_applicable",
+            "evidence": "app/main.py:68",
+            "quote": "async def expire_approvals_forever(app: FastAPI) -> None:",
+            "note": "Only sweeps expired approvals; does not replay actions."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "pause on unclear result",
+            "input": "Tamper with or truncate audit_events, then restart the service",
+            "trace": "On restart lifespan() builds new state and never reads audit_events; runs start only via POST /runs, so there is no recovery path consuming the records.",
+            "outcome": "not_applicable",
+            "evidence": "app/main.py:159",
+            "quote": "asyncio.create_task(request.app.state.agent.run(ident, task))"
+          },
+          {
+            "category": "pause on unclear result",
+            "input": "Tool call times out or errors mid-payment",
+            "trace": "execute_tool catches the exception, records tool_error and returns an error to the model; no code resends.",
+            "outcome": "not_applicable",
+            "evidence": "app/loop.py:86",
+            "quote": "except Exception as exc:"
+          }
+        ]
+      }
+    ],
+    "violates": [],
+    "applicability": "absent",
+    "evidence": "app/main.py:159",
+    "quote": "asyncio.create_task(request.app.state.agent.run(ident, task))",
+    "search_explanation": "Searched all of agent/ (excluding fixtures) for replay, resume, recover, retry, checkpoint, idempotency, restart, redeliver, backoff and attempt, plus every SELECT. Read loop.py, audit.py, main.py, payments.py, mcp_client.py and the migration. audit_events is only written, run state is in-memory, tool failures go back to the model with no resend, and no startup path loads stored state. The only hit was the Idempotency-Key header on a normal first send.",
+    "note": "No logs or checkpoints drive recovery and there is no automatic replay, so the N/A condition is met."
+  },
+  "E07": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "E07.1",
+        "result": "holds",
+        "evidence": "app/ingest.py:123",
+        "quote": "@router.post(\"/ingest/mail\")",
+        "note": "Not applicable: no agent-to-agent channel. The only machine inbound is the first-party mail gateway posting documents, not a peer agent. Subject: authentication of peer agents.",
+        "coverage": [
+          {
+            "subject": "authentication of peer agents",
+            "status": "not_applicable",
+            "evidence": "app/ingest.py:123",
+            "quote": "@router.post(\"/ingest/mail\")",
+            "note": "No peer agent sends messages; mail gateway is infrastructure and the extractor sub-agent is in-process (extractor.py:44)."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "faked peer / replay / cross-tenant / compromised peer",
+            "input": "message from a peer agent",
+            "trace": "No A2A route exists in main.py or ingest.py",
+            "outcome": "not_applicable",
+            "evidence": "app/extractor.py:44",
+            "quote": "ident = parent.child(role=EXTRACTOR_ROLE)"
+          }
+        ]
+      },
+      {
+        "id": "E07.2",
+        "result": "holds",
+        "evidence": "app/ingest.py:123",
+        "quote": "@router.post(\"/ingest/mail\")",
+        "note": "Not applicable: no agent-to-agent channel. The only machine inbound is the first-party mail gateway posting documents, not a peer agent. Subject: peer message schema/allowlist.",
+        "coverage": [
+          {
+            "subject": "peer message schema/allowlist",
+            "status": "not_applicable",
+            "evidence": "app/ingest.py:123",
+            "quote": "@router.post(\"/ingest/mail\")",
+            "note": "No peer agent sends messages; mail gateway is infrastructure and the extractor sub-agent is in-process (extractor.py:44)."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "faked peer / replay / cross-tenant / compromised peer",
+            "input": "message from a peer agent",
+            "trace": "No A2A route exists in main.py or ingest.py",
+            "outcome": "not_applicable",
+            "evidence": "app/extractor.py:44",
+            "quote": "ident = parent.child(role=EXTRACTOR_ROLE)"
+          }
+        ]
+      },
+      {
+        "id": "E07.3",
+        "result": "holds",
+        "evidence": "app/ingest.py:123",
+        "quote": "@router.post(\"/ingest/mail\")",
+        "note": "Not applicable: no agent-to-agent channel. The only machine inbound is the first-party mail gateway posting documents, not a peer agent. Subject: peer replay protection.",
+        "coverage": [
+          {
+            "subject": "peer replay protection",
+            "status": "not_applicable",
+            "evidence": "app/ingest.py:123",
+            "quote": "@router.post(\"/ingest/mail\")",
+            "note": "No peer agent sends messages; mail gateway is infrastructure and the extractor sub-agent is in-process (extractor.py:44)."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "faked peer / replay / cross-tenant / compromised peer",
+            "input": "message from a peer agent",
+            "trace": "No A2A route exists in main.py or ingest.py",
+            "outcome": "not_applicable",
+            "evidence": "app/extractor.py:44",
+            "quote": "ident = parent.child(role=EXTRACTOR_ROLE)"
+          }
+        ]
+      },
+      {
+        "id": "E07.4",
+        "result": "holds",
+        "evidence": "app/ingest.py:123",
+        "quote": "@router.post(\"/ingest/mail\")",
+        "note": "Not applicable: no agent-to-agent channel. The only machine inbound is the first-party mail gateway posting documents, not a peer agent. Subject: peer content into prompts.",
+        "coverage": [
+          {
+            "subject": "peer content into prompts",
+            "status": "not_applicable",
+            "evidence": "app/ingest.py:123",
+            "quote": "@router.post(\"/ingest/mail\")",
+            "note": "No peer agent sends messages; mail gateway is infrastructure and the extractor sub-agent is in-process (extractor.py:44)."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "faked peer / replay / cross-tenant / compromised peer",
+            "input": "message from a peer agent",
+            "trace": "No A2A route exists in main.py or ingest.py",
+            "outcome": "not_applicable",
+            "evidence": "app/extractor.py:44",
+            "quote": "ident = parent.child(role=EXTRACTOR_ROLE)"
+          }
+        ]
+      },
+      {
+        "id": "E07.5",
+        "result": "holds",
+        "evidence": "app/ingest.py:123",
+        "quote": "@router.post(\"/ingest/mail\")",
+        "note": "Not applicable: no agent-to-agent channel. The only machine inbound is the first-party mail gateway posting documents, not a peer agent. Subject: peer callback/webhook URLs.",
+        "coverage": [
+          {
+            "subject": "peer callback/webhook URLs",
+            "status": "not_applicable",
+            "evidence": "app/ingest.py:123",
+            "quote": "@router.post(\"/ingest/mail\")",
+            "note": "No peer agent sends messages; mail gateway is infrastructure and the extractor sub-agent is in-process (extractor.py:44)."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "faked peer / replay / cross-tenant / compromised peer",
+            "input": "message from a peer agent",
+            "trace": "No A2A route exists in main.py or ingest.py",
+            "outcome": "not_applicable",
+            "evidence": "app/extractor.py:44",
+            "quote": "ident = parent.child(role=EXTRACTOR_ROLE)"
+          }
+        ]
+      }
+    ],
+    "applicability": "absent",
+    "evidence": "app/main.py:136, app/extractor.py:44",
+    "quote": "@app.post(\"/runs\")\nident = parent.child(role=EXTRACTOR_ROLE)",
+    "search": "Searched agent/ for peer, a2a, agent card, nonce, webhook, callback and enumerated all routes (main.py, ingest.py). Routes: /runs (OIDC user), /slack/interactions (Slack human approvals), /ingest/mail (first-party mail gateway posting documents), /healthz. The only sub-agent (extractor.py child()) runs in-process, with no network channel. Outbound URLs (ERP MCP, Slack, STS) come from operator settings, not from peers. No A2A server, peer endpoint or agent-to-agent channel exists.",
+    "search_explanation": "Searched agent/ for peer, a2a, agent card, nonce, webhook, callback and enumerated all routes (main.py, ingest.py). Routes: /runs (OIDC user), /slack/interactions (Slack human approvals), /ingest/mail (first-party mail gateway posting documents), /healthz. The only sub-agent (extractor.py child()) runs in-process, with no network channel. Outbound URLs (ERP MCP, Slack, STS) come from operator settings, not from peers. No A2A server, peer endpoint or agent-to-agent channel exists.",
+    "note": "No A2A server, peer endpoint or agent-to-agent channel exists; inbound is user OIDC, Slack human approvals and a first-party mail gateway, so E07 is not applicable.",
+    "violates": []
+  }
+}

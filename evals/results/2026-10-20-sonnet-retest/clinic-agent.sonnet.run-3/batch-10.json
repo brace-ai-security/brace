@@ -1,0 +1,804 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-10-20T15:50:52Z",
+  "scope": "TODO: what was reviewed and what wasn't.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "E05",
+      "gate": "G2",
+      "title": "Verified, namespaced tools",
+      "requirement": "Identify each tool by a verified server identity plus the tool name. Base server identity on the verified endpoint, credential, or registry namespace. A server's self-reported name is neither unique nor trustworthy. Flag lookalike and duplicate names across servers. Test that a new server can't quietly swap its tool in for an approved one.",
+      "not_covered": [
+        {
+          "problem": "Hidden instructions inside a tool's metadata",
+          "owner": "E04"
+        },
+        {
+          "problem": "A tool's description or schema changing after it was approved",
+          "owner": "E03"
+        },
+        {
+          "problem": "Peer agent identity not authenticated on each message",
+          "owner": "E07"
+        },
+        {
+          "problem": "Gateway not authenticating callers or authorizing each action",
+          "owner": "E06"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/registry.ts",
+          "line": 128,
+          "note": "Key is manifest server id plus tool name; id maps to pinned URL and TLS cert."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E05.1",
+          "check": "Tools are keyed by verified server identity (endpoint, credential, or registry namespace) plus tool name, never by bare tool name or a server's self-reported name.",
+          "verify": "1) Find the tool registry or lookup map. 2) Check its key is a verified endpoint, credential, or registry namespace plus tool name. 3) Answer no if tools are keyed by bare tool name or the server's self-reported name (`serverInfo.name`), or a later server overwrites an earlier entry with the same tool name.",
+          "met": "yes",
+          "evidence": "src/tools/registry.ts:128",
+          "quote": "key: `${serverId}__${t.name}`,",
+          "counter_search": "Searched for serverInfo/getServerVersion/reportedName: used only in log and rejection text (registry.ts:109, ehr-mcp.ts:83). No bare-name lookup: registry.get takes the full key; duplicate keys are rejected at registry.ts:138, not overwritten.",
+          "note": "Key is manifest server id plus tool name; id maps to pinned URL and TLS cert.",
+          "coverage": [
+            {
+              "subject": "I18aec0bd94 native registration",
+              "status": "enforced",
+              "evidence": "src/tools/registry.ts:94",
+              "quote": "for (const t of tools) this.add({ ...t, serverId, key: `${serverId}__${t.name}` });",
+              "note": "Native tools are keyed by the manifest-assigned namespace (payments, sms, insurance) plus tool name."
+            },
+            {
+              "subject": "I140bd2f97f registerMcp lookup of configured server",
+              "status": "enforced",
+              "evidence": "src/tools/registry.ts:107",
+              "quote": "const cfg = this.servers.find((s) => s.id === serverId);",
+              "note": "Only ids from the release manifest (pinned URL and TLS cert) can register; unknown ids are rejected."
+            },
+            {
+              "subject": "I131c91d8de MCP tool key",
+              "status": "enforced",
+              "evidence": "src/tools/registry.ts:128",
+              "quote": "key: `${serverId}__${t.name}`,",
+              "note": "MCP tools keyed by manifest server id plus tool name; reportedName is not used in the key."
+            },
+            {
+              "subject": "I1861b59462 server.ts registration call",
+              "status": "enforced",
+              "evidence": "src/server.ts:49",
+              "quote": "registry.registerMcp(\"ehr\", reportedName, meta, (tool, input, opts) => ehr.call(tool, input, opts));",
+              "note": "serverId is the literal manifest id whose client was built from the pinned URL and cert; reportedName is informational."
+            },
+            {
+              "subject": "serverInfo.name / reportedName use",
+              "status": "enforced",
+              "evidence": "src/tools/registry.ts:109",
+              "quote": "this.rejected.push({ serverId, reason: `server not in release manifest (reported name ${reportedName ?? \"none\"})` });",
+              "note": "Self-reported name appears only in a rejection log message."
+            },
+            {
+              "subject": "later server overwriting earlier key",
+              "status": "enforced",
+              "evidence": "src/tools/registry.ts:138",
+              "quote": "if (this.tools.has(t.key)) {",
+              "note": "A colliding key is rejected and flagged, never overwritten."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E05.2",
+          "check": "The registry flags duplicate and lookalike tool names across servers.",
+          "verify": "1) Trace name comparison across servers. 2) Construct repeated confusable substitutions, multiple edits and normalization-boundary examples, starting from an existing tool name; record canonical outputs, comparison result and registration outcome. 3) Answer no if a duplicate or demonstrated lookalike is accepted without a conflict flag. The existence of normalization/edit-distance code is insufficient; namespacing and approval binding do not satisfy this separate check.",
+          "met": "no",
+          "evidence": "src/tools/registry.ts:151",
+          "quote": "if (editDistanceAtMostOne(canonical(existing.name), c)) {",
+          "counter_search": "",
+          "note": "[coverage] Only a single edit after canonicalization is flagged; two confusables or a transposition passes unflagged.",
+          "coverage": [
+            {
+              "subject": "exact duplicate bare name across servers",
+              "status": "enforced",
+              "evidence": "src/tools/registry.ts:146",
+              "quote": "if (existing.name === t.name) {",
+              "note": "Same bare name from a different server is flagged duplicate and rejected."
+            },
+            {
+              "subject": "duplicate key",
+              "status": "enforced",
+              "evidence": "src/tools/registry.ts:138",
+              "quote": "if (this.tools.has(t.key)) {",
+              "note": "Same key is flagged duplicate and rejected."
+            },
+            {
+              "subject": "lookalike after canonicalization",
+              "status": "unclear",
+              "evidence": "src/tools/registry.ts:151",
+              "quote": "if (editDistanceAtMostOne(canonical(existing.name), c)) {",
+              "note": "Flags at most one edit; two-edit lookalikes and the r_n boundary case pass."
+            },
+            {
+              "subject": "native vs MCP names",
+              "status": "enforced",
+              "evidence": "src/tools/registry.ts:92",
+              "quote": "/** Native tools are registered first so MCP metadata that names them is caught by the scanner. */",
+              "note": "Native tools sit in the same map, so cross-server comparison covers them."
+            }
+          ],
+          "deviations": [
+            {
+              "subject": "lookalike comparison",
+              "status": "missing",
+              "evidence": "src/tools/registry.ts:151",
+              "quote": "if (editDistanceAtMostOne(canonical(existing.name), c)) {",
+              "note": "Only a single edit after canonicalization is flagged; two confusables or a transposition passes unflagged."
+            },
+            {
+              "subject": "canonical step order",
+              "status": "missing",
+              "evidence": "src/tools/registry.ts:44",
+              "quote": ".replace(/rn/g, \"m\")",
+              "note": "rn/vv folding runs before separators are stripped, so r_n is not folded."
+            }
+          ],
+          "attempts": [
+            {
+              "category": "repeated_confusables",
+              "input": "Existing ehr__list_patient_appointments; second manifest server registers l1st_patient_appo1ntments (digit 1 used for both l and i)",
+              "trace": "Name passes scanner regex /^[a-z][a-z0-9_]{0,63}$/ (metadata-scan.ts:121). canonical maps 1->l only, giving 'llstpatientappolntments' vs 'listpatientappointments': two edits (l/i, l/i). editDistanceAtMostOne returns false at the second edit, so no conflict is pushed and add() reaches tools.set.",
+              "outcome": "accepted",
+              "evidence": "src/tools/registry.ts:151",
+              "quote": "if (editDistanceAtMostOne(canonical(existing.name), c)) {"
+            },
+            {
+              "category": "multiple_edits",
+              "input": "Existing ehr__cancel_appointment; second server registers cancel_appointmnet (transposition)",
+              "trace": "canonical gives 'cancelappointmnet' vs 'cancelappointment'. A transposition is two substitutions, so edits reaches 2 and the function returns false. No bare-name match, no conflict flag, tool is set.",
+              "outcome": "accepted",
+              "evidence": "src/tools/registry.ts:62",
+              "quote": "if (++edits > 1) return false;"
+            },
+            {
+              "category": "normalization_boundary",
+              "input": "Existing ehr__get_appointment; second server registers get_appointr_nent",
+              "trace": "canonical applies rn->m while '_' still separates r and n, so no replacement happens; the later [^a-z] strip yields 'getappointrnent' vs 'getappointment' (two edits). Not flagged and registered.",
+              "outcome": "accepted",
+              "evidence": "src/tools/registry.ts:47",
+              "quote": ".replace(/[^a-z]/g, \"\");"
+            },
+            {
+              "category": "repeated_confusables",
+              "input": "Existing ehr__find_patient; second server registers f1nd_patient",
+              "trace": "canonical maps 1->l giving 'flndpatient' vs 'findpatient': one edit, so the single-substitution case is flagged lookalike and rejected.",
+              "outcome": "blocked",
+              "evidence": "src/tools/registry.ts:152",
+              "quote": "this.conflicts.push({ key: t.key, conflictsWith: existing.key, kind: \"lookalike\" });"
+            },
+            {
+              "category": "normalization_boundary",
+              "input": "Existing ehr__cancel_appointment; second server registers cancel_appointrnent",
+              "trace": "rn adjacent is folded to m before the strip, so canonical forms are equal and the tool is flagged lookalike.",
+              "outcome": "blocked",
+              "evidence": "src/tools/registry.ts:44",
+              "quote": ".replace(/rn/g, \"m\")"
+            }
+          ]
+        },
+        {
+          "id": "E05.3",
+          "check": "Approval is bound to the verified server identity, so a new server with a matching tool name or self-reported name does not inherit approval or replace the approved tool.",
+          "verify": "1) Find where tool approval is stored and checked. 2) Check approval is keyed by verified server identity, not tool name or self-reported server name. 3) Answer no if a new server with a matching tool name or server name would count as approved or replace the approved tool.",
+          "met": "yes",
+          "evidence": "src/tools/approvals.ts:75",
+          "quote": "if (rec.tool !== req.tool) return { ok: false, reason: \"approval is for a different tool\" };",
+          "counter_search": "Searched for approval checks keyed by reported name or bare tool name: none. Approval tool is call.name (executor.ts:70). Allowlist holds only namespaced keys. Unlisted server ids are rejected (registry.ts:109). Approval args hash is not verified, which belongs to other items.",
+          "note": "Approval binds to namespaced key whose prefix is the manifest server id.",
+          "coverage": [
+            {
+              "subject": "allowlist keyed by namespaced key",
+              "status": "enforced",
+              "evidence": "src/tools/executor.ts:55",
+              "quote": "if (!ALLOWED.has(call.name)) return deny(\"not_allowlisted\");",
+              "note": "Allowlist entries are serverId__tool, so a tool from another server id has no entry."
+            },
+            {
+              "subject": "registry lookup by full key",
+              "status": "enforced",
+              "evidence": "src/tools/executor.ts:56",
+              "quote": "const tool = registry.get(call.name);",
+              "note": "Lookup is by namespaced key, never bare name."
+            },
+            {
+              "subject": "approval bound to tool key",
+              "status": "enforced",
+              "evidence": "src/tools/approvals.ts:75",
+              "quote": "if (rec.tool !== req.tool) return { ok: false, reason: \"approval is for a different tool\" };",
+              "note": "req.tool is call.name, the namespaced key, so approval for ehr__cancel_appointment is not valid for another server's cancel_appointment."
+            },
+            {
+              "subject": "approval request records namespaced tool",
+              "status": "enforced",
+              "evidence": "src/tools/executor.ts:70",
+              "quote": "tool: call.name,",
+              "note": "Approval is created for the namespaced name."
+            },
+            {
+              "subject": "new server with same tool/reported name",
+              "status": "enforced",
+              "evidence": "src/tools/registry.ts:148",
+              "quote": "this.rejected.push({ serverId: t.serverId, tool: t.name, reason: `same bare name as ${existing.key}` });",
+              "note": "A different server with the same bare name is rejected; id not in manifest is rejected at registry.ts:109."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/tools/registry.ts:151 Lookalike check flags only one edit after canonicalization. Two-edit variants (l1st_patient_appo1ntments, cancel_appointmnet) and get_appointr_nent register unflagged."
+      ],
+      "violates": [
+        "Flag lookalike and duplicate names across servers",
+        "Identify each tool by a verified server identity plus the tool name. Base server identity on the verified endpoint, credential, or registry namespace. A server's self-reported name is neither unique nor trustworthy. Flag lookalike and duplicate names across servers. Test that a new server can't quietly swap its tool in for an approved one."
+      ],
+      "also_affects": [],
+      "summary": "Tools are keyed by manifest server id, but the lookalike check misses names two edits away or split by an underscore.",
+      "next_step": "Compare canonical forms with a bounded edit distance of 2 plus transpositions, fold rn/vv after stripping separators, and add tests for these cases.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E06",
+      "gate": "G2",
+      "title": "Enforced gateway boundary",
+      "requirement": "Send MCP calls through a gateway or equivalent enforcement layer the agent cannot bypass. Choose controls for internal HTTP servers, public third-party services, and local stdio servers; private networking and mTLS are one internal deployment pattern, not universal MCP requirements. Authenticate each caller, preserve agent and delegated-subject identity, and authorize each action's tool, operation, resource, tenant, and arguments. Apply the same policy to direct calls, dynamic tools, CLI/code mode, and wrappers. Validate calls and responses, enforce rate limits, and log every decision. For HTTP OAuth, validate access tokens for the gateway's own audience, issuer, expiry, and scopes; obtain separately authorized backend credentials through a trusted issuer or supported exchange. Never accept a token for another resource or relay it unchanged as a substitute for backend authorization. Keep backend secrets and tokens away from agent-controlled execution paths. Restrict local process launch, files, environment, credentials, and network in the host or sandbox. Under MCP 2026-07-28, reject metadata-header/body mismatches before routing or policy relies on them. Isolate private caches by verified authorization context, tenant, resource, and policy version; share only data explicitly approved as public. Authorize explicit task/state handles on every operation; neither a connection nor self-reported metadata establishes identity. Where the gateway is an OAuth client, validate authorization-server issuer responses and protect discovery URLs against SSRF. Record protocol and extension versions and test each enabled extension's boundary, including task access/cancellation and MCP Apps sandbox, CSP, bridge messages, and UI-initiated tool authorization. Test bypass, cross-tenant access, malformed traffic, and required-check outages. Required checks fail closed.",
+      "not_covered": [
+        {
+          "problem": "Tool inventory missing a task-based reason for each tool",
+          "owner": "B01"
+        },
+        {
+          "problem": "Agent credential granting wildcard or admin permissions",
+          "owner": "B02"
+        },
+        {
+          "problem": "Destructive actions running without a higher-authority approval",
+          "owner": "B05"
+        },
+        {
+          "problem": "Hidden instructions inside a tool's metadata",
+          "owner": "E04"
+        },
+        {
+          "problem": "Outbound traffic to unapproved internet destinations",
+          "owner": "B09"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/integrations/ehr-mcp.ts",
+          "line": 58,
+          "note": "No gateway validates incoming audience/issuer/scopes. The backend token is a clinic-wide client-credentials token with all three scopes (ehr-mcp.ts:41,49) for every tool, including read-only ones. The delegated subject (patient/staff) is not passed; only x-clinic-id."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E06.1",
+          "check": "Every governed tool path uses an enforced boundary suited to its internal HTTP, public third-party, or local stdio deployment; agent-controlled code cannot bypass it or obtain backend credentials.",
+          "verify": "1) Inventory HTTP, dynamic, CLI/code-mode, wrapper and local-process paths. 2) Trace effective egress, backend credential custody and process/file/env/network restrictions. 3) Internal private networking/mTLS is one option; public services can use agent-side egress and broker-held credentials. 4) Reject any usable unmediated path; do not require operator control of a public provider's network. Use unknown for enforcement outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No gateway in repo. In-process executor (executor.ts:55-57) is the enforcement layer; EHR is reached directly with a pinned cert (ehr-mcp.ts:20) and a NetworkPolicy limits egress (k8s/deployment.yaml:163). Model-supplied clinicId selects backend credentials (see E06.3). Whether the private link is the intended boundary is not shown in the repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E06.2",
+          "check": "The gateway validates its own incoming token audience, issuer, expiry and scopes, and obtains separately authorized, backend-specific credentials while preserving agent and delegated-subject identity.",
+          "verify": "1) Trace client-to-gateway and gateway-to-backend credentials independently. 2) Check trusted issuer, audience, grants, expiry and supported exchange/grant. 3) Reject tokens meant for other resources or unchanged incoming-token forwarding used instead of backend authorization. 4) A scoped delegated-user token is valid when the acting agent is verified separately; a vault alone does not create expiring tokens.",
+          "met": "no",
+          "evidence": "src/integrations/ehr-mcp.ts:58",
+          "quote": "headers: { authorization: `Bearer ${token}`, \"x-clinic-id\": clinicId },",
+          "counter_search": "",
+          "note": "No gateway validates incoming audience/issuer/scopes. The backend token is a clinic-wide client-credentials token with all three scopes (ehr-mcp.ts:41,49) for every tool, including read-only ones. The delegated subject (patient/staff) is not passed; only x-clinic-id.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E06.3",
+          "check": "Every direct, dynamic, CLI/code-mode and wrapper call receives action/resource/tenant/argument authorization, request/response validation, rate limits and decision logging.",
+          "verify": "1) Enumerate every execution path, not only tools/call. 2) Trace the same authorization, validation, quota and logging policy in each. 3) Reject alternate paths that invoke a disabled or denied tool, authorize only a tool name, or change tenant/resource authority. Use unknown for unavailable implementation evidence.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:63",
+          "quote": "const clinicId = typeof input.clinicId === \"string\" && input.clinicId ? input.clinicId : ctx.tenantId;",
+          "counter_search": "",
+          "note": "Model-supplied clinicId is never compared with ctx.tenantId. It picks the EHR OAuth client, payments key, approval tenant and EHR session. Webchat also lets x-clinic-id override the JWT clinic (webchat.ts:43). Arguments are forwarded without schema validation (executor.ts:64) and MCP responses are only PHI-redacted (executor.ts:88).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E06.4",
+          "check": "If a required check (policy engine, scanner, token check) errors or times out, the call is blocked.",
+          "verify": "1) Read every `try/except`, `catch`, and timeout around the policy engine, scanner, and token check. 2) Check each error blocks the call. 3) Answer no if any error branch allows the call or logs and continues, or a config flag defaults to fail-open.",
+          "met": "no",
+          "evidence": "src/routes/sms-webhook.ts:51",
+          "quote": "req.log.warn({ err: (err as Error).message }, \"sms webhook signature check failed\");",
+          "counter_search": "",
+          "note": "Signature/token check failure is logged and counted, then the handler continues to run the agent (no return in the catch at lines 51-54). Other checks fail closed: kill switch (kill-switch.ts:54), approval store (approvals.ts:71), scanner (registry.ts:116), audit (recorder.ts:70).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E06.5",
+          "check": "Under MCP 2026-07-28, relevant header/body mismatches are rejected before routing or policy relies on them, and private caches/state/task handles are isolated by verified authorization context, tenant, resource and policy version.",
+          "verify": "1) Identify supported protocol versions. 2) For 2026-07-28, trace version/method/name/parameter header validation before affected routing/policy decisions. 3) Trace cache keys/invalidation and every task/state-handle operation, including status/results and cancellation where present. 4) Reject cross-tenant/caller reads or stale grants after revocation; permit shared cache entries only when explicitly public. 5) Do not require removed protocol sessions for 2026-07-28; test legacy session binding only when that version is enabled.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Client-side only; no server header/body handling to inspect. MCP protocol/extension versions are not recorded in the manifest. EHR session and token caches are keyed by clinicId (ehr-mcp.ts:29,50) which is model-controllable; no task handles used.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E06.6",
+          "check": "If the gateway is itself an OAuth client, it checks the authorization server's issuer (iss, RFC 9207) and blocks private and metadata addresses in discovery URLs. Answer yes with the code line, or yes citing the config that shows it isn't an OAuth client.",
+          "verify": "1) Check whether the gateway acts as an OAuth client (gets tokens, follows discovery or metadata URLs). 2) If so, check RFC 9207 issuer-response comparison and rejection when an advertised required iss is missing; do not require an absent iss when the selected protocol permits it. Check it blocks unauthorized private, loopback, and metadata destinations, including on redirects and DNS resolution. Explicitly approved internal issuer endpoints may be allowed by trusted configuration; untrusted discovery must not widen that allowlist. 3) Answer no if either is missing. If it is not an OAuth client, answer yes citing the config that shows that.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "The agent is a client-credentials OAuth client of the EHR (ehr-mcp.ts:38) with token_url read from a Secrets Manager secret. No discovery URLs, no iss check and no address filtering in code; secret contents not visible.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E06.7",
+          "check": "Enabled MCP extensions have recorded versions and enforced boundaries, including Tasks ownership/cancellation and Apps sandbox/CSP/bridge/tool-call authorization where present.",
+          "verify": "1) Inventory enabled extensions and versions from client/server/host configuration. 2) Trace extension-specific authorization, task ownership/status/results/cancellation, and Apps host sandbox, CSP, bridge-message validation and UI-triggered tool policy. 3) Reject a bypass or missing required boundary. 4) Answer yes for absent extensions only with configuration evidence; answer unknown for external host behavior not visible here.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No Tasks or Apps usage found in src. Manifest records no MCP protocol or extension versions (release/manifest.json:36-47).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/tools/executor.ts:63 Model-supplied clinicId is used as the tenant for credentials, approvals and EHR calls without comparison to the run's tenant.",
+        "src/routes/sms-webhook.ts:51 Failed webhook signature check is logged and the request still runs the agent.",
+        "src/integrations/ehr-mcp.ts:58 Clinic-wide EHR token with all scopes is used for every call; the delegated subject is not preserved."
+      ],
+      "violates": [
+        "authorize each action's tool, operation, resource, tenant, and arguments"
+      ],
+      "also_affects": [],
+      "summary": "Tool calls are policy-checked in-process, but tenant and argument authorization is missing, the delegated subject is dropped, and a failed SMS signature check does not block the run.",
+      "next_step": "Reject clinicId unless it matches an authorized set for the run's subject, validate args against schemas, pass subject-scoped backend tokens, and return 401 when verifySignature throws.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E07",
+      "gate": "G2",
+      "title": "Untrusted peer messages",
+      "requirement": "Authenticate the sending agent (prove its identity) on every message, even validly signed ones. Validate message types and schemas, and check what that peer is allowed to ask for. Where a replay could repeat an action, check freshness and track nonces or request IDs. Checking the sender alone doesn't stop replays. Test faked identity, replayed requests, requests across tenants, and instructions passed along by a compromised peer. Verify signed agent cards where they exist. A card says who an agent is, not what it may do. Check callback and webhook URLs against SSRF. A valid sender doesn't make a message's content trusted.",
+      "not_covered": [
+        {
+          "problem": "Tool server identified only by its self-reported name",
+          "owner": "E05"
+        },
+        {
+          "problem": "Missing schema or size checks on API responses",
+          "owner": "R01"
+        },
+        {
+          "problem": "Peers or children still running after a stop",
+          "owner": "E09"
+        },
+        {
+          "problem": "Run can't be rebuilt across gateway, tool services, and delegated workers",
+          "owner": "E10"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/integrations/eligibility-a2a.ts",
+          "line": 83,
+          "note": "The key set URL comes from the peer's own JWS header, so the sender chooses the keys that verify it. issuer is a claim inside the same payload (line 85). The attestation is not tied to a pinned peer key or registered agent card."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E07.1",
+          "check": "Every peer message is authenticated to a specific sending agent, even when the message is validly signed.",
+          "verify": "1) Find the handler for incoming peer messages (A2A server, peer endpoint). 2) Check each message is authenticated to a specific sending agent (mTLS identity, verified token subject). 3) Answer no if any route accepts unauthenticated messages, trusts a self-declared sender field, or accepts any valid signature without mapping it to a known agent.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:83",
+          "quote": "const keys = createRemoteJWKSet(new URL(header.jku));",
+          "counter_search": "",
+          "note": "The key set URL comes from the peer's own JWS header, so the sender chooses the keys that verify it. issuer is a claim inside the same payload (line 85). The attestation is not tied to a pinned peer key or registered agent card.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E07.2",
+          "check": "Message types and schemas are validated, and each request is checked against what that peer is allowed to ask for, including tenant.",
+          "verify": "1) Open the peer message handler. 2) Check message type and schema validation. 3) Check a per-peer allowlist of request types and tenants, keyed on the authenticated sender. 4) Answer no if schemas are unchecked, any authenticated peer can ask for anything, or tenant is taken from the message body.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:90",
+          "quote": "return Eligibility.parse(payload.eligibility);",
+          "counter_search": "",
+          "note": "Schema is strict, but the response is not bound to the requesting clinic or patient (Eligibility has no tenant/patient fields, lines 15-23) and Rpc.id is not compared with the request id.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E07.3",
+          "check": "Action requests carry a nonce or request ID and a freshness check, and replays are rejected or do not repeat side effects.",
+          "verify": "1) Find action request handling. 2) Check for a nonce or request ID plus a freshness (timestamp) check, with seen IDs stored. 3) Answer no if no replay check exists, the nonce is never stored or compared, or a repeated ID repeats side effects.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:78",
+          "quote": "const rpc = Rpc.parse(JSON.parse(text));",
+          "counter_search": "",
+          "note": "Rpc.id is only checked to be a string, never compared to requestId (line 57). The attestation has no nonce or request binding, so any attestation under 5 minutes old (line 87) is accepted, and it can trigger a refund (eligibility-check.ts:39). Provider idempotency only dedupes the same deposit.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E07.4",
+          "check": "Peer message content is handled as untrusted data and is not placed into system or instruction prompts.",
+          "verify": "1) Trace peer message content to the prompt builder. 2) Check it goes into user or tool-result content as untrusted data. 3) Answer no if any path places it into the system prompt or an instruction template.",
+          "met": "no",
+          "evidence": "src/workflows/eligibility-check.ts:39",
+          "quote": "if (result.status === \"active\" && result.depositWaived && appt.depositId) {",
+          "counter_search": "",
+          "note": "Peer output is kept out of the system prompt, but the peer's depositWaived field directly triggers a refund with no approval, treating peer content as authoritative. planName (free text up to 120 chars) goes to the model unscanned.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E07.5",
+          "check": "Callback and webhook URLs are checked against SSRF, with private and metadata addresses blocked.",
+          "verify": "1) Find code that calls callback or webhook URLs from peers. 2) Check URL validation blocks private, loopback, link-local, and metadata addresses (169.254.169.254). 3) Answer no if any callback is fetched without the check, or only the hostname text is checked and not the resolved address.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:83",
+          "quote": "const keys = createRemoteJWKSet(new URL(header.jku));",
+          "counter_search": "",
+          "note": "A URL taken from a peer message is fetched with no private, loopback or metadata address check. The platform egress proxy allowlist (k8s/deployment.yaml:160) is outside the code.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/integrations/eligibility-a2a.ts:83 JWKS URL taken from the attestation header; the peer picks the verification keys and the URL is fetched without SSRF filtering.",
+        "src/integrations/eligibility-a2a.ts:78 Response id not matched to request id and attestation not bound to a request; replay within 5 minutes accepted."
+      ],
+      "violates": [
+        "Authenticate the sending agent (prove its identity) on every message"
+      ],
+      "also_affects": [
+        "E08"
+      ],
+      "summary": "The eligibility peer is verified with keys it names itself, replies are not bound to the request, and the key URL is fetched without SSRF checks.",
+      "next_step": "Pin the peer's JWKS or agent card in the manifest, ignore jku, check rpc id and a nonce claim, bind clinic and patient in the attestation, and block private addresses.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "E08",
+      "gate": "G1",
+      "title": "Bounded delegated authority",
+      "requirement": "Give sub-agents only the powers approved for their task. Preserve the verified original subject and current actor through each handoff and enforce their task, tenant, resource, and audience limits where the action runs. Use supported token exchange or narrow task credentials rather than copying a parent's full credential. A parent must not gain a denied power by asking a more powerful peer to act without separate valid approval. For RFC 8693 tokens, earlier nested actors are provenance only and never add access. An actor chain or signed identity does not prove that a requested action was approved. Test legitimate delegation and that escalation attempt.",
+      "not_covered": [
+        {
+          "problem": "Approvals that can be replayed or aren't tied to exact arguments",
+          "owner": "B06"
+        },
+        {
+          "problem": "Prompt a parent gave a sub-agent not recorded",
+          "owner": "A06"
+        },
+        {
+          "problem": "Children still running after the parent is stopped",
+          "owner": "E09"
+        },
+        {
+          "problem": "Replayed or faked peer-agent messages",
+          "owner": "E07"
+        },
+        {
+          "problem": "No limit on how many sub-agents a run can start",
+          "owner": "B07"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/integrations/eligibility-a2a.ts",
+          "line": 41,
+          "note": "The exchange subject is the agent's own workload token, not the verified patient/staff subject (ctx.subject); no actor_token is sent. Patient and clinic are only strings in the scope, with clinicId model-controlled (executor.ts:63) and patientId read from the EHR record of a model-supplied appointmentId."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E08.1",
+          "check": "Each child gets a credential narrowed to its approved task (for example by token exchange or transaction tokens), never the parent's full credential.",
+          "verify": "1) Find where a child agent gets its credential. 2) Check it is a narrowed token for the task (token exchange, transaction token, scoped-down role). 3) Answer no if any spawn path passes the parent's token, API key, or full role, or the child inherits the parent's environment credentials.",
+          "met": "yes",
+          "evidence": "src/integrations/eligibility-a2a.ts:44",
+          "quote": "scope: `eligibility:read clinic:${clinicId} patient:${patientId}`,",
+          "counter_search": "Searched src for other fetches that forward workloadToken or an Authorization header to a peer: only eligibility-a2a.ts:36-62; the token at line 61 is the exchanged one. No spawn, fork or sub-agent code found (child_process, spawn).",
+          "note": "Peer gets an audience-bound, scope-narrowed exchanged token.",
+          "coverage": [
+            {
+              "subject": "eligibility peer handoff (insurance__check_eligibility)",
+              "status": "enforced",
+              "evidence": "src/integrations/eligibility-a2a.ts:44",
+              "quote": "scope: `eligibility:read clinic:${clinicId} patient:${patientId}`,",
+              "note": "The workload token is exchanged (RFC 8693) for a token with audience eligibility-agent and read-only scope narrowed to clinic and patient; the parent token is not forwarded."
+            },
+            {
+              "subject": "eligibility peer token audience",
+              "status": "enforced",
+              "evidence": "src/integrations/eligibility-a2a.ts:43",
+              "quote": "audience: \"eligibility-agent\",",
+              "note": "Exchange requests an audience-bound token for the peer only."
+            },
+            {
+              "subject": "peer request authorization header",
+              "status": "enforced",
+              "evidence": "src/integrations/eligibility-a2a.ts:61",
+              "quote": "headers: { authorization: `Bearer ${token}`, \"content-type\": \"application/json\", traceparent: opts.traceparent },",
+              "note": "The call uses the exchanged token, not workloadToken."
+            },
+            {
+              "subject": "sub-agent or child spawn paths",
+              "status": "not_applicable",
+              "evidence": "src/agent/loop.ts:61",
+              "quote": "const res = await anthropic.messages.create({ ...req, max_tokens: 1024 }, { signal: budget.signal });",
+              "note": "The only model calls are the classifier and this loop; no code spawns a child agent, so the eligibility peer is the only handoff."
+            },
+            {
+              "subject": "reminder worker",
+              "status": "not_applicable",
+              "evidence": "src/workers/reminders.ts:9",
+              "quote": "// Daily reminder job (Kubernetes CronJob). Templated reminders only; no model involved.",
+              "note": "The worker performs no delegation to any other agent."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E08.2",
+          "check": "Authorization at the action uses the original subject and the current actor, and earlier actors in the delegation chain never add access.",
+          "verify": "1) Open authorization code for delegated actions. 2) Check it decides on the original subject and the current actor. 3) Answer no if it grants access because of any earlier actor in the chain (nested `act` claims, parent identity) or a union of chain permissions.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:41",
+          "quote": "subject_token: workloadToken,",
+          "counter_search": "",
+          "note": "The exchange subject is the agent's own workload token, not the verified patient/staff subject (ctx.subject); no actor_token is sent. Patient and clinic are only strings in the scope, with clinicId model-controlled (executor.ts:63) and patientId read from the EHR record of a model-supplied appointmentId.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E08.3",
+          "check": "An action the parent was denied is also denied when routed through a more powerful peer, unless it carries its own explicit approval.",
+          "verify": "1) Find how a parent asks a peer or child to act. 2) Check the request carries the parent's limits and the peer re-checks them, or requires its own explicit approval. 3) Answer no if a peer acts with its own wider permissions on a parent's request without that check.",
+          "met": "no",
+          "evidence": "src/workflows/eligibility-check.ts:40",
+          "quote": "const refund = await payments.refundDeposit(",
+          "counter_search": "",
+          "note": "payments__refund_deposit is high-impact and needs staff approval (policy.yaml:5-8). insurance__check_eligibility is not, and it calls refundDeposit directly when the peer reports depositWaived, so the refund runs without approval via the peer's answer.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E08.4",
+          "check": "Downstream services reject the parent's token when the child presents it (audience-bound tokens).",
+          "verify": "1) Find how child tokens are issued and how downstream services validate tokens. 2) Check tokens are audience-bound and services verify `aud`. 3) Answer no if audience is unset, a wildcard, or not checked. Answer unknown if downstream services are outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Downstream audience enforcement is outside this repo. The exchange requests audience eligibility-agent (eligibility-a2a.ts:43); the EHR and payments use separate per-clinic credentials.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/workflows/eligibility-check.ts:40 Deposit refund executes from the eligibility tool path with no staff approval, bypassing the approval gate on payments__refund_deposit.",
+        "src/integrations/eligibility-a2a.ts:41 Token exchange uses the workload token as subject; the original patient/staff subject and an actor are not carried."
+      ],
+      "violates": [
+        "A parent must not gain a denied power by asking a more powerful peer to act without separate valid approval"
+      ],
+      "also_affects": [
+        "E07"
+      ],
+      "summary": "The peer token is narrow, but it does not carry the original subject, and an unapproved refund runs through the eligibility tool.",
+      "next_step": "Send the verified subject as subject_token and the workload as actor_token, and route the refund through the approval gate or make it an advisory result for staff.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "E09",
+      "gate": "G1",
+      "title": "Recursive shutdown",
+      "requirement": "Run a drill across a parent, nested children, remote workers, queued work, and open tool streams, subscriptions, and tasks, where they exist. Check that the stop reaches every descendant within the set time. It must revoke access as needed and prevent orphaned retries or restarts. Record how outside effects that already happened are reconciled.",
+      "not_covered": [
+        {
+          "problem": "Agent able to disable or delay its own stop",
+          "owner": "R11"
+        },
+        {
+          "problem": "No way to cut off the agent's access without cutting off the user",
+          "owner": "B04"
+        },
+        {
+          "problem": "No drill for a compromised shared tool or agent type",
+          "owner": "E12"
+        },
+        {
+          "problem": "Sub-agent given powers beyond its task",
+          "owner": "E08"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/workers/reminders.ts",
+          "line": 27,
+          "note": "The reminder worker registers an AbortController but never calls killSwitch.startWatcher (only server.ts:89 does), so nothing aborts its in-flight EHR and SMS calls; it only stops at the next assertRunning. Open EHR sessions stay up after a halt (ehr-mcp.ts:66-69). The peer call has no remote cancel and the token exchange fetch takes no signal (eligibility-a2a.ts:36)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E09.1",
+          "check": "A stop signal from the root reaches every descendant: nested children, remote workers, queued work, and open tool streams, subscriptions, and tasks.",
+          "verify": "1) Find the stop handler. 2) Check it reaches nested children, remote workers, queued jobs, and open tool streams, subscriptions, and tasks (cancel calls, MCP `notifications/cancelled`). 3) Answer no if any of these that exists in the code is not reached, or stop only sets an in-process flag that remote workers never read.",
+          "met": "no",
+          "evidence": "src/workers/reminders.ts:27",
+          "quote": "const unregister = killSwitch.register(ctx.runId, clinic.id, abort);",
+          "counter_search": "",
+          "note": "The reminder worker registers an AbortController but never calls killSwitch.startWatcher (only server.ts:89 does), so nothing aborts its in-flight EHR and SMS calls; it only stops at the next assertRunning. Open EHR sessions stay up after a halt (ehr-mcp.ts:66-69). The peer call has no remote cancel and the token exchange fetch takes no signal (eligibility-a2a.ts:36).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E09.2",
+          "check": "Stopping revokes descendants' credentials or leases, and leases or tokens are short-lived, so a disconnected worker loses authority within the stop time limit.",
+          "verify": "1) Open the stop path and credential issuing code. 2) Check stopping revokes descendants' tokens or leases. 3) Check token or lease lifetime fits within the stop time limit. 4) Answer no if no revocation exists, or tokens are long-lived so a disconnected worker keeps authority.",
+          "met": "no",
+          "evidence": "src/integrations/ehr-mcp.ts:45",
+          "quote": "tokens.set(cacheKey, { value: body.access_token, exp: Date.now() + body.expires_in * 1000 });",
+          "counter_search": "",
+          "note": "A halt aborts requests but revokes nothing. Cached EHR tokens (5 minutes) and sessions (4 minutes, ehr-mcp.ts:66) stay valid after halt, far past the 2 second stop time claimed in README.md:46.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E09.3",
+          "check": "Queues and schedulers refuse new work, retries, and restarts for a stopped tree.",
+          "verify": "1) Find queue consumers, schedulers, and retry logic. 2) Check each looks up the stopped state before running new work, retries, or restarts. 3) Answer no if any consumer, retry decorator, or restart policy runs without that check.",
+          "met": "yes",
+          "evidence": "src/tools/executor.ts:59",
+          "quote": "await killSwitch.assertRunning(ctx.tenantId);",
+          "counter_search": "Searched for retry/restart/queue code: Anthropic maxRetries uses the run signal; CronJob backoffLimit 0 and restartPolicy Never; no queue consumers in src. Reminders break on Halted (reminders.ts:48-50).",
+          "note": "Every entry point checks the halt flag and fails closed when it cannot be read.",
+          "coverage": [
+            {
+              "subject": "inbound run start (SMS and webchat)",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:39",
+              "quote": "await killSwitch.assertRunning(ctx.tenantId);",
+              "note": "Each new run checks the halt flag before doing any work."
+            },
+            {
+              "subject": "each model turn",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:57",
+              "quote": "await killSwitch.assertRunning(ctx.tenantId);",
+              "note": "Every turn re-checks halt state, so no new turn starts."
+            },
+            {
+              "subject": "each tool call",
+              "status": "enforced",
+              "evidence": "src/tools/executor.ts:59",
+              "quote": "await killSwitch.assertRunning(ctx.tenantId);",
+              "note": "Tool calls are refused for a halted tenant."
+            },
+            {
+              "subject": "reminder scheduler per clinic and per send",
+              "status": "enforced",
+              "evidence": "src/workers/reminders.ts:33",
+              "quote": "await killSwitch.assertRunning(clinic.id);",
+              "note": "The CronJob checks before every message and breaks on Halted."
+            },
+            {
+              "subject": "reminder retries and restarts",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:125",
+              "quote": "backoffLimit: 0",
+              "note": "A failed or halted job is not retried; restartPolicy Never and process.exit(0) at reminders.ts:58."
+            },
+            {
+              "subject": "control table unreadable",
+              "status": "enforced",
+              "evidence": "src/control/kill-switch.ts:54",
+              "quote": "throw new Halted(\"control-unreadable\");",
+              "note": "Failure to read halt state blocks new work."
+            },
+            {
+              "subject": "SDK retries after abort",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:61",
+              "quote": "const res = await anthropic.messages.create({ ...req, max_tokens: 1024 }, { signal: budget.signal });",
+              "note": "Retries share the abort signal, so a halted run stops retrying."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E09.4",
+          "check": "Outside effects already completed are recorded for reconciliation.",
+          "verify": "1) Open the stop path. 2) Check it records outside effects already completed (tool calls, writes, sent messages) for reconciliation. 3) Answer no if nothing is recorded, or only in-flight work is listed.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:92",
+          "quote": "if (err instanceof Halted || err instanceof BudgetExceeded || err instanceof AuditUnavailable) throw err;",
+          "counter_search": "",
+          "note": "If a halt abort or an audit failure fires after a tool has already acted (for example the refund POST reached the provider, or audit.record at line 89 fails), the error is rethrown with no tool.failed or tool.executed record, so the completed effect is not recorded for reconciliation.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/integrations/ehr-mcp.ts:45 Halt does not revoke or drop cached EHR tokens and sessions; they stay valid for minutes.",
+        "src/tools/executor.ts:92 Halted or audit errors are rethrown without recording an effect that may already have happened."
+      ],
+      "violates": [
+        "It must revoke access as needed and prevent orphaned retries or restarts"
+      ],
+      "also_affects": [],
+      "summary": "Halt blocks new work, but it revokes no credentials, the reminder worker is never aborted in flight, and an interrupted tool call leaves no record.",
+      "next_step": "Drop cached EHR tokens and sessions on halt, start the watcher in the worker, send cancel to the peer, and record tool.failed or an unknown-outcome event before rethrowing.",
+      "lead_role": "operations"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

@@ -1,0 +1,189 @@
+{
+  "report_id": "R01",
+  "recommendations": [
+    {
+      "id": "logging-doc",
+      "report_quote": "document the flag as exposing private repository data.",
+      "status": "supported_direction",
+      "reason": "Concrete opt-in raw-payload logging warrants clear documentation. Existing help already says all requests/responses, so clarify sensitive content and stdio-only effect.",
+      "preserves_controls": "Keep logging opt-in, default protocol stdout clean, and existing file creation permissions.",
+      "required_validation": "Check flag help/docs against both transports; use fake private data.",
+      "evidence": [
+        {
+          "path": "repo/pkg/log/io.go",
+          "quote": "\"data\", string(p[:n])"
+        },
+        {
+          "path": "repo/cmd/github-mcp-server/main.go",
+          "quote": "log all command requests and responses to the log file"
+        }
+      ]
+    },
+    {
+      "id": "logging-minimize",
+      "report_quote": "Add redaction or a payload-size cap, and a warning at startup.",
+      "status": "conditional_direction",
+      "reason": "Valid data-minimization direction; cap alone can still expose complete secrets in short messages, and warning alone does not redact. Raw stream chunks may split JSON fields, so naive redaction is unsafe to promise.",
+      "preserves_controls": "Do not alter transmitted protocol bytes, error handling, opt-in semantics or stream closure; preserve useful diagnostic metadata and protected file modes.",
+      "required_validation": "Canary token and private-content checks across split reads/writes, short payloads and truncation boundaries; verify no stdout warning contamination.",
+      "evidence": [
+        {
+          "path": "repo/pkg/log/io.go",
+          "quote": "return l.writer.Write(p)"
+        },
+        {
+          "path": "repo/pkg/log/io.go",
+          "quote": "n, err = l.reader.Read(p)"
+        }
+      ]
+    },
+    {
+      "id": "key-operations",
+      "report_quote": "keep rotation and abuse-monitoring for that app owner-side.",
+      "status": "conditional_direction",
+      "reason": "Reasonable distributed-public-client app operations; no supplied evidence of actual abuse or compromised confidential secret. Rotation feasibility and GitHub app/provider support require owner evidence.",
+      "preserves_controls": "Keep legitimate OAuth PKCE/device login, app identity and supported public-client credentials; never replace private installation key custody with a public secret.",
+      "required_validation": "App owner confirms rotation/compatibility, monitoring capabilities and user reauthorization plan.",
+      "evidence": [
+        {
+          "path": "repo/cmd/github-mcp-server/main.go",
+          "quote": "public, non-confidential credential for distributed clients"
+        },
+        {
+          "path": "repo/Dockerfile",
+          "quote": "OAuth credentials are injected via build secrets so they are not baked into image history"
+        }
+      ]
+    },
+    {
+      "id": "log-test",
+      "report_quote": "**T1 (repo owner):** run with fake data and enable command logging. Call a tool that returns a canary string and confirm whether it appears in the log. Expected after fix: redacted or an explicit startup warning.",
+      "status": "supported_direction",
+      "reason": "Disposable canary test directly exercises stated opt-in sink. Explicit warning is an awareness mitigation, not equivalent to redaction; acceptance criteria must identify which was intended.",
+      "preserves_controls": "Use fake data and preserve protocol output, logging default and file protections.",
+      "required_validation": "Run both stderr/file destinations and disabled flag; test startup warning separately from content minimization.",
+      "evidence": [
+        {
+          "path": "repo/internal/ghmcp/server.go",
+          "quote": "if cfg.EnableCommandLogging {"
+        },
+        {
+          "path": "repo/pkg/log/io.go",
+          "quote": "\"data\", string(p)"
+        }
+      ]
+    },
+    {
+      "id": "actor-binding",
+      "report_quote": "**T2 (repo owner):** in a disposable org, obtain a sealed state as user A and replay it as user B (both with delete rights on a throwaway repo). Expected: allowed today; desired: denied unless the caller matches. Also test replay after a first success and a changed repository ID.",
+      "status": "conditional_direction",
+      "reason": "Cross-user pre-consumption reuse is source-plausible when same key, accessible state and both current permissions. Actor binding/single-use is an optional redesign; post-success replay should fail existing numeric-ID/existence checks, so do not promise repeated successful deletion.",
+      "preserves_controls": "Preserve exact typed target, accepted action, authenticated state, ten-minute expiry, numeric repository recheck, current GitHub authorization, protocol/form gating and HTTP no-key disablement. Use stable verified principal, not display name or unexamined client assertion.",
+      "required_validation": "Disposable tests for same/different principals, rotated tokens, multiple instances sharing key, denied permissions, concurrent reuse, expiry, removed/recreated repository; define principal and consume-store requirements before implementation.",
+      "evidence": [
+        {
+          "path": "repo/pkg/github/repositories.go",
+          "quote": "if currentRepositoryID != deletionState.RepositoryID {"
+        },
+        {
+          "path": "repo/pkg/github/dependencies.go",
+          "quote": "token := tokenInfo.Token"
+        },
+        {
+          "path": "repo/internal/requeststate/sealer.go",
+          "quote": "plaintext, err := s.aead.Open(nil, sealed[:nonceSize], sealed[nonceSize:], nil)"
+        }
+      ]
+    },
+    {
+      "id": "host-config",
+      "report_quote": "**T3 (deployer):** send a request with a forged `Host` and `X-Forwarded-Host` to the HTTP listener, with and without `--base-url`/`--trust-proxy-headers`. Expected: advertised URLs should come from config only.",
+      "status": "conditional_direction",
+      "reason": "Useful matrix for supported modes. Config-only advertised URLs is a proposed stricter deployment policy, not current default contract: request-derived host and explicitly trusted proxy modes are intentional. Requiring BaseURL globally would change supported configuration and needs labelled migration.",
+      "preserves_controls": "Keep BaseURL precedence, explicit proxy opt-in, direct deployments and external base-path/query identity semantics unless owner deliberately removes compatibility. Do not silently trust arbitrary forwarded host.",
+      "required_validation": "Verify direct/proxy matrix, trusted proxy sanitation, configured URLs, base paths and query strings; establish how another user might receive forged response before assigning exploit impact.",
+      "evidence": [
+        {
+          "path": "repo/pkg/http/server.go",
+          "quote": "// If not set, the server will derive the URL from incoming request headers."
+        },
+        {
+          "path": "repo/pkg/http/oauth/oauth.go",
+          "quote": "if cfg != nil && cfg.BaseURL != \"\" {"
+        },
+        {
+          "path": "repo/pkg/http/oauth/oauth.go",
+          "quote": "return appendRawQuery(metadataURL, r.URL.RawQuery)"
+        }
+      ]
+    },
+    {
+      "id": "scope-test",
+      "report_quote": "**T4 (repo owner):** make a mock authorizer return 5xx for the scopes lookup and confirm that write tools remain bounded by GitHub's own 403 (not by the filter).",
+      "status": "supported_direction",
+      "reason": "Directly tests API authority remains after discovery-filter failure; exact API status may differ by endpoint, so denial/effect is the oracle.",
+      "preserves_controls": "Keep static read-only/toolset/exclusion restrictions and per-request token; do not turn discovery failure into broader effective authority.",
+      "required_validation": "Mock scope outage plus permission-denied and permission-allowed API calls; check destination effects as well as client response.",
+      "evidence": [
+        {
+          "path": "repo/pkg/http/handler.go",
+          "quote": "scopesList, err := fetcher.FetchTokenScopes(ctx, tokenInfo.Token)\n\t\tif err != nil {\n\t\t\treturn b\n\t\t}"
+        },
+        {
+          "path": "repo/pkg/github/dependencies.go",
+          "quote": "Token:        token,"
+        }
+      ]
+    },
+    {
+      "id": "host-confirmation",
+      "report_quote": "**T5 (host owner):** confirm the host presents the elicitation to a human and does not auto-fill `repository_name`.",
+      "status": "supported_direction",
+      "reason": "Host-level evidence is necessary for genuine human confirmation. Server alone cannot establish the UI actor.",
+      "preserves_controls": "Preserve server state/target/ID checks and host user-denial path; typed confirmation must not be fabricated by model/client.",
+      "required_validation": "Controlled host interaction with accept/deny/mismatch and capability/version fallbacks, observing destination state.",
+      "evidence": [
+        {
+          "path": "repo/pkg/github/repositories.go",
+          "quote": "confirmedName, ok := confirmation.Content[deleteRepositoryConfirmationField].(string)"
+        },
+        {
+          "path": "repo/pkg/github/repositories.go",
+          "quote": "if confirmation.Action != \"accept\" {"
+        }
+      ]
+    },
+    {
+      "id": "parser-test",
+      "report_quote": "**T6 (SDK owner):** send an oversized JSON-RPC batch and a deeply nested tool input to the HTTP endpoint in isolation. Expected: rejected before heavy allocation.",
+      "status": "conditional_direction",
+      "reason": "Reasonable isolated resource-limit investigation, not evidence Go SDK lacks protection or a TS-specific setting applies. Early body limit is already present. Bounded-sized nesting may require SDK review beyond this packet.",
+      "preserves_controls": "Keep 5 MiB early middleware/SDK limit, authenticated access and legitimate supported input compatibility. Do not impose unsupported TS SDK APIs on Go.",
+      "required_validation": "Audit exact Go v1.8.0 parser/validator then bounded CPU/memory tests for oversized known/chunked bodies, batch/nesting and valid controls.",
+      "evidence": [
+        {
+          "path": "repo/pkg/http/handler.go",
+          "quote": "middleware.WithMaxBodySize(h.maxRequestBodyBytes()),"
+        },
+        {
+          "path": "repo/go.mod",
+          "quote": "github.com/modelcontextprotocol/go-sdk v1.8.0"
+        }
+      ]
+    },
+    {
+      "id": "rollout-process",
+      "report_quote": "Any rollout of write tools needs accountable-person sign-off, staged exposure, stop conditions and a recovery test.",
+      "status": "conditional_direction",
+      "reason": "Explicit operational proposal; not a demonstrated repository requirement or deployment verdict. Owners choose suitable evidence and policy.",
+      "preserves_controls": "Retain current GitHub permissions, host approval and static tool bounds throughout staged changes.",
+      "required_validation": "Owner identifies test environment, denial controls and recovery outcomes; packet contains no actual deployment evidence.",
+      "evidence": [
+        {
+          "path": "skill/references/control-map.md",
+          "quote": "Review independent revocation/worker termination, queued descendants, restart and ambiguous external effects."
+        }
+      ]
+    }
+  ]
+}

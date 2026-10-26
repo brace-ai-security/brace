@@ -1,0 +1,153 @@
+{
+  "verdict": "upheld",
+  "checks": [
+    {
+      "id": "B11.1",
+      "result": "holds",
+      "evidence": "agent/k8s/deployment.yaml:86, agent/k8s/deployment.yaml:135",
+      "quote": "securityContext:\n            allowPrivilegeEscalation: false\n            capabilities:\n              drop: [\"ALL\"]",
+      "note": "Both workloads (Deployment agent, CronJob reminders) drop ALL, set allowPrivilegeEscalation false; runAsNonRoot and seccomp RuntimeDefault set at container or inherited from pod level; namespace enforces restricted; Dockerfile USER 65532. No init/sidecar containers.",
+      "coverage": [
+        {
+          "subject": "Namespace PSS labels",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:6",
+          "quote": "pod-security.kubernetes.io/enforce: restricted",
+          "note": "enforce restricted"
+        },
+        {
+          "subject": "Deployment agent container",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:87",
+          "quote": "allowPrivilegeEscalation: false",
+          "note": "container sets nonroot, drop ALL, seccomp RuntimeDefault"
+        },
+        {
+          "subject": "CronJob reminders container",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:153",
+          "quote": "allowPrivilegeEscalation: false",
+          "note": "drop ALL at container; runAsNonRoot and seccomp inherited from pod securityContext lines 136-140"
+        },
+        {
+          "subject": "Dockerfile user",
+          "status": "enforced",
+          "evidence": "agent/Dockerfile:20",
+          "quote": "USER 65532:65532",
+          "note": "non-root"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "inheritance gap",
+          "input": "CronJob container lacks own runAsNonRoot/seccomp",
+          "trace": "pod-level securityContext supplies runAsNonRoot true and seccompProfile RuntimeDefault, inherited by container; no override",
+          "outcome": "blocked",
+          "evidence": "agent/k8s/deployment.yaml:136",
+          "quote": "runAsNonRoot: true"
+        }
+      ]
+    },
+    {
+      "id": "B11.2",
+      "result": "holds",
+      "evidence": "agent/Dockerfile:10",
+      "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:9b2e4c6a8d0f1e3c5a7b9d1f3e5c7a9b1d3f5e7c9a1b3d5f7e9c1a3b5d7f9e1c",
+      "note": "Final stage is distroless; npm only in build stage; no installs in final stage.",
+      "coverage": [
+        {
+          "subject": "Final Dockerfile stage",
+          "status": "enforced",
+          "evidence": "agent/Dockerfile:10",
+          "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot",
+          "note": "distroless, no shell or package manager"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "tools in final image",
+          "input": "search final stage for RUN/apt/curl/sh",
+          "trace": "final stage has only ENV, COPY, USER, EXPOSE, CMD; no RUN",
+          "outcome": "blocked",
+          "evidence": "agent/Dockerfile:22",
+          "quote": "CMD [\"dist/server.js\"]"
+        }
+      ]
+    },
+    {
+      "id": "B11.3",
+      "result": "holds",
+      "evidence": "agent/k8s/deployment.yaml:63",
+      "quote": "hostNetwork: false",
+      "note": "No privileged true, hostPath, docker.sock, hostPID/IPC true; only emptyDir and projected volumes.",
+      "coverage": [
+        {
+          "subject": "Host namespaces and privileged",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:64",
+          "quote": "hostPID: false",
+          "note": "hostIPC false, privileged false"
+        },
+        {
+          "subject": "Volumes",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:104",
+          "quote": "emptyDir: { medium: Memory, sizeLimit: 32Mi }",
+          "note": "no hostPath"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "grep host mounts",
+          "input": "hostPath, docker.sock, network_mode, pid: host across repo",
+          "trace": "no matches except false values",
+          "outcome": "blocked",
+          "evidence": "agent/k8s/deployment.yaml:88",
+          "quote": "privileged: false"
+        }
+      ]
+    },
+    {
+      "id": "B11.4",
+      "result": "holds",
+      "evidence": "agent/config/tools.allowlist.yaml:5",
+      "quote": "role: scheduling_agent",
+      "note": "No code execution tools: allowlist is EHR, payments, SMS, eligibility only; no subprocess/exec/eval/child_process in src (only RegExp.exec).",
+      "coverage": [
+        {
+          "subject": "Code execution in src",
+          "status": "not_applicable",
+          "evidence": "agent/src/tools/metadata-scan.ts:64",
+          "quote": "const m = re.exec(s);",
+          "note": "regex exec, not code execution"
+        },
+        {
+          "subject": "Tool allowlist",
+          "status": "enforced",
+          "evidence": "agent/config/tools.allowlist.yaml:2",
+          "quote": "The executor denies any tool not listed here.",
+          "note": "no code interpreter tool"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "model-written code execution",
+          "input": "grep subprocess/exec/eval/spawn/child_process/new Function/vm",
+          "trace": "only regex exec found",
+          "outcome": "not_applicable",
+          "evidence": "agent/src/tools/metadata-scan.ts:64",
+          "quote": "const m = re.exec(s);"
+        }
+      ]
+    }
+  ],
+  "applicability": "present",
+  "evidence": "agent/Dockerfile:10",
+  "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:9b2e4c6a8d0f1e3c5a7b9d1f3e5c7a9b1d3f5e7c9a1b3d5f7e9c1a3b5d7f9e1c",
+  "search": "Read Dockerfile, k8s/deployment.yaml, tools allowlist; grepped src and repo for exec/spawn/eval/privileged/hostPath/docker.sock/host namespaces.",
+  "note": "N/A condition is never, so applicable; all four checks hold with a restricted, distroless, non-privileged runtime and no code execution."
+}

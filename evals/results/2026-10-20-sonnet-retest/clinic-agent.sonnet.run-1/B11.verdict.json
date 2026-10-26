@@ -1,0 +1,167 @@
+{
+  "verdict": "upheld",
+  "violates": [],
+  "checks": [
+    {
+      "id": "B11.1",
+      "result": "holds",
+      "evidence": "k8s/deployment.yaml:87, k8s/deployment.yaml:92, k8s/deployment.yaml:94",
+      "quote": "allowPrivilegeEscalation: false\n              drop: [\"ALL\"]\n              type: RuntimeDefault",
+      "note": "Namespace enforces restricted (line 6). Agent container sets all controls; the reminders CronJob inherits runAsNonRoot and seccomp RuntimeDefault from pod securityContext and sets allowPrivilegeEscalation false and drop ALL. No init containers or sidecars. Dockerfile uses USER 65532.",
+      "coverage": [
+        {
+          "subject": "namespace PSS labels",
+          "status": "enforced",
+          "evidence": "k8s/deployment.yaml:6",
+          "quote": "pod-security.kubernetes.io/enforce: restricted",
+          "note": "restricted enforced"
+        },
+        {
+          "subject": "agent Deployment container",
+          "status": "enforced",
+          "evidence": "k8s/deployment.yaml:87",
+          "quote": "allowPrivilegeEscalation: false",
+          "note": "nonroot, caps dropped, seccomp set"
+        },
+        {
+          "subject": "reminders CronJob container",
+          "status": "enforced",
+          "evidence": "k8s/deployment.yaml:153",
+          "quote": "allowPrivilegeEscalation: false",
+          "note": "runAsNonRoot and seccomp inherited from pod-level context lines 136 and 139"
+        },
+        {
+          "subject": "Dockerfile user",
+          "status": "enforced",
+          "evidence": "Dockerfile:20",
+          "quote": "USER 65532:65532",
+          "note": "non-root"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "per-container override",
+          "input": "look for container-level override of pod-level runAsNonRoot/seccomp",
+          "trace": "reminders container sets only allowPrivilegeEscalation, privileged, readOnlyRootFilesystem, capabilities; no override to root or Unconfined",
+          "outcome": "blocked",
+          "evidence": "k8s/deployment.yaml:152",
+          "quote": "allowPrivilegeEscalation: false"
+        }
+      ]
+    },
+    {
+      "id": "B11.2",
+      "result": "holds",
+      "evidence": "Dockerfile:10",
+      "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:9b2e4c6a8d0f1e3c5a7b9d1f3e5c7a9b1d3f5e7c9a1b3d5f7e9c1a3b5d7f9e1c",
+      "note": "Final stage is distroless; no RUN or package installs in it; build tooling (npm) confined to build stage.",
+      "coverage": [
+        {
+          "subject": "final stage base image",
+          "status": "enforced",
+          "evidence": "Dockerfile:10",
+          "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot",
+          "note": "distroless"
+        },
+        {
+          "subject": "final stage installs",
+          "status": "enforced",
+          "evidence": "Dockerfile:14",
+          "quote": "COPY --from=build --chown=65532:65532 /app/node_modules ./node_modules",
+          "note": "only COPY, no RUN in final stage"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "shell/downloader in final image",
+          "input": "search final stage for RUN/apt/curl/sh",
+          "trace": "lines 10-22 contain no RUN; CMD is exec-form node script",
+          "outcome": "blocked",
+          "evidence": "Dockerfile:22",
+          "quote": "CMD [\"dist/server.js\"]"
+        }
+      ]
+    },
+    {
+      "id": "B11.3",
+      "result": "holds",
+      "evidence": "k8s/deployment.yaml:63, k8s/deployment.yaml:64, k8s/deployment.yaml:65",
+      "quote": "hostNetwork: false\nhostPID: false\nhostIPC: false",
+      "note": "No privileged true, hostPath, or docker.sock anywhere; volumes are emptyDir and projected token only. No compose file. CronJob does not set host namespaces (default false).",
+      "coverage": [
+        {
+          "subject": "Deployment host namespaces",
+          "status": "enforced",
+          "evidence": "k8s/deployment.yaml:63",
+          "quote": "hostNetwork: false",
+          "note": "also hostPID/hostIPC false"
+        },
+        {
+          "subject": "privileged flag",
+          "status": "enforced",
+          "evidence": "k8s/deployment.yaml:88",
+          "quote": "privileged: false",
+          "note": "both containers"
+        },
+        {
+          "subject": "volumes",
+          "status": "enforced",
+          "evidence": "k8s/deployment.yaml:105",
+          "quote": "emptyDir: { medium: Memory, sizeLimit: 32Mi }",
+          "note": "no hostPath"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "host mount search",
+          "input": "grep hostPath|docker.sock|network_mode|pid: host across repo",
+          "trace": "no matches",
+          "outcome": "blocked",
+          "evidence": "k8s/deployment.yaml:103",
+          "quote": "volumes:"
+        }
+      ]
+    },
+    {
+      "id": "B11.4",
+      "result": "holds",
+      "evidence": "config/tools.allowlist.yaml:5",
+      "quote": "role: scheduling_agent",
+      "note": "No code execution tool exists: grep for subprocess/exec/spawn/eval/child_process/new Function/vm found only a regex .exec in metadata-scan.ts; allowlisted tools are EHR, payments, SMS, eligibility calls.",
+      "coverage": [
+        {
+          "subject": "code execution primitives in src",
+          "status": "not_applicable",
+          "evidence": "src/tools/metadata-scan.ts:64",
+          "quote": "const m = re.exec(s);",
+          "note": "RegExp exec, not code execution"
+        },
+        {
+          "subject": "tool allowlist",
+          "status": "enforced",
+          "evidence": "config/tools.allowlist.yaml:5",
+          "quote": "role: scheduling_agent",
+          "note": "no interpreter tool listed"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "model-written code execution",
+          "input": "search for eval/exec/spawn/child_process/vm",
+          "trace": "only regex exec found; tools are remote API calls",
+          "outcome": "not_applicable",
+          "evidence": "src/tools/metadata-scan.ts:64",
+          "quote": "const m = re.exec(s);"
+        }
+      ]
+    }
+  ],
+  "applicability": "present",
+  "evidence": "Dockerfile:22",
+  "quote": "CMD [\"dist/server.js\"]",
+  "note": "The agent runs as a containerized workload, so B11 applies (N/A is never allowed). Search explanation: I read the Dockerfile and k8s/deployment.yaml in full, then grepped the whole agent tree for exec, spawn, eval, vm, privileged, hostPath, docker.sock, hostNetwork and sandbox terms. The grep found no code-execution tool and no host mounts or namespaces. All four checks hold."
+}

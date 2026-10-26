@@ -1,0 +1,159 @@
+{
+  "verdict": "upheld",
+  "applicability": "absent",
+  "evidence": "agent/app/loop.py:137",
+  "quote": "        messages: list[dict[str, Any]] = [{\"role\": \"user\", \"content\": task}]",
+  "search": "Listed all files under agent/ and grepped for checkpoint, replay, recover, resume, idempot, hash, hmac, sign, retry, resend, sequence, reconcil, restart, crash, attempt, backoff, tenacity, and audit_events. Read audit.py, loop.py, main.py lifespan/sweeper, payments.py and migrations/001_init.sql. audit_events is only written (INSERT) by audit.record and is never read back by any application code. Each run starts fresh from the task, with no resume or checkpoint load. The only background job is the approvals expiry sweeper, which reads the approvals table and not logs. No retry or replay loop exists. pay_invoice makes a single POST with an Idempotency-Key, and a failure is recorded as tool_error and returned to the model.",
+  "note": "No logs or checkpoints drive recovery and there is no automatic replay, so the N/A condition is met and R14 does not apply.",
+  "checks": [
+    {
+      "id": "R14.1",
+      "result": "holds",
+      "evidence": "agent/app/audit.py:3",
+      "quote": "Every step of a run is one row in ``audit_events``. Rows link to their parent",
+      "note": "audit_events is a forensic record that is never loaded for recovery, so chaining is not required.",
+      "coverage": [
+        {
+          "subject": "audit_events (audit.py record)",
+          "status": "not_applicable",
+          "evidence": "agent/app/audit.py:93",
+          "quote": "    await pool.execute(",
+          "note": "Insert-only write path; no code reads it back to recover state."
+        },
+        {
+          "subject": "checkpoints / run state",
+          "status": "not_applicable",
+          "evidence": "agent/app/loop.py:137",
+          "quote": "        messages: list[dict[str, Any]] = [{\"role\": \"user\", \"content\": task}]",
+          "note": "Each run starts fresh from the task; no checkpoint exists."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "indirect recovery path",
+          "input": "grep for audit_events reads, resume or checkpoint loaders",
+          "trace": "Only INSERTs in audit.py; the sweeper in main.py reads approvals, not audit; the ops role has SELECT but there is no code path",
+          "outcome": "not_applicable",
+          "evidence": "agent/app/main.py:72",
+          "quote": "        count = await app.state.pool.fetchval("
+        }
+      ]
+    },
+    {
+      "id": "R14.2",
+      "result": "holds",
+      "evidence": "agent/app/loop.py:127",
+      "quote": "        await killswitch.assert_running(pool, ident.tenant)",
+      "note": "No recovery code loads checkpoints, so there is nothing to verify.",
+      "coverage": [
+        {
+          "subject": "recovery loaders",
+          "status": "not_applicable",
+          "evidence": "agent/app/loop.py:125",
+          "quote": "    async def run(self, ident: RunIdentity, task: str) -> str | None:",
+          "note": "The run entry point takes a task only and has no resume parameter."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "missed path",
+          "input": "startup and lifespan hooks that might restore state",
+          "trace": "lifespan only runs startup_checks, then creates the pool, clients and sweeper; no state restore",
+          "outcome": "not_applicable",
+          "evidence": "agent/app/main.py:83",
+          "quote": "    agent_type_id = startup_checks(settings)"
+        }
+      ]
+    },
+    {
+      "id": "R14.3",
+      "result": "holds",
+      "evidence": "agent/app/loop.py:125",
+      "quote": "    async def run(self, ident: RunIdentity, task: str) -> str | None:",
+      "note": "No stored chain or checkpoint drives recovery, so truncation, rollback and chain replacement have no recovery consequence.",
+      "coverage": [
+        {
+          "subject": "chain head / sequence anchor",
+          "status": "not_applicable",
+          "evidence": "agent/migrations/001_init.sql:4",
+          "quote": "CREATE TABLE audit_events (",
+          "note": "Rows link only by parent_node_id; the table is not used for recovery."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "rollback/truncation",
+          "input": "delete or truncate audit_events rows",
+          "trace": "The runtime role has only SELECT and INSERT, and no code consumes the rows, so recovery behaviour is unchanged",
+          "outcome": "not_applicable",
+          "evidence": "agent/migrations/001_init.sql:121",
+          "quote": "GRANT SELECT, INSERT ON audit_events TO procurement_agent;"
+        }
+      ]
+    },
+    {
+      "id": "R14.4",
+      "result": "holds",
+      "evidence": "agent/app/tools/payments.py:33",
+      "quote": "                    \"Idempotency-Key\": idempotency_key(ident, args),",
+      "note": "There is no automatic replay. The single payment call already sends a key, so this is not a violation.",
+      "coverage": [
+        {
+          "subject": "pay_invoice",
+          "status": "not_applicable",
+          "evidence": "agent/app/tools/payments.py:29",
+          "quote": "            resp = await client.post(",
+          "note": "Single call with no retry or replay wrapper."
+        },
+        {
+          "subject": "erp / slack tools",
+          "status": "not_applicable",
+          "evidence": "agent/app/loop.py:86",
+          "quote": "        except Exception as exc:",
+          "note": "Failures are recorded as tool_error and are not retried automatically."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "hidden retry",
+          "input": "grep for retry, backoff and tenacity",
+          "trace": "The only match is the message 'do not retry until approved'; no retry loop",
+          "outcome": "not_applicable",
+          "evidence": "agent/app/loop.py:75",
+          "quote": "                return _error(use.id, f\"approval requested ({decision.approval_id}); do not retry until approved\")"
+        }
+      ]
+    },
+    {
+      "id": "R14.5",
+      "result": "holds",
+      "evidence": "agent/app/loop.py:86",
+      "quote": "        except Exception as exc:",
+      "note": "On error or timeout the tool failure is recorded and returned to the model. The code does not automatically resend, and there is no automatic replay to pause.",
+      "coverage": [
+        {
+          "subject": "unclear-result handling",
+          "status": "not_applicable",
+          "evidence": "agent/app/loop.py:93",
+          "quote": "            return _error(use.id, f\"{use.name} failed: {type(exc).__name__}\")",
+          "note": "No automatic resend from code."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "timeout resend",
+          "input": "payments POST times out after 30s",
+          "trace": "httpx raises, execute_tool catches it, writes tool_error and returns an error to the model; no code-level resend",
+          "outcome": "not_applicable",
+          "evidence": "agent/app/tools/payments.py:28",
+          "quote": "        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:"
+        }
+      ]
+    }
+  ]
+}

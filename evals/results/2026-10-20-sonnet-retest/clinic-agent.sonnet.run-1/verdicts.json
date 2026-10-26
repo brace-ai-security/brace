@@ -1,0 +1,657 @@
+{
+  "B11": {
+    "verdict": "upheld",
+    "violates": [],
+    "checks": [
+      {
+        "id": "B11.1",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:87, k8s/deployment.yaml:92, k8s/deployment.yaml:94",
+        "quote": "allowPrivilegeEscalation: false\n              drop: [\"ALL\"]\n              type: RuntimeDefault",
+        "note": "Namespace enforces restricted (line 6). Agent container sets all controls; the reminders CronJob inherits runAsNonRoot and seccomp RuntimeDefault from pod securityContext and sets allowPrivilegeEscalation false and drop ALL. No init containers or sidecars. Dockerfile uses USER 65532.",
+        "coverage": [
+          {
+            "subject": "namespace PSS labels",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:6",
+            "quote": "pod-security.kubernetes.io/enforce: restricted",
+            "note": "restricted enforced"
+          },
+          {
+            "subject": "agent Deployment container",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:87",
+            "quote": "allowPrivilegeEscalation: false",
+            "note": "nonroot, caps dropped, seccomp set"
+          },
+          {
+            "subject": "reminders CronJob container",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:153",
+            "quote": "allowPrivilegeEscalation: false",
+            "note": "runAsNonRoot and seccomp inherited from pod-level context lines 136 and 139"
+          },
+          {
+            "subject": "Dockerfile user",
+            "status": "enforced",
+            "evidence": "Dockerfile:20",
+            "quote": "USER 65532:65532",
+            "note": "non-root"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "per-container override",
+            "input": "look for container-level override of pod-level runAsNonRoot/seccomp",
+            "trace": "reminders container sets only allowPrivilegeEscalation, privileged, readOnlyRootFilesystem, capabilities; no override to root or Unconfined",
+            "outcome": "blocked",
+            "evidence": "k8s/deployment.yaml:152",
+            "quote": "allowPrivilegeEscalation: false"
+          }
+        ]
+      },
+      {
+        "id": "B11.2",
+        "result": "holds",
+        "evidence": "Dockerfile:10",
+        "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:9b2e4c6a8d0f1e3c5a7b9d1f3e5c7a9b1d3f5e7c9a1b3d5f7e9c1a3b5d7f9e1c",
+        "note": "Final stage is distroless; no RUN or package installs in it; build tooling (npm) confined to build stage.",
+        "coverage": [
+          {
+            "subject": "final stage base image",
+            "status": "enforced",
+            "evidence": "Dockerfile:10",
+            "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot",
+            "note": "distroless"
+          },
+          {
+            "subject": "final stage installs",
+            "status": "enforced",
+            "evidence": "Dockerfile:14",
+            "quote": "COPY --from=build --chown=65532:65532 /app/node_modules ./node_modules",
+            "note": "only COPY, no RUN in final stage"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "shell/downloader in final image",
+            "input": "search final stage for RUN/apt/curl/sh",
+            "trace": "lines 10-22 contain no RUN; CMD is exec-form node script",
+            "outcome": "blocked",
+            "evidence": "Dockerfile:22",
+            "quote": "CMD [\"dist/server.js\"]"
+          }
+        ]
+      },
+      {
+        "id": "B11.3",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:63, k8s/deployment.yaml:64, k8s/deployment.yaml:65",
+        "quote": "hostNetwork: false\nhostPID: false\nhostIPC: false",
+        "note": "No privileged true, hostPath, or docker.sock anywhere; volumes are emptyDir and projected token only. No compose file. CronJob does not set host namespaces (default false).",
+        "coverage": [
+          {
+            "subject": "Deployment host namespaces",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:63",
+            "quote": "hostNetwork: false",
+            "note": "also hostPID/hostIPC false"
+          },
+          {
+            "subject": "privileged flag",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:88",
+            "quote": "privileged: false",
+            "note": "both containers"
+          },
+          {
+            "subject": "volumes",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:105",
+            "quote": "emptyDir: { medium: Memory, sizeLimit: 32Mi }",
+            "note": "no hostPath"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "host mount search",
+            "input": "grep hostPath|docker.sock|network_mode|pid: host across repo",
+            "trace": "no matches",
+            "outcome": "blocked",
+            "evidence": "k8s/deployment.yaml:103",
+            "quote": "volumes:"
+          }
+        ]
+      },
+      {
+        "id": "B11.4",
+        "result": "holds",
+        "evidence": "config/tools.allowlist.yaml:5",
+        "quote": "role: scheduling_agent",
+        "note": "No code execution tool exists: grep for subprocess/exec/spawn/eval/child_process/new Function/vm found only a regex .exec in metadata-scan.ts; allowlisted tools are EHR, payments, SMS, eligibility calls.",
+        "coverage": [
+          {
+            "subject": "code execution primitives in src",
+            "status": "not_applicable",
+            "evidence": "src/tools/metadata-scan.ts:64",
+            "quote": "const m = re.exec(s);",
+            "note": "RegExp exec, not code execution"
+          },
+          {
+            "subject": "tool allowlist",
+            "status": "enforced",
+            "evidence": "config/tools.allowlist.yaml:5",
+            "quote": "role: scheduling_agent",
+            "note": "no interpreter tool listed"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "model-written code execution",
+            "input": "search for eval/exec/spawn/child_process/vm",
+            "trace": "only regex exec found; tools are remote API calls",
+            "outcome": "not_applicable",
+            "evidence": "src/tools/metadata-scan.ts:64",
+            "quote": "const m = re.exec(s);"
+          }
+        ]
+      }
+    ],
+    "applicability": "present",
+    "evidence": "Dockerfile:22",
+    "quote": "CMD [\"dist/server.js\"]",
+    "note": "The agent runs as a containerized workload, so B11 applies (N/A is never allowed). Search explanation: I read the Dockerfile and k8s/deployment.yaml in full, then grepped the whole agent tree for exec, spawn, eval, vm, privileged, hostPath, docker.sock, hostNetwork and sandbox terms. The grep found no code-execution tool and no host mounts or namespaces. All four checks hold."
+  },
+  "R04": {
+    "verdict": "upheld",
+    "applicability": "absent",
+    "evidence": "release/manifest.json:62, README.md:26",
+    "quote": "  \"retrieval\": \"none\",\nThere is no vector store and no conversation memory. Every run starts from the patient's message and",
+    "search explanation": "Searched all of agent/ (src, config, prompts, infra, k8s, tests) case-insensitively for retriev, vector, embed, index, corpus, chunk, upsert, rag, search, similarity, knowledge, pinecone, chroma, opensearch, elastic, pgvector, document, faq, kendra, bedrock. The only hits were unrelated: DynamoDBDocumentClient, the ehr__search_slots EHR tool, URLSearchParams, the MCP client index.js import, and an S3 audit bucket. No document store, index or ingestion path exists. The agent reads only the patient's message and live EHR data.",
+    "search_explanation": "Searched all of agent/ (src, config, prompts, infra, k8s, tests) case-insensitively for retrieval, vector, embedding, index, corpus, chunk, upsert, search and similar terms. Every hit was unrelated (DynamoDB document client, EHR slot search tool, URLSearchParams, an S3 audit bucket). No retrieval corpus or search index exists.",
+    "note": "The agent has no retrieval corpus or search index, so the N/A condition is met and R04 is upheld as not applicable.",
+    "violates": [],
+    "checks": [
+      {
+        "id": "R04.1",
+        "result": "holds",
+        "evidence": "README.md:26",
+        "quote": "There is no vector store and no conversation memory. Every run starts from the patient's message and",
+        "note": "No index write path exists, so the control is not applicable.",
+        "coverage": [
+          {
+            "subject": "index write paths (upsert, add_documents, ingestion jobs, admin endpoints, agent tools)",
+            "status": "not_applicable",
+            "evidence": "release/manifest.json:62",
+            "quote": "  \"retrieval\": \"none\",",
+            "note": "The grep found no write path. The tool allowlist and registry expose only EHR, payments and eligibility tools."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "unapproved write to index via agent tool or endpoint",
+            "input": "call any tool or route to add a document",
+            "trace": "Routes are only /v1/sms/inbound and /v1/chat. Tools are EHR, payments and eligibility, so none writes to an index.",
+            "outcome": "not_applicable",
+            "evidence": "README.md:26",
+            "quote": "There is no vector store and no conversation memory. Every run starts from the patient's message and"
+          }
+        ]
+      },
+      {
+        "id": "R04.2",
+        "result": "holds",
+        "evidence": "release/manifest.json:62",
+        "quote": "  \"retrieval\": \"none\",",
+        "note": "There are no chunks to carry metadata, so the control is not applicable.",
+        "coverage": [
+          {
+            "subject": "chunk metadata (source, time added, trust level, access permissions)",
+            "status": "not_applicable",
+            "evidence": "release/manifest.json:62",
+            "quote": "  \"retrieval\": \"none\",",
+            "note": "No chunk write code exists."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "chunk without metadata",
+            "input": "ingest a chunk lacking fields",
+            "trace": "No ingestion code exists.",
+            "outcome": "not_applicable",
+            "evidence": "README.md:26",
+            "quote": "There is no vector store and no conversation memory. Every run starts from the patient's message and"
+          }
+        ]
+      },
+      {
+        "id": "R04.3",
+        "result": "holds",
+        "evidence": "release/manifest.json:62",
+        "quote": "  \"retrieval\": \"none\",",
+        "note": "There is no search over a corpus, so the control is not applicable. The only search is the EHR slot search tool, which is not a retrieval corpus.",
+        "coverage": [
+          {
+            "subject": "query-time tenant filter on corpus search",
+            "status": "not_applicable",
+            "evidence": "release/manifest.json:62",
+            "quote": "  \"retrieval\": \"none\",",
+            "note": "No similarity_search, query or filter= call against an index exists."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "cross-tenant search",
+            "input": "query with another clinic's id",
+            "trace": "No corpus search exists. The EHR tool uses a per-clinic OAuth client and is not an index.",
+            "outcome": "not_applicable",
+            "evidence": "README.md:26",
+            "quote": "There is no vector store and no conversation memory. Every run starts from the patient's message and"
+          }
+        ]
+      },
+      {
+        "id": "R04.4",
+        "result": "holds",
+        "evidence": "release/manifest.json:62",
+        "quote": "  \"retrieval\": \"none\",",
+        "note": "There are no chunks or search caches to quarantine, expire or revoke, so the control is not applicable.",
+        "coverage": [
+          {
+            "subject": "quarantine, expiry, revoke and cache invalidation for chunks",
+            "status": "not_applicable",
+            "evidence": "release/manifest.json:62",
+            "quote": "  \"retrieval\": \"none\",",
+            "note": "No chunk lifecycle code or search cache exists."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "revoked chunk still served",
+            "input": "revoke a seeded document and search",
+            "trace": "No corpus, index or search cache exists.",
+            "outcome": "not_applicable",
+            "evidence": "README.md:26",
+            "quote": "There is no vector store and no conversation memory. Every run starts from the patient's message and"
+          }
+        ]
+      }
+    ]
+  },
+  "R14": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "R14.1",
+        "result": "holds",
+        "evidence": "src/audit/recorder.ts:65",
+        "quote": "Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+        "note": "N/A: no logs or checkpoints drive recovery; audit is append-only output.",
+        "coverage": [
+          {
+            "subject": "recovery/replay paths (audit stream, approvals table, reminders cron)",
+            "status": "not_applicable",
+            "evidence": "src/audit/recorder.ts:65",
+            "quote": "Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+            "note": "Audit records are write-only to Firehose; nothing reads them back to drive recovery or replay."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "recovery_from_log",
+            "input": "crash mid-run, then restart",
+            "trace": "loop.ts catch writes run.stopped and returns a handoff to staff; no code loads audit records or checkpoints; reminders.ts has no resume; CronJob backoffLimit 0 and restartPolicy Never",
+            "outcome": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "backoffLimit: 0"
+          }
+        ]
+      },
+      {
+        "id": "R14.2",
+        "result": "holds",
+        "evidence": "src/audit/recorder.ts:65",
+        "quote": "Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+        "note": "N/A: no recovery code loads checkpoints or logs.",
+        "coverage": [
+          {
+            "subject": "recovery/replay paths (audit stream, approvals table, reminders cron)",
+            "status": "not_applicable",
+            "evidence": "src/audit/recorder.ts:65",
+            "quote": "Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+            "note": "Audit records are write-only to Firehose; nothing reads them back to drive recovery or replay."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "recovery_from_log",
+            "input": "crash mid-run, then restart",
+            "trace": "loop.ts catch writes run.stopped and returns a handoff to staff; no code loads audit records or checkpoints; reminders.ts has no resume; CronJob backoffLimit 0 and restartPolicy Never",
+            "outcome": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "backoffLimit: 0"
+          }
+        ]
+      },
+      {
+        "id": "R14.3",
+        "result": "holds",
+        "evidence": "src/audit/recorder.ts:65",
+        "quote": "Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+        "note": "N/A: no recovery from stored chains, so no truncation/rollback surface.",
+        "coverage": [
+          {
+            "subject": "recovery/replay paths (audit stream, approvals table, reminders cron)",
+            "status": "not_applicable",
+            "evidence": "src/audit/recorder.ts:65",
+            "quote": "Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+            "note": "Audit records are write-only to Firehose; nothing reads them back to drive recovery or replay."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "recovery_from_log",
+            "input": "crash mid-run, then restart",
+            "trace": "loop.ts catch writes run.stopped and returns a handoff to staff; no code loads audit records or checkpoints; reminders.ts has no resume; CronJob backoffLimit 0 and restartPolicy Never",
+            "outcome": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "backoffLimit: 0"
+          }
+        ]
+      },
+      {
+        "id": "R14.4",
+        "result": "holds",
+        "evidence": "src/audit/recorder.ts:65",
+        "quote": "Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+        "note": "N/A: no automatic replay; refund idempotency-key (payments.ts:35) is sent on model-initiated calls and the provider enforces it for 24h.",
+        "coverage": [
+          {
+            "subject": "recovery/replay paths (audit stream, approvals table, reminders cron)",
+            "status": "not_applicable",
+            "evidence": "src/audit/recorder.ts:65",
+            "quote": "Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+            "note": "Audit records are write-only to Firehose; nothing reads them back to drive recovery or replay."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "recovery_from_log",
+            "input": "crash mid-run, then restart",
+            "trace": "loop.ts catch writes run.stopped and returns a handoff to staff; no code loads audit records or checkpoints; reminders.ts has no resume; CronJob backoffLimit 0 and restartPolicy Never",
+            "outcome": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "backoffLimit: 0"
+          }
+        ]
+      },
+      {
+        "id": "R14.5",
+        "result": "holds",
+        "evidence": "src/audit/recorder.ts:65",
+        "quote": "Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+        "note": "N/A: no automatic replay; failures stop the run and hand off to staff.",
+        "coverage": [
+          {
+            "subject": "recovery/replay paths (audit stream, approvals table, reminders cron)",
+            "status": "not_applicable",
+            "evidence": "src/audit/recorder.ts:65",
+            "quote": "Record: { Data: Buffer.from(JSON.stringify(full) + \"\\n\") },",
+            "note": "Audit records are write-only to Firehose; nothing reads them back to drive recovery or replay."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "recovery_from_log",
+            "input": "crash mid-run, then restart",
+            "trace": "loop.ts catch writes run.stopped and returns a handoff to staff; no code loads audit records or checkpoints; reminders.ts has no resume; CronJob backoffLimit 0 and restartPolicy Never",
+            "outcome": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "backoffLimit: 0"
+          }
+        ]
+      }
+    ],
+    "applicability": "absent",
+    "evidence": "k8s/deployment.yaml:125",
+    "quote": "backoffLimit: 0",
+    "search": "Read recorder.ts, loop.ts, reminders.ts, approvals.ts, executor.ts, payments.ts, k8s deployment; grepped whole agent/ for checkpoint|idempot|replay|resume|recover|retry|hash|sign|sequence. Found no checkpoint store, no log reader, no replay or resume loop; CronJob has backoffLimit 0. Approval retry is a fresh model-initiated tool call checked against the approvals table, not log replay.",
+    "search_explanation": "Read recorder.ts, loop.ts, reminders.ts, approvals.ts, executor.ts, payments.ts, k8s deployment; grepped whole agent/ for checkpoint|idempot|replay|resume|recover|retry|hash|sign|sequence. Found no checkpoint store, no log reader, no replay or resume loop; CronJob has backoffLimit 0. Approval retry is a fresh model-initiated tool call checked against the approvals table, not log replay.",
+    "note": "No logs or checkpoints drive recovery and there is no automatic replay, so the N/A condition is met."
+  },
+  "C02": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "C02.1",
+        "result": "holds",
+        "evidence": "infra/terraform/github.tf:28",
+        "quote": "required_approving_review_count = 2",
+        "note": "Manifest, prompts, config and policy are in the repo, are baked into the image or read from ROOT on disk (no remote URL or untracked path), and main requires 2 approvals, code-owner review and last-push approval so the author cannot self-approve.",
+        "coverage": [
+          {
+            "subject": "release/manifest.json",
+            "status": "enforced",
+            "evidence": ".github/CODEOWNERS:6",
+            "quote": "/release/            @northbay-clinics/agent-platform-leads",
+            "note": "tracked, owned, loaded from disk (src/config.ts:47)"
+          },
+          {
+            "subject": "prompts/*",
+            "status": "enforced",
+            "evidence": ".github/CODEOWNERS:4",
+            "quote": "/prompts/            @northbay-clinics/agent-platform-leads",
+            "note": "loaded via readFileSync (loop.ts:14, classifier.ts:13); digests checked by ci manifest-check"
+          },
+          {
+            "subject": "config/policy.yaml, tools.allowlist.yaml, budgets.yaml",
+            "status": "enforced",
+            "evidence": ".github/CODEOWNERS:5",
+            "quote": "/config/             @northbay-clinics/agent-platform-leads",
+            "note": "loaded by loadYaml from ROOT (src/config.ts:40-46)"
+          },
+          {
+            "subject": "branch protection on main",
+            "status": "enforced",
+            "evidence": "infra/terraform/github.tf:32",
+            "quote": "require_code_owner_reviews      = true",
+            "note": "2 approvals, dismiss stale, require_last_push_approval, enforce_admins, status checks incl. manifest-check"
+          },
+          {
+            "subject": "k8s/deployment.yaml and infra/",
+            "status": "enforced",
+            "evidence": ".github/CODEOWNERS:7",
+            "quote": "/k8s/                @northbay-clinics/agent-platform-leads @northbay-clinics/cloud-security",
+            "note": "owned and reviewed"
+          },
+          {
+            "subject": "runtime remote/untracked config loading",
+            "status": "enforced",
+            "evidence": "src/config.ts:41",
+            "quote": "return parse(readFileSync(join(ROOT, rel), \"utf8\")) as T;",
+            "note": "only local files; no fetch of config"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "self-approval",
+            "input": "author pushes a policy.yaml change and approves it",
+            "trace": "protection needs 2 approvals, code owner review, last-push approval",
+            "outcome": "blocked",
+            "evidence": "infra/terraform/github.tf:34",
+            "quote": "require_last_push_approval      = true"
+          },
+          {
+            "category": "untracked/remote config",
+            "input": "swap policy via URL or env",
+            "trace": "config.ts reads fixed repo paths under ROOT",
+            "outcome": "blocked",
+            "evidence": "src/config.ts:44",
+            "quote": "export const policy = loadYaml<Policy>(\"config/policy.yaml\");"
+          }
+        ]
+      },
+      {
+        "id": "C02.2",
+        "result": "holds",
+        "evidence": "infra/terraform/iam.tf:12",
+        "quote": "\"repo:northbay-clinics/clinic-agent:environment:production\",",
+        "note": "Deploy role is assumable only from the production and production-emergency environments, both requiring a named leads team reviewer with prevent_self_review; config paths have specific owners overriding the catch-all, and the runtime role has no write to config, cluster or IAM.",
+        "coverage": [
+          {
+            "subject": "CODEOWNERS config paths",
+            "status": "enforced",
+            "evidence": ".github/CODEOWNERS:5",
+            "quote": "/config/             @northbay-clinics/agent-platform-leads",
+            "note": "specific owners override the * catch-all (later match wins); catch-all only covers src app code, Dockerfile, tests"
+          },
+          {
+            "subject": "deploy job environment",
+            "status": "enforced",
+            "evidence": ".github/workflows/deploy.yml:37",
+            "quote": "environment: ${{ inputs.emergency && 'production-emergency' || 'production' }}",
+            "note": "no path skips a protected environment"
+          },
+          {
+            "subject": "deploy IAM trust",
+            "status": "enforced",
+            "evidence": "infra/terraform/iam.tf:13",
+            "quote": "\"repo:northbay-clinics/clinic-agent:environment:production-emergency\",",
+            "note": "OIDC sub restricted to the two environments"
+          },
+          {
+            "subject": "environment reviewers",
+            "status": "enforced",
+            "evidence": "infra/terraform/github.tf:48",
+            "quote": "prevent_self_review = true",
+            "note": "reviewers = agent-platform-leads team"
+          },
+          {
+            "subject": "agent runtime credentials",
+            "status": "enforced",
+            "evidence": "infra/terraform/iam.tf:63",
+            "quote": "Action   = [\"secretsmanager:GetSecretValue\"]",
+            "note": "runtime role: read secrets, DynamoDB state, firehose only; cannot change config or deploy; EKS write limited to deploy role (main.tf access_entries); cluster API private"
+          },
+          {
+            "subject": "operator role",
+            "status": "enforced",
+            "evidence": "infra/terraform/iam.tf:106",
+            "quote": "Action   = [\"dynamodb:PutItem\", \"dynamodb:UpdateItem\", \"dynamodb:GetItem\"]",
+            "note": "on-call SSO role limited to the control table (stop flags)"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "broad owner",
+            "input": "dev team in * catch-all edits prod config",
+            "trace": "config/, prompts/, release/, k8s/, infra/, .github/ have specific leads owners",
+            "outcome": "blocked",
+            "evidence": ".github/CODEOWNERS:3",
+            "quote": "*                    @northbay-clinics/clinic-agent-devs"
+          },
+          {
+            "category": "agent credential abuse",
+            "input": "agent pod uses its IRSA role to alter config/cluster",
+            "trace": "policy has no eks/iam/s3 config actions",
+            "outcome": "blocked",
+            "evidence": "infra/terraform/iam.tf:63",
+            "quote": "Action   = [\"secretsmanager:GetSecretValue\"]"
+          },
+          {
+            "category": "skip protected environment",
+            "input": "dispatch deploy without emergency flag to avoid approval",
+            "trace": "both branches of expression are protected environments",
+            "outcome": "blocked",
+            "evidence": ".github/workflows/deploy.yml:37",
+            "quote": "environment: ${{ inputs.emergency && 'production-emergency' || 'production' }}"
+          }
+        ]
+      },
+      {
+        "id": "C02.3",
+        "result": "holds",
+        "evidence": ".github/workflows/deploy.yml:48",
+        "quote": "test -n \"$OWNER\" || { echo \"owner is required\"; exit 1; }",
+        "note": "Emergency deploy requires owner, reason and end date before any AWS step, needs a leads reviewer in production-emergency, and opens a follow-up review issue with the record.",
+        "coverage": [
+          {
+            "subject": "owner",
+            "status": "enforced",
+            "evidence": ".github/workflows/deploy.yml:48",
+            "quote": "test -n \"$OWNER\" || { echo \"owner is required\"; exit 1; }",
+            "note": "required before credentials step"
+          },
+          {
+            "subject": "reason",
+            "status": "enforced",
+            "evidence": ".github/workflows/deploy.yml:49",
+            "quote": "test -n \"$REASON\" || { echo \"reason is required\"; exit 1; }",
+            "note": "required"
+          },
+          {
+            "subject": "end date",
+            "status": "enforced",
+            "evidence": ".github/workflows/deploy.yml:50",
+            "quote": "date -d \"$EXPIRES_ON\" +%F >/dev/null || { echo \"expires_on must be a date\"; exit 1; }",
+            "note": "required, date-parsed"
+          },
+          {
+            "subject": "follow-up review",
+            "status": "enforced",
+            "evidence": ".github/workflows/deploy.yml:92",
+            "quote": "--label emergency-change,needs-review \\",
+            "note": "issue with owner/reason/ends/commit, assigned to owner"
+          },
+          {
+            "subject": "approval gate",
+            "status": "enforced",
+            "evidence": "infra/terraform/github.tf:61",
+            "quote": "environment = \"production-emergency\"",
+            "note": "named leads reviewer, prevent_self_review, hotfix/* only"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "omit record",
+            "input": "emergency=true with empty owner/reason/date",
+            "trace": "validation step exits 1 before AWS credentials",
+            "outcome": "blocked",
+            "evidence": ".github/workflows/deploy.yml:48",
+            "quote": "test -n \"$OWNER\" || { echo \"owner is required\"; exit 1; }"
+          },
+          {
+            "category": "bypass review no record",
+            "input": "emergency deploy from non-hotfix branch",
+            "trace": "branch check and env deployment policy hotfix/*",
+            "outcome": "blocked",
+            "evidence": ".github/workflows/deploy.yml:51",
+            "quote": "[[ \"$GITHUB_REF_NAME\" == hotfix/* ]] || { echo \"emergency deploys come from hotfix/* branches\"; exit 1; }"
+          }
+        ]
+      }
+    ],
+    "applicability": "present",
+    "evidence": "release/manifest.json:1",
+    "quote": "\"release\": \"clinic-agent-3.4.1\",",
+    "note": "Applicability present: the repo has a manifest, prompts, policies and a production deploy path; all three controls hold.",
+    "search_explanation": "Inspected .github (CODEOWNERS, deploy.yml, ci.yml), infra/terraform (github.tf, iam.tf, main.tf), k8s, config, release, Dockerfile, README and src/config.ts; grepped for emergency/break-glass/remote config loading. Found no catch-all or runtime path that changes production config without review.",
+    "violates": []
+  }
+}

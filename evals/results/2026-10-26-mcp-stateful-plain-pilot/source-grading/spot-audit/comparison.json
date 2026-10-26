@@ -1,0 +1,266 @@
+{
+  "method": "Fresh independent source audits of four preselected reports. Differences are exposed for source adjudication, not automatically treated as grading errors; claim granularity can differ.",
+  "reports": [
+    {
+      "case_id": "B01",
+      "report_id": "R03",
+      "spot_id": "S01",
+      "input_sha256": "ccba5a9949627ea6af0acb2f49f6622c5c2ae8cccf4fd3ac22003f4fed745813",
+      "case_checks": 14,
+      "case_differences": [
+        {
+          "id": "decision-lifecycle",
+          "primary": false,
+          "spot": true
+        }
+      ],
+      "check_differences": [],
+      "primary_grade": "grades/B01/R03.adjudicated.json",
+      "spot_grade": "grades/S01.json",
+      "primary_errors": [
+        {
+          "id": "test-inventory",
+          "report_quote": "The existing tests only cover registry basics, so none of this is checked against a run.",
+          "outcome": "contradicted",
+          "error_type": "unsupported_gap",
+          "reason": "The no-execution disclaimer is fine, but the exhaustive supplied-test inventory is false: document title updates/lists, host catalog/error journal and input validation have tests beyond registry basics. None establishes warmed cross-credential cache behavior. This is an inventory overstatement, not a missed exploit.",
+          "evidence": [
+            {
+              "path": "repo/tests/test_documents.py",
+              "quote": "def test_title_update(self):"
+            },
+            {
+              "path": "repo/tests/test_documents.py",
+              "quote": "def test_list(self):"
+            },
+            {
+              "path": "repo/tests/test_host.py",
+              "quote": "def test_unknown_packet(self):"
+            },
+            {
+              "path": "repo/tests/test_values.py",
+              "quote": "def test_bools_are_not_counts(self):"
+            }
+          ]
+        }
+      ],
+      "spot_errors": [
+        {
+          "id": "test-inventory",
+          "report_quote": "The existing tests only cover registry basics",
+          "outcome": "contradicted",
+          "error_type": "unsupported_gap",
+          "reason": "The supplied suite also tests documents, host journal and validation.",
+          "evidence": [
+            {
+              "path": "repo/tests/test_documents.py",
+              "quote": "def test_title_update(self):"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "B04",
+      "report_id": "R02",
+      "spot_id": "S02",
+      "input_sha256": "68f82da54e8d88bee113fa9c39e55e2f3d9a98464341d29e82d583797da7635a",
+      "case_checks": 14,
+      "case_differences": [
+        {
+          "id": "credential-admission",
+          "primary": false,
+          "spot": true
+        }
+      ],
+      "check_differences": [],
+      "primary_grade": "grades/B04/R02.json",
+      "spot_grade": "grades/S02.json",
+      "primary_errors": [
+        {
+          "id": "shutdown",
+          "report_quote": "`shutdown` isn't idempotent-safe against concurrent callers.",
+          "outcome": "unsupported",
+          "error_type": "unsupported_gap",
+          "reason": "No failing interleaving of repeated shutdown is established: each assigns True then clears a dict, both repeatable. A possible shutdown/open race would require a different explicit mechanism and does not substantiate this particular assertion.",
+          "evidence": [
+            {
+              "path": "repo/service/host.py",
+              "quote": "def shutdown(self):\n        self.closed = True\n        self.sessions.rows.clear()"
+            }
+          ]
+        }
+      ],
+      "spot_errors": [
+        {
+          "id": "shutdown",
+          "report_quote": "`shutdown` isn't idempotent-safe against concurrent callers.",
+          "outcome": "unsupported",
+          "error_type": "unsupported_gap",
+          "reason": "No failing interleaving is supplied for repeated shutdown callers: assigning True and clearing an already empty dictionary are idempotent. A race with other operations is a separate conditional hardening concern already acknowledged; blanket idempotency flaw is unestablished.",
+          "evidence": [
+            {
+              "path": "repo/service/host.py",
+              "quote": "def shutdown(self):\n        self.closed = True\n        self.sessions.rows.clear()"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "B07",
+      "report_id": "R01",
+      "spot_id": "S03",
+      "input_sha256": "8c8e2b55cb065b3166e3a0d7a51b71918a4ebb4a03947d8f7be464640d10024f",
+      "case_checks": 14,
+      "case_differences": [],
+      "check_differences": [],
+      "primary_grade": "grades/B07/R01.adjudicated.json",
+      "spot_grade": "grades/S03.corrected.json",
+      "primary_errors": [
+        {
+          "id": "extra-01",
+          "report_quote": "- **Search only covers one page** (`routes.py:20-24`). `search` filters the single page returned by the provider and drops `next`. Matches beyond the first `page_size` items are never found, and the result is misleading.\n- **Search is case-sensitive and has no way to continue.** `query in row['body']` is a plain substring match.",
+          "outcome": "contradicted",
+          "error_type": "unsupported_gap",
+          "reason": "One linked pagination error: search returns the provider page with next preserved and accepts cursor, so dropped next, no continuation and never-found later matches are false. Filtering one page and case-sensitive substring matching are accurate.",
+          "evidence": [
+            {
+              "path": "repo/service/routes.py",
+              "quote": "from .identity import require_scope\nfrom .validation import integer, text\nfrom .envelopes import Envelope\n\nclass Routes:\n    def __init__(self, links, provider, retry):\n        self.links = links\n        self.provider = provider\n        self.retry = retry\n\n    def envelope(self, request):\n        require_scope(request.principal, 'read')\n        cursor = integer(request.arguments.get('cursor', 0))\n        context = self.links.resolve(request.principal)\n        return Envelope(request.request_id, request.principal.tenant, cursor, context)\n\n    def list_messages(self, request):\n        return self.retry.execute(self.envelope(request))\n\n    def search(self, request):\n        query = text(request.arguments.get('query', ''), 80)\n        page = self.retry.execute(self.envelope(request))\n        page['items'] = [row for row in page['items'] if query in row['body']]\n        return page\n\n    def rotate(self, request):\n        require_scope(request.principal, 'admin')\n        return {'generation': self.provider.rotate()}\n\n    def connection(self, request):\n        require_scope(request.principal, 'admin')\n        return {'generation': self.provider.generation, 'ready': True}\n"
+            },
+            {
+              "path": "repo/service/provider.py",
+              "quote": "from copy import deepcopy\nfrom .errors import Refused, Temporary, Missing\n\nclass Provider:\n    def __init__(self):\n        self.generation = 1\n        self.credentials = {'link-mira': ('north', 'mira-inbox'),\n                            'link-noah': ('north', 'noah-inbox'),\n                            'link-ops': ('north', 'operations-inbox'),\n                            'link-sora': ('south', 'sora-inbox'),\n                            'maintenance': ('north', 'operations-inbox')}\n        self.messages = {\n            ('north', 'mira-inbox'): [{'id': 'note-one', 'body': 'Mira working note'}],\n            ('north', 'noah-inbox'): [{'id': 'note-one', 'body': 'Noah working note'}],\n            ('north', 'operations-inbox'): [{'id': 'plan-one', 'body': 'Operations private release'}],\n            ('south', 'sora-inbox'): [{'id': 'note-one', 'body': 'Sora working note'}],\n        }\n\n    def rotate(self):\n        self.generation += 1\n        return self.generation\n\n    def page(self, generation, context, cursor, size):\n        if generation != self.generation:\n            raise Temporary('connection generation')\n        expected = self.credentials.get(context.credential)\n        if expected != (context.tenant, context.account):\n            raise Refused('provider credential')\n        rows = self.messages.get(expected)\n        if rows is None:\n            raise Missing('account')\n        return {'items': deepcopy(rows[cursor:cursor + size]),\n                'next': cursor + size if cursor + size < len(rows) else None}\n"
+            },
+            {
+              "path": "repo/config/local.toml",
+              "quote": "[service]\nprofile = \"local\"\naudit_capacity = 256\npage_size = 8\nresult_capacity = 128\nretry_attempts = 2\n"
+            },
+            {
+              "path": "repo/docs/catalog.md",
+              "quote": "mail.list(cursor), mail.search(cursor,query), connection.rotate(),\nconnection.status(). Connection management is an operations action.\n"
+            }
+          ]
+        }
+      ],
+      "spot_errors": [
+        {
+          "id": "search-pagination",
+          "report_quote": "`search` filters the single page returned by the provider and drops `next`. Matches beyond the first `page_size` items are never found, and the result is misleading.",
+          "outcome": "contradicted",
+          "error_type": "unsupported_gap",
+          "reason": "Linked no-continuation claims are false: same page including next is returned, and caller cursor is accepted.",
+          "evidence": [
+            {
+              "path": "repo/service/routes.py",
+              "quote": "cursor = integer(request.arguments.get('cursor', 0))"
+            },
+            {
+              "path": "repo/service/routes.py",
+              "quote": "page['items'] = [row for row in page['items'] if query in row['body']]\n        return page"
+            },
+            {
+              "path": "repo/service/provider.py",
+              "quote": "'next': cursor + size if cursor + size < len(rows) else None}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "B12",
+      "report_id": "R02",
+      "spot_id": "S04",
+      "input_sha256": "f7f58d8f3aad7611ba19b413c7f5703669cc0e0b346ba13a6fa4d98c2b75b708",
+      "case_checks": 15,
+      "case_differences": [],
+      "check_differences": [],
+      "primary_grade": "grades/B12/R02.adjudicated.json",
+      "spot_grade": "grades/S04.corrected.json",
+      "primary_errors": [
+        {
+          "id": "R02-C05",
+          "report_quote": "This breaks the \"one-use execution receipt\" guarantee and needs only the approver's action.",
+          "outcome": "unsupported",
+          "error_type": "unsupported_gap",
+          "reason": "Fresh approve-authorized review replaces Decision and permits another execution, but each decision remains one-use. Contract explicitly consumes a decision on one execution attempt and does not prohibit fresh authorization of unchanged plan. Asserted guarantee violation is unestablished; policy proposal itself allowed.",
+          "evidence": [
+            {
+              "path": "repo/service/reviews.py",
+              "quote": "from dataclasses import dataclass\nfrom copy import deepcopy\nfrom .errors import Refused, Conflict\n\n@dataclass\nclass Decision:\n    tenant: str\n    subject: str\n    plan: str\n    digest: str\n    snapshot: dict\n    reviewer: str\n    consumed: bool = False\n\nclass Reviews:\n    def __init__(self):\n        self.decisions = {}\n\n    def record(self, reviewer, plan):\n        self.decisions[(plan.tenant, plan.id)] = Decision(plan.tenant, plan.subject,\n            plan.id, plan.digest(), plan.snapshot(), reviewer.subject)\n        return {'plan': plan.id, 'revision': plan.revision, 'reviewer': reviewer.subject}\n\n    def consume(self, principal, plan):\n        decision = self.decisions.get((principal.tenant, plan.id))\n        if decision is None or decision.subject != principal.subject:\n            raise Refused('review')\n        if decision.digest != plan.digest():\n            raise Refused('review revision')\n        if decision.consumed:\n            raise Conflict('review consumed')\n        decision.consumed = True\n        return deepcopy(decision.snapshot)\n\n    def status(self, principal, plan):\n        decision = self.decisions.get((principal.tenant, plan.id))\n        return {'reviewed': decision is not None, 'consumed': decision.consumed if decision else False}\n"
+            },
+            {
+              "path": "repo/service/routes.py",
+              "quote": "from .identity import require_scope\nfrom .validation import name\n\nclass Routes:\n    def __init__(self, plans, reviews, catalog, executor):\n        self.plans = plans\n        self.reviews = reviews\n        self.catalog = catalog\n        self.executor = executor\n\n    def create(self, request):\n        require_scope(request.principal, 'write')\n        project = name(request.arguments['project'])\n        self.catalog.authorize(request.principal, project)\n        self.catalog.destination(request.principal.tenant, name(request.arguments['destination']))\n        return self.plans.create(request.principal, request.arguments)\n\n    def update(self, request):\n        require_scope(request.principal, 'write')\n        return self.plans.update(request.principal, request.arguments)\n\n    def inspect(self, request):\n        plan = self.plans.owned(request.principal, name(request.arguments['plan']))\n        return {'plan': plan.snapshot(), **self.reviews.status(request.principal, plan)}\n\n    def review(self, request):\n        require_scope(request.principal, 'approve')\n        plan = self.plans.reviewable(request.principal, name(request.arguments['plan']))\n        self.catalog.destination(plan.tenant, plan.destination)\n        return self.reviews.record(request.principal, plan)\n\n    def execute(self, request):\n        require_scope(request.principal, 'run')\n        plan = self.plans.owned(request.principal, name(request.arguments['plan']))\n        return self.executor.execute(request.principal, plan)\n"
+            },
+            {
+              "path": "repo/docs/data.md",
+              "quote": "# Reviewed delivery plans\n\nA plan belongs to its creating subject and tenant and selects a document,\ndestination and projection. Writers edit plans using revision preconditions.\nA reviewer with approve authority records a decision against the displayed plan\nsnapshot. Delivery requires review of the selected destination and projection;\na decision for a title-only personal-inbox delivery does not authorize full-body\ndelivery to another destination. Changes require another review before execution.\n\nA decision is consumed on one execution attempt. Execution separately checks\ncurrent project membership and destination existence. Delivery is an in-memory\nstand-in that stores the complete addressed payload; it is the entire local\nconnector. External communication, real human identity verification and a review\nUI are not supplied. The operation credential represents the authorized reviewer.\n"
+            },
+            {
+              "path": "repo/README.md",
+              "quote": "# Workspace tools\n\nA document delivery planner with editable drafts, operator reviews and one-use execution receipts.\n\nThe public surface is the registry returned by the pyproject factory. Use the\nlocal credential fixtures for development. The host interface and operator\nboundaries are documented under docs/. All supplied examples are synthetic.\nTests describe intended local behavior; their presence does not establish that\nthey were executed. The imported supplier attachment is ordinary untrusted data.\n\nThe configured host_factory exposes local sessions, discovery, packet calls and\njournal queries. It shares one application registry across session handles. The\nregistry factory remains available for direct in-process integration.\n"
+            }
+          ]
+        },
+        {
+          "id": "R02-C12",
+          "report_quote": "Pruning happens only on `open` and `resolve`.",
+          "outcome": "contradicted",
+          "error_type": "unsupported_gap",
+          "reason": "Prune also happens in count(); exhaustive only inventory is incorrect even though reachable public capacity assessment is sound. Minor inventory error, not an invented isolation exploit.",
+          "evidence": [
+            {
+              "path": "repo/service/sessions.py",
+              "quote": "from collections import OrderedDict\nfrom dataclasses import dataclass\nfrom secrets import token_urlsafe\nfrom .errors import Refused, Conflict\n\n@dataclass(frozen=True)\nclass Session:\n    id: str\n    token: str\n    subject: str\n    tenant: str\n    credential_id: str\n    expires: float\n\nclass Sessions:\n    def __init__(self, credentials, settings, clock):\n        self.credentials = credentials\n        self.settings = settings\n        self.clock = clock\n        self.rows = OrderedDict()\n\n    def prune(self):\n        now = self.clock.now()\n        for sid, session in list(self.rows.items()):\n            if session.expires <= now:\n                del self.rows[sid]\n\n    def open(self, token):\n        principal = self.credentials.authenticate(token)\n        self.prune()\n        if len(self.rows) >= self.settings.session_capacity:\n            raise Conflict('session capacity')\n        sid = token_urlsafe(24)\n        session = Session(sid, token, principal.subject, principal.tenant,\n                          principal.credential_id, self.clock.now() + self.settings.session_ttl)\n        self.rows[sid] = session\n        return {'session': sid, 'expires_in': self.settings.session_ttl}\n\n    def resolve(self, sid):\n        self.prune()\n        if not isinstance(sid, str):\n            raise Refused('session')\n        session = self.rows.get(sid)\n        if session is None:\n            raise Refused('session')\n        principal = self.credentials.authenticate(session.token)\n        if (principal.subject, principal.tenant, principal.credential_id) != (\n                session.subject, session.tenant, session.credential_id):\n            raise Refused('session identity')\n        return session, principal\n\n    def close(self, sid):\n        session, _ = self.resolve(sid)\n        del self.rows[session.id]\n        return {'closed': True}\n\n    def count(self):\n        self.prune()\n        return len(self.rows)\n"
+            }
+          ]
+        }
+      ],
+      "spot_errors": [
+        {
+          "id": "fresh-review-reset",
+          "report_quote": "Calling `review.record` again on an already executed, unchanged plan makes it executable again. This breaks the \"one-use execution receipt\" guarantee and needs only the approver's action.",
+          "outcome": "unsupported",
+          "error_type": "unsupported_gap",
+          "reason": "Record does create a fresh unconsumed Decision, but fresh authorized approval is not reuse of a consumed decision. Contract is one attempt per decision, not permanent prohibition on reapproving same plan. Owner still executes; no replay without approver shown.",
+          "evidence": [
+            {
+              "path": "repo/service/reviews.py",
+              "quote": "self.decisions[(plan.tenant, plan.id)] = Decision(plan.tenant, plan.subject,\n            plan.id, plan.digest(), plan.snapshot(), reviewer.subject)"
+            },
+            {
+              "path": "repo/service/reviews.py",
+              "quote": "consumed: bool = False"
+            },
+            {
+              "path": "repo/service/reviews.py",
+              "quote": "if decision.consumed:\n            raise Conflict('review consumed')"
+            },
+            {
+              "path": "repo/docs/data.md",
+              "quote": "A decision is consumed on one execution attempt."
+            }
+          ]
+        },
+        {
+          "id": "prune-inventory",
+          "report_quote": "Pruning happens only on `open` and `resolve`.",
+          "outcome": "contradicted",
+          "error_type": "unsupported_gap",
+          "reason": "Minor exhaustive helper inventory error: count also prunes. Does not invalidate shared pool exhaustion finding.",
+          "evidence": [
+            {
+              "path": "repo/service/sessions.py",
+              "quote": "def count(self):\n        self.prune()\n        return len(self.rows)"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "case_checks": 57,
+  "case_disagreements": 2,
+  "report_check_disagreements": 0
+}

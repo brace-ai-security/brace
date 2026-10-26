@@ -1,0 +1,819 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-10-20T14:20:16Z",
+  "scope": "TODO: what was reviewed and what wasn't.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "B06",
+      "gate": "G1",
+      "title": "Approval integrity",
+      "requirement": "Tie each approval to the agent instance that asked, and to the exact operation, target, arguments, and scope. Record who approved it and when it expires. Show the reviewer what the action will do. Make approvals single-use, or set clear limits on a broader grant. When the action runs, check permissions and the relevant resource state again. Record each use of an approval in one step, so parallel calls can't go past the grant. Test changed arguments, a different agent instance, expired approvals, replay, parallel reuse, and approvers without authority. If the approval service fails, the action must not quietly go ahead.",
+      "not_covered": [
+        {
+          "problem": "A high-impact action that never asks for approval at all",
+          "owner": "B05"
+        },
+        {
+          "problem": "A parent gaining a denied power by asking a stronger peer",
+          "owner": "E08"
+        },
+        {
+          "problem": "Harness or approval code changed in production without review",
+          "owner": "B12"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "app/approvals.py",
+          "line": 44,
+          "note": "approvals row has instance, tool, target, args hash, approver, expiry but no scope column (migrations/001_init.sql:32-48); scope is not bound."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B06.1",
+          "check": "Each approval record is bound to the requesting agent instance and to the exact operation, target, arguments, and scope, and records the approver and an expiry time.",
+          "verify": "1) Find the approval data model (schema, class, table, `approval`). 2) List its fields. 3) Answer no if it lacks any of agent instance ID, operation, target, exact arguments or hash, scope, approver, and expiry, or if approval is a boolean like `approved=True`.",
+          "met": "no",
+          "evidence": "app/approvals.py:44",
+          "quote": "INSERT INTO approvals (",
+          "counter_search": "",
+          "note": "approvals row has instance, tool, target, args hash, approver, expiry but no scope column (migrations/001_init.sql:32-48); scope is not bound.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B06.2",
+          "check": "When the action runs, the gate rejects it if the instance, operation, target, or arguments differ from the approval, or if the approval has expired.",
+          "verify": "1) Find where an approved action executes. 2) Check the code compares instance, operation, target, and arguments (or hash) against the stored approval and checks expiry at that moment. 3) Answer no if approval is checked only when requested, any field is not compared, arguments are re-read from the model after the check, or expiry is never checked.",
+          "met": "no",
+          "evidence": "app/approvals.py:77",
+          "quote": "WHERE tool = $1",
+          "counter_search": "",
+          "note": "find_valid() matches only tool, target, tenant, status and expiry. It never compares requested_by_instance or args_sha256, so changed arguments or another instance reuse the approval.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B06.3",
+          "check": "Each use of an approval is recorded in one atomic step (single-use or a bounded counter), so replays and parallel calls cannot go past the grant.",
+          "verify": "1) Find where an approval is used or marked consumed. 2) Check it is one atomic step: transaction with lock, compare-and-set, unique constraint, or atomic decrement. 3) Answer no if it reads then writes separately, never marks use, or keeps the count in process memory that parallel workers do not share.",
+          "met": "no",
+          "evidence": "app/approvals.py:79",
+          "quote": "AND status = 'approved'",
+          "counter_search": "",
+          "note": "Approval is never marked used: find_valid() only reads status='approved' and nothing updates it after execution. Any call with the same tool/target replays it for the 60 minute TTL, including parallel calls.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B06.4",
+          "check": "The gate checks that the approver has authority for this action, and rechecks permissions and the relevant resource state when the action runs.",
+          "verify": "1) Find approver checks (role list, `can_approve`, authority mapping). 2) Find rechecks of permissions and resource state at execution. 3) Answer no if any logged-in user can approve, the approver is not checked against the action, or permissions and resource state are not rechecked when the action runs.",
+          "met": "no",
+          "evidence": "app/gate.py:51",
+          "quote": "approval = await self.approvals.find_valid(ident, tool.name, target)",
+          "counter_search": "",
+          "note": "Approver role is checked at decide() (approvals.py:102) and find_valid() (approvals.py:90), but authorize() does no recheck of permissions or resource state (invoice status, budget) when the action runs.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B06.5",
+          "check": "If the approval service errors or cannot be reached, the action is denied.",
+          "verify": "1) Find calls to the approval service. 2) Read their error, timeout, and exception handling. 3) Answer no if a `try`/`except` or `catch` logs and proceeds, the default on error or timeout is allow, or a missing response is treated as approved.",
+          "met": "yes",
+          "evidence": "app/gate.py:51",
+          "quote": "approval = await self.approvals.find_valid(ident, tool.name, target)",
+          "counter_search": "Searched app/ for except blocks around gate.authorize, find_valid, request, post_approval_request. Only execute_tool's except (loop.py:86) wraps tool.invoke, not authorize.",
+          "note": "Approval store/notifier errors propagate as exceptions before dispatch; no catch-and-allow path.",
+          "coverage": [
+            {
+              "subject": "find_valid DB lookup",
+              "status": "enforced",
+              "evidence": "app/gate.py:51",
+              "quote": "approval = await self.approvals.find_valid(ident, tool.name, target)",
+              "note": "No try/except; a DB error propagates out of authorize and no approval is returned."
+            },
+            {
+              "subject": "request insert + Slack notify",
+              "status": "enforced",
+              "evidence": "app/gate.py:54",
+              "quote": "approval_id = await self.approvals.request(ident, tool.name, target, args)",
+              "note": "No try/except; a notifier or DB failure raises before any Decision(allow=True) is built."
+            },
+            {
+              "subject": "Slack notifier HTTP errors",
+              "status": "enforced",
+              "evidence": "app/tools/slack.py:41",
+              "quote": "resp.raise_for_status()",
+              "note": "HTTP errors and ok=false raise (slack.py:44), so an unreachable approval channel raises."
+            },
+            {
+              "subject": "authorize call site in execute_tool",
+              "status": "enforced",
+              "evidence": "app/loop.py:67",
+              "quote": "decision = await self.gate.authorize(ident, tool, use.input)",
+              "note": "The call is before the try block that wraps tool.invoke (loop.py:79); an exception ends execute_tool and the tool does not run."
+            },
+            {
+              "subject": "default when nothing found",
+              "status": "enforced",
+              "evidence": "app/gate.py:55",
+              "quote": "False,",
+              "note": "A missing approval returns allow=False with pending=True."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "app/approvals.py:79 Approval never consumed; replayable for the whole TTL and by parallel calls"
+      ],
+      "violates": [
+        "Tie each approval to the agent instance that asked, and to the exact operation, target, arguments, and scope",
+        "Make approvals single-use, or set clear limits on a broader grant",
+        "When the action runs, check permissions and the relevant resource state again"
+      ],
+      "also_affects": [],
+      "summary": "Approvals are not bound to the instance, arguments or scope at execution and are never consumed, so one approval can be replayed.",
+      "next_step": "Compare instance and args_sha256 in find_valid, add scope, consume the approval with an atomic UPDATE ... WHERE status='approved' RETURNING, and recheck permissions and resource state at execution.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B07",
+      "gate": "G2",
+      "title": "Hard execution budgets",
+      "requirement": "Enforce limits outside the model on loop count, run time, tokens, cost, tool-call rate, and how many sub-agents it can start. Also set spend and rate quotas per user or service, per tenant, and across the whole fleet. That way, many small runs can't use up shared capacity. Hit each limit in a test, and record how the run stops or escalates.",
+      "not_covered": [
+        {
+          "problem": "Budget or cross-agent abuse alerts not reaching the team that can act",
+          "owner": "E12"
+        },
+        {
+          "problem": "Unusual fan-out or resource use going undetected",
+          "owner": "R09"
+        },
+        {
+          "problem": "Context size not logged for each action decision",
+          "owner": "R07"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "app/loop.py",
+          "line": 151,
+          "note": "Tokens and cost are charged only after messages.create returns (loop.py:150-151, extractor.py:74-75); no reservation before the call. The count_tokens helper (context_size.py:65) is not metered. charge_model can raise on max_tokens/cost (budget.py:99-102) before flush(), so that call is never added to the shared quotas. check_step is the only wall-clock check, so a slow model call is not bounded (main.py:96 AsyncAnthropic() uses default timeout/retries)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B07.1",
+          "check": "Limits on loop count, run time, tokens, cost, tool-call rate, and number of sub-agents started are set in code or config.",
+          "verify": "1) Search for `max_turns`, `recursion_limit`, `max_iterations`, `timeout`, `max_tokens`, cost or budget caps, rate limits, sub-agent caps. 2) Check each of the six limits has a value. 3) Answer no if any is missing, set to unlimited (`None`, `0`, `-1`, `inf`), or the loop is `while True` with no cap.",
+          "met": "yes",
+          "evidence": "config/policy.yaml:40",
+          "quote": "max_steps: 25",
+          "counter_search": "Searched for None/0/-1/inf limits and uncapped loops: the only while True loops (loop.py:139, main.py:69) are capped by check_step or are the approval sweeper.",
+          "note": "All six limits have finite values in config/policy.yaml and are loaded in Budget.for_run (budget.py:58-68).",
+          "coverage": [
+            {
+              "subject": "loop count",
+              "status": "enforced",
+              "evidence": "config/policy.yaml:40",
+              "quote": "max_steps: 25",
+              "note": "Finite step cap, consumed by check_step at app/loop.py:140 and extractor.py:65."
+            },
+            {
+              "subject": "run time",
+              "status": "enforced",
+              "evidence": "config/policy.yaml:41",
+              "quote": "max_wall_seconds: 300",
+              "note": "Finite wall-clock cap, compared in check_step at budget.py:83-85."
+            },
+            {
+              "subject": "tokens",
+              "status": "enforced",
+              "evidence": "config/policy.yaml:42",
+              "quote": "max_tokens: 400000",
+              "note": "Finite token cap, compared in charge_model at budget.py:99."
+            },
+            {
+              "subject": "cost",
+              "status": "enforced",
+              "evidence": "config/policy.yaml:43",
+              "quote": "max_cost_usd: 4.00",
+              "note": "Finite cost cap in USD, compared in charge_model at budget.py:101."
+            },
+            {
+              "subject": "tool-call rate",
+              "status": "enforced",
+              "evidence": "config/policy.yaml:44",
+              "quote": "max_tool_calls_per_minute: 30",
+              "note": "Finite per-minute cap, compared in check_tool_call at budget.py:108."
+            },
+            {
+              "subject": "sub-agents",
+              "status": "enforced",
+              "evidence": "config/policy.yaml:45",
+              "quote": "max_subagents: 3",
+              "note": "Finite child cap, compared in check_subagent at budget.py:115."
+            },
+            {
+              "subject": "main loop cap",
+              "status": "enforced",
+              "evidence": "app/loop.py:140",
+              "quote": "budget.check_step()",
+              "note": "The while True loop calls check_step each turn, which raises BudgetExceeded."
+            },
+            {
+              "subject": "extractor loop cap",
+              "status": "enforced",
+              "evidence": "app/extractor.py:64",
+              "quote": "for _turn in range(MAX_TURNS):",
+              "note": "Child loop is bounded to four turns and also calls check_step."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B07.2",
+          "check": "The harness or a gateway outside the model enforces each limit and stops or escalates the run when it is hit; the model cannot raise, reset, or skip them.",
+          "verify": "1) Inventory every main/helper model invocation, tool call and retry. 2) For each, locate token/cost/rate enforcement and the stop/escalation branch. 3) Trace a boundary case: enforcement/reservation before work, or a documented finite overshoot bound with enforcement. 4) Answer no for unmetered helpers, uncounted retries, unbounded overshoot, model-controlled limits or catches that continue. Small max_tokens and timeouts do not substitute for shared token/cost accounting.",
+          "met": "no",
+          "evidence": "app/loop.py:151",
+          "quote": "budget.charge_model(self.deps.settings.model_id, response.usage)",
+          "counter_search": "",
+          "note": "Tokens and cost are charged only after messages.create returns (loop.py:150-151, extractor.py:74-75); no reservation before the call. The count_tokens helper (context_size.py:65) is not metered. charge_model can raise on max_tokens/cost (budget.py:99-102) before flush(), so that call is never added to the shared quotas. check_step is the only wall-clock check, so a slow model call is not bounded (main.py:96 AsyncAnthropic() uses default timeout/retries).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B07.3",
+          "check": "Budgets apply to nested sub-agents, so their usage counts against the limits.",
+          "verify": "1) Find sub-agent spawning (`spawn`, `Task`, `handoff`, `create_agent`). 2) Check child runs share or deduct from the parent budget and depth is capped. 3) Answer no if each child gets a fresh budget, nested spawns are uncounted, or depth and count are unlimited.",
+          "met": "yes",
+          "evidence": "app/extractor.py:43",
+          "quote": "budget.check_subagent()",
+          "counter_search": "Searched for other spawn/handoff/create_task sites: only main.py:159 starts top-level runs; extract( is called only from documents.py:36.",
+          "note": "Child shares the parent Budget object; count capped at 3; extractor role has no spawn tool.",
+          "coverage": [
+            {
+              "subject": "spawn site",
+              "status": "enforced",
+              "evidence": "app/extractor.py:43",
+              "quote": "budget.check_subagent()",
+              "note": "The only spawn path (documents.py:36) takes deps.current_budget(ident) and counts the child against max_subagents."
+            },
+            {
+              "subject": "child steps",
+              "status": "enforced",
+              "evidence": "app/extractor.py:65",
+              "quote": "budget.check_step()",
+              "note": "Child turns increment the parent's step counter."
+            },
+            {
+              "subject": "child model spend",
+              "status": "enforced",
+              "evidence": "app/extractor.py:75",
+              "quote": "budget.charge_model(self.settings.extractor_model_id, response.usage)",
+              "note": "Child tokens/cost are charged to the parent's Budget and flushed to quotas."
+            },
+            {
+              "subject": "child tool rate",
+              "status": "enforced",
+              "evidence": "app/extractor.py:95",
+              "quote": "budget.check_tool_call()",
+              "note": "Child tool calls share the parent's rate window."
+            },
+            {
+              "subject": "depth cap",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:16",
+              "quote": "read_document:",
+              "note": "The extractor role only has read_document, so a child cannot spawn nested children."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B07.4",
+          "check": "Spend and rate quotas also apply per user or service, per tenant, and across the fleet, counted across runs, not only within one run.",
+          "verify": "1) Trace every model/tool path into persistent per-user/service, per-tenant and fleet spend/rate quotas. 2) Trace concurrent small runs and charging order; distinguish shared counters from enforcement. 3) Answer no if required calls escape accounting or quotas can be exceeded without a finite bound and stop. Answer unknown when the relevant gateway/provider is outside the repo.",
+          "met": "no",
+          "evidence": "app/budget.py:161",
+          "quote": "if spent > limit:",
+          "counter_search": "",
+          "note": "Daily user/tenant/fleet quotas are persistent and transactional (budget.py:145-162) but only checked after the model call has already been made and charged. A run that starts while a quota is already exceeded still makes a full call first; reserve_run_start (budget.py:121) counts starts per minute, not spend. Many small runs (5/min/user, 200/min fleet) each overshoot by one call with no finite bound formula. Tool-call rate is per run only.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "app/loop.py:151 Spend charged after the model call, no pre-call reservation; BudgetExceeded from charge_model skips flush so spend is lost from quotas",
+        "app/budget.py:161 Daily quota enforced only after spend; no pre-call reservation or check at run start"
+      ],
+      "violates": [
+        "Enforce limits outside the model on loop count, run time, tokens, cost, tool-call rate",
+        "many small runs can't use up shared capacity"
+      ],
+      "also_affects": [],
+      "summary": "Per-run and daily limits exist but are charged after each model call, with an unmetered token-count helper, so overshoot is not bounded.",
+      "next_step": "Reserve estimated cost/tokens before each model call and at run start, meter or cap count_tokens, set client timeouts, and flush spend before raising.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B08",
+      "gate": "G2",
+      "title": "Environment isolation",
+      "requirement": "Write down every system and data store the agent can reach. Test that it has no path to unapproved production resources, admin systems, host services, or other tenants. Enforce this in the infrastructure, not only in the prompt. For each allowed connection, also check input and response validation under R01\u2013R02, including API responses and messages from connected services. Being allowed on the network does not make their content trusted.",
+      "not_covered": [
+        {
+          "problem": "Outbound traffic to unapproved internet destinations",
+          "owner": "B09"
+        },
+        {
+          "problem": "Container running as root or shipping a shell it doesn't need",
+          "owner": "B11"
+        },
+        {
+          "problem": "Content from an allowed service trusted without validation",
+          "owner": "R01"
+        },
+        {
+          "problem": "Agent reaching an approved MCP server directly instead of through the gateway",
+          "owner": "E06"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "deploy/k8s/networkpolicy.yaml",
+          "line": 75,
+          "note": "Default deny exists (networkpolicy.yaml:4-8) but the agent egress policy allows 0.0.0.0/0 on 443 minus RFC1918/link-local, and the ERP rule (lines 58-63) selects the whole erp-mcp-gateway namespace with no podSelector, so allowed peers exceed the listed systems."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B08.1",
+          "check": "Network policy or security groups default-deny and allow only the listed systems and data stores the agent needs.",
+          "verify": "1) Find NetworkPolicy, security groups, firewall rules, docker-compose networks. 2) Check for a default deny and named allowed peers. 3) Answer no if the agent's namespace has no policy, rules allow all, `0.0.0.0/0` or a broad CIDR is allowed, or allowed peers go beyond the listed systems. Answer unknown if network config lives outside this repo.",
+          "met": "no",
+          "evidence": "deploy/k8s/networkpolicy.yaml:75",
+          "quote": "cidr: 0.0.0.0/0",
+          "counter_search": "",
+          "note": "Default deny exists (networkpolicy.yaml:4-8) but the agent egress policy allows 0.0.0.0/0 on 443 minus RFC1918/link-local, and the ERP rule (lines 58-63) selects the whole erp-mcp-gateway namespace with no podSelector, so allowed peers exceed the listed systems.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B08.2",
+          "check": "No route, mount, or credential gives the runtime a path to unapproved production resources, admin systems, host services, or other tenants. Egress to 0.0.0.0/0 or another broad range, even only on ports 80 and 443, is such a route: it reaches cloud metadata (169.254.169.254) and internal services unless they are explicitly blocked.",
+          "verify": "1) List routes, mounts, and credentials in the agent's runtime (egress rules, volumes, env secrets, `hostNetwork`, `docker.sock`). 2) Check each reaches only approved systems. 3) Answer no if egress allows `0.0.0.0/0` or a broad range on any port without blocking 169.254.169.254, if host services or the Docker socket are reachable, or credentials reach production admin or other tenants.",
+          "met": "no",
+          "evidence": "deploy/k8s/networkpolicy.yaml:75",
+          "quote": "cidr: 0.0.0.0/0",
+          "counter_search": "",
+          "note": "Broad public egress on 443 gives a route to any public host, not only approved systems. Metadata 169.254.0.0/16 and private ranges are excepted, but the broad range and the namespace-wide ERP peer (lines 58-63) go beyond approved resources.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B08.3",
+          "check": "Isolation is enforced in infrastructure config, not by the prompt or by agent code the model can influence.",
+          "verify": "1) Find where isolation is defined. 2) Check it is in infrastructure (NetworkPolicy, VPC, IAM, separate namespace or account). 3) Answer no if it relies on prompt text or agent code (URL checks, host lists in the harness) that the model's output can steer, with no infrastructure rule behind it.",
+          "met": "yes",
+          "evidence": "deploy/k8s/networkpolicy.yaml:8",
+          "quote": "policyTypes: [\"Ingress\", \"Egress\"]",
+          "counter_search": "Searched for isolation expressed only in prompts or agent URL/host checks: the model chooses no destination; hosts come from deployment env (deployment.yaml:44-57).",
+          "note": "Isolation is defined in NetworkPolicy, Pod Security and service account settings, not in prompt text.",
+          "coverage": [
+            {
+              "subject": "network isolation",
+              "status": "enforced",
+              "evidence": "deploy/k8s/networkpolicy.yaml:8",
+              "quote": "policyTypes: [\"Ingress\", \"Egress\"]",
+              "note": "Default-deny NetworkPolicy for the namespace is defined in infrastructure, not in code or prompt."
+            },
+            {
+              "subject": "namespace and pod hardening",
+              "status": "enforced",
+              "evidence": "deploy/k8s/serviceaccount.yaml:6",
+              "quote": "pod-security.kubernetes.io/enforce: restricted",
+              "note": "Pod Security Admission restricted is enforced on the production namespace."
+            },
+            {
+              "subject": "credentials",
+              "status": "enforced",
+              "evidence": "deploy/k8s/deployment.yaml:20",
+              "quote": "automountServiceAccountToken: false",
+              "note": "No Kubernetes API token is mounted into the runtime."
+            },
+            {
+              "subject": "erp_call operation prefixes",
+              "status": "not_applicable",
+              "evidence": "deploy/k8s/deployment.yaml:46",
+              "quote": "value: \"https://erp-mcp-gateway.erp-mcp-gateway.svc.cluster.local:8443/mcp\"",
+              "note": "The harness prefix list in gate.py:35 only filters operation names; the destination host is fixed by deployment config, not model output."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "deploy/k8s/networkpolicy.yaml:75 Egress to 0.0.0.0/0 on 443 and namespace-wide ERP peer"
+      ],
+      "violates": [
+        "no path to unapproved production resources, admin systems, host services, or other tenants"
+      ],
+      "also_affects": [
+        "B09"
+      ],
+      "summary": "Network policy has default deny but allows all public IPv4 destinations on 443 and the whole ERP gateway namespace.",
+      "next_step": "Remove the 0.0.0.0/0 rule, route egress only through the proxy, and add a podSelector to the ERP gateway rule.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B09",
+      "gate": "G2",
+      "title": "Egress allowlist",
+      "requirement": "Allow only the outside destinations the task needs. Test a blocked destination and ways around the block, such as going straight past a proxy or gateway. Cover redirects, DNS changes and rebinding, IPv4 and IPv6, and cloud metadata or loopback addresses where they apply. An allowed domain can still host an attacker's account or receive leaked data. So also limit which resources and tenants the agent can reach, and what data it can send. Record each block and confirm the right operator hears about it.",
+      "not_covered": [
+        {
+          "problem": "Data leaking through client-side Markdown images or link previews",
+          "owner": "R03"
+        },
+        {
+          "problem": "Network path to internal production or admin systems",
+          "owner": "B08"
+        },
+        {
+          "problem": "A loosened egress rule in the running setup raising no alert",
+          "owner": "C04"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "deploy/k8s/networkpolicy.yaml",
+          "line": 75,
+          "note": "Egress to 0.0.0.0/0 on TCP 443 is allowed, so outbound is not allowlisted at the network layer; the proxy allowlist (lines 109-112) is only used by clients that honor HTTPS_PROXY."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B09.1",
+          "check": "Outbound traffic is default-deny, with a destination allowlist enforced at a proxy, gateway, or network policy.",
+          "verify": "1) Find egress rules (NetworkPolicy egress, Cilium FQDN, proxy ACLs, cloud firewall). 2) Check outbound is default deny with a destination allowlist. 3) Answer no if egress allows `0.0.0.0/0` or broad CIDRs, no egress rules exist, or the allowlist is only in app code the agent runs. Answer unknown if egress is set outside this repo.",
+          "met": "no",
+          "evidence": "deploy/k8s/networkpolicy.yaml:75",
+          "quote": "cidr: 0.0.0.0/0",
+          "counter_search": "",
+          "note": "Egress to 0.0.0.0/0 on TCP 443 is allowed, so outbound is not allowlisted at the network layer; the proxy allowlist (lines 109-112) is only used by clients that honor HTTPS_PROXY.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B09.2",
+          "check": "Network policy blocks direct routes around the proxy or gateway, for both IPv4 and IPv6.",
+          "verify": "1) Check whether the proxy is enforced by network policy or only by `HTTP_PROXY`/`HTTPS_PROXY` env. 2) Check IPv6 egress rules. 3) Answer no if pods can reach the internet except via the proxy, the proxy is only an env var, `NO_PROXY` is broad, or IPv6 is not restricted.",
+          "met": "no",
+          "evidence": "deploy/k8s/deployment.yaml:58",
+          "quote": "- name: HTTPS_PROXY",
+          "counter_search": "",
+          "note": "The proxy is selected by an env var only, and networkpolicy.yaml:73-82 lets pods reach the internet on 443 directly, so the proxy can be bypassed. NO_PROXY is only .svc.cluster.local.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B09.3",
+          "check": "Redirect targets and resolved IP addresses are checked against the allowlist, and cloud metadata and loopback addresses are blocked.",
+          "verify": "1) Find fetch and HTTP client code (`requests`, `fetch`, `http.Client`, `follow_redirects`, `allow_redirects`). 2) Check each redirect hop and resolved IP is checked. 3) Answer no if redirects are followed unchecked, the check uses the hostname but not the resolved IP, or 169.254.169.254, fd00:ec2::254, or 127.0.0.0/8 and ::1 are not blocked.",
+          "met": "unknown",
+          "evidence": "deploy/k8s/networkpolicy.yaml:80",
+          "quote": "- 169.254.0.0/16",
+          "counter_search": "",
+          "note": "IPv4 metadata is excepted in the network policy and app clients set follow_redirects=False (payments.py:28, slack.py:35, mcp_client.py:73), but resolved-IP and IPv6 checks would live in the platform egress proxy outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B09.4",
+          "check": "Allowed destinations are limited by resource, tenant, or path where needed, not only by domain.",
+          "verify": "1) List allowed destinations that are shared services (S3, GitHub, storage, paste sites). 2) Check rules limit bucket, account, repo, tenant, or path. 3) Answer no if a shared service is allowed by domain or wildcard (`*.s3.amazonaws.com`) alone, or path checks use string prefix without normalising.",
+          "met": "unknown",
+          "evidence": "deploy/k8s/networkpolicy.yaml:110",
+          "quote": "api.anthropic.com",
+          "counter_search": "",
+          "note": "Allowlist is by domain only; whether the proxy limits tenant or resource is outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B09.5",
+          "check": "Each blocked request is logged and routed as an alert to a named operator.",
+          "verify": "1) Find where blocked requests are logged (proxy deny log, policy audit, app code). 2) Find the alert route to a named operator. 3) Answer no if blocks are not logged, only allowed requests are logged, or no alert route names an operator. Answer unknown if alerting lives outside this repo.",
+          "met": "unknown",
+          "evidence": "deploy/k8s/networkpolicy.yaml:106",
+          "quote": "name: egress-proxy-allowlist-procurement",
+          "counter_search": "",
+          "note": "No block logging or alert route is in this repo; the proxy is run by the platform team.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "deploy/k8s/networkpolicy.yaml:75 Egress to 0.0.0.0/0 on 443 bypasses the proxy allowlist"
+      ],
+      "violates": [
+        "Allow only the outside destinations the task needs"
+      ],
+      "also_affects": [
+        "B08"
+      ],
+      "summary": "Egress is allowed to any public IPv4 address on 443, so the proxy allowlist can be bypassed.",
+      "next_step": "Delete the 0.0.0.0/0 rule so only the egress proxy is reachable, then verify IPv6 and proxy logging.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B10",
+      "gate": "G2",
+      "title": "Pinned, verified image",
+      "requirement": "Pin the container by digest. Before it runs, check its digest and signature against an approved signing key, or an approved certificate identity and issuer. Keep its build provenance (the record of how it was built) and its list of dependencies. Check provenance fields such as the builder, source repository, build type, and the parameters set from outside the build (SLSA `externalParameters`) against what you expect. Keep the verifier patched. Cosign versions before 2.6.2 and 3.0.4 could accept a bundle whose transparency-log entry didn't match the artifact. Confirm that the admission check covers production namespaces and is set to enforce, not just audit. Show that an unapproved or changed image is rejected.",
+      "not_covered": [
+        {
+          "problem": "Tool or MCP server package not vetted or pinned",
+          "owner": "E02"
+        },
+        {
+          "problem": "Model weights or adapters loaded without a signature or format check",
+          "owner": "C05"
+        },
+        {
+          "problem": "Image runs as root or includes a shell or package manager",
+          "owner": "B11"
+        },
+        {
+          "problem": "Secrets baked into the image",
+          "owner": "B03"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "deploy/k8s/deployment.yaml",
+          "line": 32,
+          "note": "Single workload image uses a digest; base images are digest-pinned."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B10.1",
+          "check": "Production manifests reference images by digest (`@sha256:`), not by tag alone.",
+          "verify": "1) Find every `image:` field in manifests, Helm values, compose, and Terraform. 2) Check each uses `@sha256:`. 3) Answer no if any production image uses only a tag (`:latest`, `:v1`), or a template defaults to a tag when the digest value is empty.",
+          "met": "yes",
+          "evidence": "deploy/k8s/deployment.yaml:32",
+          "quote": "image: registry.example-corp.test/procurement/agent@sha256:",
+          "counter_search": "Searched all yaml and Dockerfile for image: fields and for helm, compose, terraform; none exist; no tag-only references or empty-digest defaults.",
+          "note": "Single workload image uses a digest; base images are digest-pinned.",
+          "coverage": [
+            {
+              "subject": "agent container image",
+              "status": "enforced",
+              "evidence": "deploy/k8s/deployment.yaml:32",
+              "quote": "image: registry.example-corp.test/procurement/agent@sha256:",
+              "note": "Only workload image reference, pinned by sha256 digest."
+            },
+            {
+              "subject": "Dockerfile build base",
+              "status": "enforced",
+              "evidence": "Dockerfile:2",
+              "quote": "FROM python:3.11.10-slim-bookworm@sha256:",
+              "note": "Build base image is pinned by digest."
+            },
+            {
+              "subject": "Dockerfile runtime base",
+              "status": "enforced",
+              "evidence": "Dockerfile:10",
+              "quote": "FROM gcr.io/distroless/python3-debian12:nonroot@sha256:",
+              "note": "Runtime base image is pinned by digest."
+            },
+            {
+              "subject": "admission digest rule",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:25",
+              "quote": "- image: \"registry.example-corp.test/procurement/*@sha256:*\"",
+              "note": "Admission pattern rejects tag-only images in the production namespace."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B10.2",
+          "check": "An admission policy verifies the signature against a pinned key, or a pinned certificate identity and issuer, with no wildcard identity or issuer.",
+          "verify": "1) Find admission policies (Kyverno `verifyImages`, `ClusterImagePolicy`, Gatekeeper). 2) Check the key or certificate identity and issuer are pinned. 3) Answer no if identity or issuer uses `.*` or wildcard regex, issuer is unset, or no admission policy exists. Answer unknown if admission config is outside this repo.",
+          "met": "yes",
+          "evidence": "deploy/k8s/kyverno-verify-images.yaml:44",
+          "quote": "subject: \"https://github.com/example-corp/procurement-agent/.github/workflows/ci.yaml@refs/heads/main\"",
+          "counter_search": "Searched the policy for subjectRegExp, issuerRegExp, .* and wildcard identities: none.",
+          "note": "Kyverno verifyImages pins keyless issuer and subject exactly for signature and both attestations.",
+          "coverage": [
+            {
+              "subject": "signature issuer",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:43",
+              "quote": "issuer: \"https://token.actions.githubusercontent.com\"",
+              "note": "Issuer is an exact string, no wildcard or regex."
+            },
+            {
+              "subject": "signature subject",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:44",
+              "quote": "subject: \"https://github.com/example-corp/procurement-agent/.github/workflows/ci.yaml@refs/heads/main\"",
+              "note": "Certificate subject is an exact workflow identity, no wildcard."
+            },
+            {
+              "subject": "attestation signers",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:52",
+              "quote": "issuer: \"https://token.actions.githubusercontent.com\"",
+              "note": "Provenance and SBOM attestors reuse the same pinned issuer and subject (lines 51-53, 74-76)."
+            },
+            {
+              "subject": "policy applied",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:39",
+              "quote": "required: true",
+              "note": "Signature verification is required for every matching image."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B10.3",
+          "check": "The policy checks provenance fields: builder, source repository, build type, and external parameters.",
+          "verify": "1) In the admission policy, find attestation or provenance conditions. 2) Check builder ID, source repository, build type, and `externalParameters` are each compared to expected values. 3) Answer no if any is missing, provenance is only generated in CI but not verified, or conditions use wildcards.",
+          "met": "yes",
+          "evidence": "deploy/k8s/kyverno-verify-images.yaml:56",
+          "quote": "key: \"{{ buildDefinition.buildType }}\"",
+          "counter_search": "Searched conditions for wildcard or missing operators and for provenance generated but not verified: all five are verified in an all: block.",
+          "note": "SLSA v1 provenance attestation conditions compare build type, repository, ref, path and builder id with Equals.",
+          "coverage": [
+            {
+              "subject": "build type",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:56",
+              "quote": "key: \"{{ buildDefinition.buildType }}\"",
+              "note": "Compared with Equals to the expected GitHub workflow build type."
+            },
+            {
+              "subject": "source repository",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:59",
+              "quote": "key: \"{{ buildDefinition.externalParameters.workflow.repository }}\"",
+              "note": "Compared with Equals to the expected repository URL."
+            },
+            {
+              "subject": "external parameters ref",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:62",
+              "quote": "key: \"{{ buildDefinition.externalParameters.workflow.ref }}\"",
+              "note": "External parameter ref is compared to refs/heads/main."
+            },
+            {
+              "subject": "external parameters path",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:65",
+              "quote": "key: \"{{ buildDefinition.externalParameters.workflow.path }}\"",
+              "note": "External parameter workflow path is compared to ci.yaml."
+            },
+            {
+              "subject": "builder",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:68",
+              "quote": "key: \"{{ runDetails.builder.id }}\"",
+              "note": "Builder id is compared with Equals to the GitHub-hosted runner."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B10.4",
+          "check": "The policy is in enforce mode, covers production namespaces, and denies images that match no policy.",
+          "verify": "1) Read the policy mode and scope (`validationFailureAction`, `failureAction`, `mode`, namespace selectors, exclusions). 2) Check for a no-match deny. 3) Answer no if mode is `Audit` or `warn`, production namespaces are excluded or unmatched, `failurePolicy: Ignore`, or images matching no policy are allowed.",
+          "met": "yes",
+          "evidence": "deploy/k8s/kyverno-verify-images.yaml:9",
+          "quote": "validationFailureAction: Enforce",
+          "counter_search": "Searched for Audit, warn, Ignore, exclude blocks and other namespaces: none; only procurement-prod is matched.",
+          "note": "Enforce mode, failurePolicy Fail, production namespace matched, non-matching images denied by rule 1.",
+          "coverage": [
+            {
+              "subject": "mode",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:9",
+              "quote": "validationFailureAction: Enforce",
+              "note": "Policy blocks violating pods rather than auditing."
+            },
+            {
+              "subject": "failure policy",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:12",
+              "quote": "failurePolicy: Fail",
+              "note": "Webhook failure rejects admission instead of ignoring."
+            },
+            {
+              "subject": "namespace scope",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:19",
+              "quote": "namespaces: [procurement-prod]",
+              "note": "Both rules match Pods in the production namespace; no exclude block exists."
+            },
+            {
+              "subject": "no-match deny",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:26",
+              "quote": "containers:",
+              "note": "Rule 1 pattern rejects any container image outside the approved registry and digest form."
+            },
+            {
+              "subject": "verification required",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:39",
+              "quote": "required: true",
+              "note": "Images must match a verified attestor."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B10.5",
+          "check": "The pinned Cosign or verifier version is at least 2.6.2 (2.x) or 3.0.4 (3.x).",
+          "verify": "1) Find Cosign or verifier versions in CI workflows (`cosign-installer`, `cosign-release`), Dockerfiles, and policy-controller charts. 2) Compare to 2.6.2 (2.x) and 3.0.4 (3.x). 3) Answer no if any pin is lower or uses `latest` or no version. Answer unknown if no verifier is in this repo.",
+          "met": "unknown",
+          "evidence": ".github/workflows/ci.yaml:52",
+          "quote": "cosign-release: \"v2.6.2\"",
+          "counter_search": "",
+          "note": "CI signs with Cosign v2.6.2, which meets the minimum. The admission verifier is Kyverno (annotation 1.15.2 only); its embedded Cosign version is not pinned or shown in this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Image is digest-pinned and admission enforces pinned signer and provenance, but the admission verifier's Cosign version is not shown.",
+      "next_step": "Show the deployed Kyverno version and its bundled Cosign (>=2.6.2 or 3.0.4), and demonstrate that an unsigned image is rejected.",
+      "lead_role": "infrastructure"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {
+    "H001": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "This is an ERP operation-name allowlist, not a filesystem or network sandbox; the destination is fixed by env. Its over-broad prefixes (invoice., vendor.) let write operations through erp_call, which belongs to B05."
+    },
+    "H002": {
+      "verdict": "confirmed",
+      "item": "B09",
+      "reason": "Agent egress rule allows 0.0.0.0/0 on 443"
+    },
+    "H005": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "MAX_TURNS=4 bounds the extractor loop at extractor.py:64 via range(), and each turn also calls the shared Budget.check_step; enforced by the harness, not the model."
+    }
+  }
+}

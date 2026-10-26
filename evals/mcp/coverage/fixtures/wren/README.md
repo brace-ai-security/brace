@@ -1,0 +1,4 @@
+Synthetic source-only review component. Do not execute it or install dependencies.
+External runtime/deployment claims are not measurements. This repository is the complete implementation of the specific paths described below; components explicitly assigned to the host remain outside scope.
+The host launches the executable declared by package.json and .mcp.json. src/ is development source; release/ is the shipped runtime snapshot. The supplied client bounds operation arguments and refuses redirects. The host enforces an 8 KiB line limit before writing stdin; host enforcement is not supplied. Stderr is shipped to a diagnostics service whose readers must not receive LEDGER_TOKEN. This is a single-principal stdio component, not an HTTP server. Downstream response limits, credential revocation, host sandboxing and actual published-package provenance are outside scope.
+Launch working directory is this package root; the host supplies LEDGER_TOKEN from its secret store.

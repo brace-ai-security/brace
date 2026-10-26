@@ -31,8 +31,8 @@ focused MCP review, not completion of the full 53-item BRACE assessment.
 1. **Establish scope.** Identify the component(s) supplied: server, client/host,
    gateway, registry/control plane or deployment. Record commit/release, review date,
    transports, supported operating systems, negotiated protocol revisions and enabled extensions. Inventory each
-   configured server, launch command/URL, credential source, package/image pin,
-   exposed tool/resource/prompt and privileged downstream action. Use the host's
+   configured server, executable/package entrypoint, launch command/URL, credential source, package/image pin,
+   exposed tool/resource/prompt, registered operation and privileged downstream action. Use the host's
    available file-reading/search tools and lockfiles. With Read/Glob/Grep, use
    those directly: Glob `.*` and `**/.*` within the target for hidden config,
    Read the matching files, and Grep for callers. An empty Glob result is a
@@ -44,8 +44,9 @@ focused MCP review, not completion of the full 53-item BRACE assessment.
 2. **Map ownership and coverage.** Read [control-map.md](references/control-map.md).
    Track every applicable row for every distinct trust boundary. A compact grouped
    table may combine unknowns with the same owner, provided each topic and boundary
-   remains explicit. Group equivalent tools only after verifying they share
-   enforcement. Name who owns each external
+   remains explicit. Name every inventoried entrypoint and operation in an assessed coverage row
+   or mark it unreviewed with a reason. Group operations only after tracing each
+   member and verifying shared enforcement. Name who owns each external
    control. A server repository cannot establish its host's approval behavior;
    keep that unknown rather than inventing a server vulnerability or a pass.
 3. **Load the relevant transport detail.** For HTTP, OAuth or gateways, read
@@ -63,33 +64,55 @@ focused MCP review, not completion of the full 53-item BRACE assessment.
    date. When lookup is unavailable, cite the bundled primary-source URLs and
    recorded dates, explicitly marked as not rechecked. Offline review still
    requires citations; a source name alone is insufficient.
+   A supplied verification record describes earlier research, not a lookup in this
+   session. Match its exact source URL and entry before claiming recorded verification.
    Patching alone does not prove configured remediation. With unavailable
    versions, source access or remote internals, state the limit explicitly.
 5. **Trace enforcement.** Follow inputs through validation, authorization, execution
    and response; include wrappers, helpers, error branches and alternate routes.
+   For each operation, trace caller identity and resource ownership to the actual
+   action, including who supplies the owner or tenant of newly created resources.
    For each claimed control, identify a plausible bypass and determine whether the
    inspected code rejects it. Cite file/line evidence and short redacted excerpts.
    Static reasoning about a denial is not a runtime test result. Treat a scan hit
    as a lead until its dataflow and prerequisites are demonstrated.
    Missing callers or external implementations are `needs_evidence`; a hypothetical
    bypass without a demonstrated reachable path is not itself a confirmed gap.
+   Trace internal errors through the supplied response mapping before claiming a
+   caller can distinguish them. Treat returned content as untrusted by policy;
+   establish an attacker write/control path before calling it attacker-controlled.
 6. **Write the report.** Use the user-specified destination, or `mcp-review.md` in
    the reviewed repository. Include:
    - scope, component/transport inventory and ownership boundaries;
    - a source table with short source IDs, primary URLs, authority and dates
      (publication/revision date where known, otherwise the bundled review date,
-     labelled as such). Mark offline records as not rechecked;
-   - findings ordered by impact, each with trigger/dataflow, affected scope,
-     evidence, BRACE IDs, source-table IDs and a concrete remediation. Each finding,
-     including an evidence request, must resolve to a URL and labelled date;
+     labelled as such), plus the source file/section or verification entry used.
+     Keep publication/revision, recorded retrieval/check, and this review's date
+     distinct. Copy recorded dates from the material actually read; label unavailable
+     values unknown. An earlier retrieval and a later recorded recheck are compatible;
+     compare dates for the same event before alleging a conflict. Mark offline sources
+     not rechecked in this session;
+   - confirmed source-supported findings ordered by impact, each with a reachable
+     trigger/dataflow, affected scope, quoted evidence, BRACE IDs and remediation.
+     Code/business-contract observations may cite local source; use source-table IDs
+     for external rules or library behavior actually relied on;
    - a coverage table: boundary/check, status, evidence, source authority and
      owner; record an absence search and reason for each `na_candidate`;
-   - controls supported in code, missing/runtime evidence and unreviewed scope;
+   - controls supported in code, missing/runtime evidence and unreviewed scope.
+     Group external unknowns and conditional evidence requests by owner in coverage;
+     they need not become separate findings. Report a control's demonstrated extent
+     rather than filling the report with generic security properties;
    - proposed controlled tests with expected allowed and denied outcomes, plus
      an owner. Do not execute them merely because this review suggested them.
 
-Before returning, check every finding's source ID against the source table and
-fill missing URLs/dates from the bundled references. Observing sequential batch
+Before returning, reconcile the entrypoint/operation inventory with the coverage rows. Check
+every finding's source ID and each date/verification claim against the specific
+record cited; correct unsupported labels to unknown or not rechecked. Challenge
+each claimed rejection, observable effect and host/backend property against the
+actual branch predicates and supplied evidence. Quote the supporting conditions;
+qualify claims that depend on uninspected routing, process, transport or backend
+behavior. A documented external claim is not verified deployed enforcement.
+Observing sequential batch
 execution alone does not demonstrate an authorization failure: identify a violated
 authorization or atomicity contract before calling it a gap.
 

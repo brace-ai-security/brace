@@ -1,0 +1,677 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "agent (procurement-agent fixture)",
+  "commit": null,
+  "reviewed_at": "2026-10-20T13:23:42Z",
+  "scope": "Batch review of C03-C07 only. Found: Dockerfile, pyproject.toml, release/manifest.yaml, .github/workflows/ci.yaml, deploy/k8s deployment and Kyverno policy, app/startup.py, identity.py, settings.py, loop.py, extractor.py, mcp_client.py, tests. Not found: lockfile, drift-detection job, rollback procedure, release-candidate test suite, stored test results, model retirement dates. Controls outside the repo (cluster, registry, platform) were not visible. Prescan produced no hits for C03-C07 (H001-H007 belong to B07-B11, R05). Inventory sites (model calls loop.py:150, extractor.py:74) were traced. No challenges run; other items not reviewed.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "C03",
+      "gate": "G1",
+      "title": "Match release identity to running state",
+      "requirement": "Freeze the artifacts that define identity for each release. Check the running setup against the approved manifest, and emit the matching agent-type-id. Include the digest and signature of weights and adapters you host yourself. Test that a changed prompt, model, weights file, or tool setup can't keep showing the old approved identity without being caught.",
+      "not_covered": [
+        {
+          "problem": "Manifest missing helper models, budgets, or other components",
+          "owner": "C01"
+        },
+        {
+          "problem": "Hosted model changing behind a fixed name",
+          "owner": "C05"
+        },
+        {
+          "problem": "Agent-type-id not computed as a hash of its identity inputs",
+          "owner": "A03"
+        },
+        {
+          "problem": "Container image not signature-checked at admission",
+          "owner": "B10"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "app/startup.py",
+          "line": 20,
+          "note": "The check runs inside the agent process; settings.image_digest is the IMAGE_DIGEST env value from the deployment (deployment.yaml:38), not an observation. Kyverno only checks image digest and signature at admission, not prompt, model or tool setup. CI hash check (ci.yaml:23) compares repo files, not running artifacts."
+        }
+      ],
+      "checks": [
+        {
+          "id": "C03.1",
+          "check": "Identity-defining artifacts are referenced in deployment config by digest or a version that can't change, not by mutable tags.",
+          "verify": "1) Open deployment config: Kubernetes manifests, Helm values, Terraform, compose files. 2) Check images use `@sha256:` and prompts, models, and weights use fixed versions. 3) Follow variables and defaults to the final value. 4) Answer no if any reference is a tag like `:latest`, a branch, a model alias, or a default that falls back to one.",
+          "met": "yes",
+          "evidence": "deploy/k8s/deployment.yaml:32",
+          "quote": "image: registry.example-corp.test/procurement/agent@sha256:7c1e4a0f9b3d2e85a6c4f1b0d9e8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0",
+          "counter_search": "Searched all yaml/Dockerfile/py for :latest, tags, model aliases and env fallbacks; none found. Single container, no init containers.",
+          "note": "Image, base images, models, prompts and tools are digest- or version-pinned.",
+          "coverage": [
+            {
+              "subject": "agent container image",
+              "status": "enforced",
+              "evidence": "deploy/k8s/deployment.yaml:32",
+              "quote": "image: registry.example-corp.test/procurement/agent@sha256:7c1e4a0f9b3d2e85a6c4f1b0d9e8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0",
+              "note": "Deployment image is referenced by sha256 digest; it is the only container (no init or sidecar containers in the pod spec)."
+            },
+            {
+              "subject": "IMAGE_DIGEST env",
+              "status": "enforced",
+              "evidence": "deploy/k8s/deployment.yaml:39",
+              "quote": "value: \"sha256:7c1e4a0f9b3d2e85a6c4f1b0d9e8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0\"",
+              "note": "Value is a full sha256 digest, not a mutable tag."
+            },
+            {
+              "subject": "primary model id",
+              "status": "enforced",
+              "evidence": "deploy/k8s/deployment.yaml:41",
+              "quote": "value: \"claude-sonnet-4-5-20250929\"",
+              "note": "Dated snapshot; settings._env('MODEL_ID') has no default (app/settings.py:80)."
+            },
+            {
+              "subject": "extractor model id",
+              "status": "enforced",
+              "evidence": "deploy/k8s/deployment.yaml:43",
+              "quote": "value: \"claude-haiku-4-5-20251001\"",
+              "note": "Dated snapshot; EXTRACTOR_MODEL_ID has no default (app/settings.py:81)."
+            },
+            {
+              "subject": "Dockerfile build base image",
+              "status": "enforced",
+              "evidence": "Dockerfile:2",
+              "quote": "FROM python:3.11.10-slim-bookworm@sha256:2a6386ad2db20e7f55073f69a98d6da2cf9f168e05e7487d2670c22e4ad2a1bd AS build",
+              "note": "Build stage base image is pinned by sha256 digest."
+            },
+            {
+              "subject": "Dockerfile runtime base image",
+              "status": "enforced",
+              "evidence": "Dockerfile:10",
+              "quote": "FROM gcr.io/distroless/python3-debian12:nonroot@sha256:8f3c1a6e2b9d4f7a0c5e8b1d3f6a9c2e5b8d1f4a7c0e3b6d9f2a5c8e1b4d7f0a",
+              "note": "Runtime stage base image is pinned by sha256 digest."
+            },
+            {
+              "subject": "system and extractor prompts",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:21",
+              "quote": "sha256: \"sha256:dcf69216667e65a0be3711d99aac81b707ba843296e7ce26d6fcbdb50c5bcc50\"",
+              "note": "Prompts are baked into the image and frozen by content hash in the manifest (extractor at :24)."
+            },
+            {
+              "subject": "tool setup (ERP MCP tool pins, tools.yaml)",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:71",
+              "quote": "budget.get_remaining: \"sha256:bc96af69ba1cfd67b5428269dc74aa3e754f4dfe2d5dfa81deb0af68819379ca\"",
+              "note": "Tools pinned by fingerprint; config/tools.yaml hash at manifest:33."
+            },
+            {
+              "subject": "weights and adapters",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:45",
+              "quote": "adapter: none",
+              "note": "Hosted models only; no weights or adapter references to pin."
+            },
+            {
+              "subject": "Kyverno admission image reference rule",
+              "status": "enforced",
+              "evidence": "deploy/k8s/kyverno-verify-images.yaml:25",
+              "quote": "- image: \"registry.example-corp.test/procurement/*@sha256:*\"",
+              "note": "Admission requires digest references for all pod images."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C03.2",
+          "check": "A process outside the agent observes the running artifacts (image digest, prompt, model, tool setup) and compares them with the approved manifest, rather than trusting what the agent reports.",
+          "verify": "1) Find a process outside the agent (admission controller, CI check, sidecar, scheduled job) that reads running artifacts. 2) Check it observes image digest, prompt, model, and tool setup itself and compares each with the approved manifest. 3) Answer no if it trusts values the agent reports, or compares a value with itself. Answer unknown if it would run in a platform outside this repo.",
+          "met": "no",
+          "evidence": "app/startup.py:20",
+          "quote": "if settings.image_digest != manifest[\"image\"][\"digest\"]:",
+          "counter_search": "",
+          "note": "The check runs inside the agent process; settings.image_digest is the IMAGE_DIGEST env value from the deployment (deployment.yaml:38), not an observation. Kyverno only checks image digest and signature at admission, not prompt, model or tool setup. CI hash check (ci.yaml:23) compares repo files, not running artifacts.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C03.3",
+          "check": "The emitted agent-type-id is computed from the observed running artifacts, so a changed prompt, model, weights file, or tool setup produces a different ID instead of the approved one.",
+          "verify": "1) Find where the emitted `agent.type.id` comes from. 2) Check it is computed from the observed running artifacts at start or deploy. 3) Answer no if it is a constant, an env var or config value set at build, or copied from the approved manifest, so a changed prompt, model, weights file, or tool setup would still emit the approved ID.",
+          "met": "no",
+          "evidence": "app/startup.py:44",
+          "quote": "agent_type_id = compute_agent_type_id(manifest)",
+          "counter_search": "",
+          "note": "The id is computed from the manifest file (identity.py:63-75), not from observed running artifacts, so a drifted prompt, model or tool setup still emits the approved id. It also hashes only the prompt path, not its content (identity.py:68).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C03.4",
+          "check": "Self-hosted weights and adapters are checked by digest and signature at load or deploy.",
+          "verify": "1) Find where self-hosted weights and adapters are loaded or deployed (`from_pretrained`, `torch.load`, `safetensors`, download steps). 2) Check a digest compare and a signature check run before use. 3) Answer no if either is missing, wrapped in `try/except` that continues, or a second load path skips it. If only hosted models are used, answer yes citing the config that shows that.",
+          "met": "yes",
+          "evidence": "release/manifest.yaml:45",
+          "quote": "adapter: none",
+          "counter_search": "Searched for from_pretrained, torch, safetensors, joblib, downloads; none exist.",
+          "note": "Hosted Anthropic models only; nothing self-hosted.",
+          "coverage": [
+            {
+              "subject": "self-hosted weights/adapters",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:45",
+              "quote": "adapter: none",
+              "note": "No adapter; models are hosted by Anthropic (provider: anthropic, manifest:41). Nothing self-hosted to load."
+            },
+            {
+              "subject": "self-hosted fine-tune",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:46",
+              "quote": "fine_tune: none",
+              "note": "No fine-tuned or self-hosted weights are used anywhere."
+            },
+            {
+              "subject": "model loading code paths",
+              "status": "enforced",
+              "evidence": "app/loop.py:150",
+              "quote": "response = await self.client.messages.create(**request)",
+              "note": "Only hosted API calls (loop.py:150, extractor.py:74); no from_pretrained/torch.load/safetensors/download anywhere in the repo."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C03.5",
+          "check": "A mismatch blocks or quarantines the deployment, not only logs it.",
+          "verify": "1) Find the code that handles a manifest or digest mismatch. 2) Check it blocks or quarantines: non-zero exit, admission deny, refusal to start, scale to zero. 3) Answer no if the mismatch branch only logs, warns, or emits a metric and continues, or an error in the check lets deployment proceed.",
+          "met": "no",
+          "evidence": "app/startup.py:43",
+          "quote": "log.error(\"running state differs from release manifest: %s\", \", \".join(mismatches))",
+          "counter_search": "",
+          "note": "Mismatch is only logged; startup_checks goes on to compute and return the id and the app starts (startup.py:44-46, main.py:83).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "app/startup.py:43 Mismatch with the approved manifest only logs an error and the agent keeps running with the approved agent-type-id."
+      ],
+      "violates": [
+        "Check the running setup against the approved manifest, and emit the matching agent-type-id"
+      ],
+      "also_affects": [
+        "C04"
+      ],
+      "summary": "Running state is compared with the manifest only by the agent itself, a mismatch only logs, and the agent-type-id comes from the manifest not from what is running.",
+      "next_step": "Add an external verifier that observes image, prompt, model and tool setup, derive the id from observed values, and fail startup on mismatch.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "C04",
+      "gate": "G2",
+      "title": "Detect drift per agent",
+      "requirement": "Compare running images, harness settings, prompts, MCP server lists, permissions, network policies, and self-hosted model weights against their approved baseline. Simulate a prompt edit, an added tool, and a looser egress rule. Check that each one raises an alert and gets the documented response \u2014 block, quarantine, or rollback \u2014 within a set time.",
+      "not_covered": [
+        {
+          "problem": "Hosted model changing behind a fixed name",
+          "owner": "C05"
+        },
+        {
+          "problem": "A tool server changing its description or schema after approval",
+          "owner": "E03"
+        },
+        {
+          "problem": "Who may change production config, and emergency change records",
+          "owner": "C02"
+        },
+        {
+          "problem": "Manifest missing components that define the release",
+          "owner": "C01"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "app/startup.py",
+          "line": 31,
+          "note": "The only comparison is the startup check: image, prompts, policy/tools hash and model ids. It does not compare MCP server lists, permissions (RBAC/IAM), network policy, harness settings or self-hosted weights, and the Kyverno policy runs at admission only (background: false, kyverno-verify-images.yaml:10)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "C04.1",
+          "check": "A drift check compares running images, harness settings, prompts, MCP server lists, permissions, network policies, and self-hosted model weights against the approved baseline, with each of these covered.",
+          "verify": "1) Find the drift check job or tool. 2) List what it compares: images, harness settings, prompts, MCP server lists, permissions, network policies, self-hosted weights. 3) Check each is compared with the approved baseline, not with the live state itself. 4) Answer no if any category is missing or excluded. Answer unknown if drift detection runs in an outside platform.",
+          "met": "no",
+          "evidence": "app/startup.py:31",
+          "quote": "if settings.model_id != manifest[\"models\"][\"primary\"][\"model_id\"]:",
+          "counter_search": "",
+          "note": "The only comparison is the startup check: image, prompts, policy/tools hash and model ids. It does not compare MCP server lists, permissions (RBAC/IAM), network policy, harness settings or self-hosted weights, and the Kyverno policy runs at admission only (background: false, kyverno-verify-images.yaml:10).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C04.2",
+          "check": "The drift check runs per agent deployment, on a schedule or on change events.",
+          "verify": "1) Find what triggers the drift check: cron or CI schedule, admission webhook, or change events. 2) Check it runs for each agent deployment, not once for the fleet or only by hand. 3) Answer no if it is manual-only or covers only some deployments. Answer unknown if scheduling is set outside this repo.",
+          "met": "no",
+          "evidence": "app/main.py:83",
+          "quote": "agent_type_id = startup_checks(settings)",
+          "counter_search": "",
+          "note": "The comparison runs once at process start. No cron, scheduled CI job or change-event trigger runs a drift check in this repo (ci.yaml triggers only on pull_request and push).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C04.3",
+          "check": "Detected drift triggers an alert and a set response (block, quarantine, or rollback) defined in config, with a time limit.",
+          "verify": "1) Open the drift check's result handling. 2) Check drift raises an alert and triggers a response set in config: block, quarantine, or rollback. 3) Check a time limit is set. 4) Answer no if drift only logs, the response or time limit is missing, or a check error is treated as no drift.",
+          "met": "no",
+          "evidence": "app/startup.py:43",
+          "quote": "log.error(\"running state differs from release manifest: %s\", \", \".join(mismatches))",
+          "counter_search": "",
+          "note": "Drift only logs; there is no alert, no block/quarantine/rollback response in config and no time limit.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "app/startup.py:43 Detected drift is only logged and the process continues."
+      ],
+      "violates": [
+        "Compare running images, harness settings, prompts, MCP server lists, permissions, network policies"
+      ],
+      "also_affects": [
+        "C03"
+      ],
+      "summary": "No per-deployment drift check exists beyond a one-time startup comparison that covers few categories and only logs.",
+      "next_step": "Add a scheduled or event-driven drift job with alert, response and time limit in config.",
+      "lead_role": "operations"
+    },
+    {
+      "item": "C05",
+      "gate": "G2",
+      "title": "Control dependency, model, and training changes",
+      "requirement": "Pin dependency versions. Where supported, also pin each model's base version, checkpoint or weights, and fine-tune or adapter version. Before promotion, link any changed training run, dataset, or training code or config to the model it produced and to its test results. Record the model version actually served, when the runtime or provider shares it, separately from the name you requested. Before loading weights, adapters, or datasets you host, check their signature against an approved signer (for example, with OpenSSF Model Signing). Also check their file format. Pickle-based formats can run code when loaded, so they need an approved exception and a scan. Test swapping a model, checkpoint, or adapter, and check that it triggers review and re-testing. Some remote services or names can change behind a fixed name. For those, record missing training and version details clearly. Watch available version metadata and provider notices, and decide when to re-test or stop using the model. A local config hash alone can't prove remote behavior is unchanged. A pinned snapshot fixes the weights, not the provider's serving systems, which can change under the same ID. Keep scheduled re-testing.",
+      "not_covered": [
+        {
+          "problem": "Tool or MCP server approved without reviewing publisher, permissions, or vulnerabilities",
+          "owner": "E02"
+        },
+        {
+          "problem": "Container image not pinned by digest or signature-checked",
+          "owner": "B10"
+        },
+        {
+          "problem": "Rollback setup naming a hosted model that is retired",
+          "owner": "C07"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "Dockerfile",
+          "line": 7,
+          "note": "Only direct dependencies are pinned with == in pyproject.toml:7-17; there is no lockfile or --require-hashes anywhere in the repo, so transitive packages float at build and the Docker and CI installs (ci.yaml:19) resolve them fresh."
+        }
+      ],
+      "checks": [
+        {
+          "id": "C05.1",
+          "check": "Dependency versions are pinned with exact versions or hashes in lockfiles, with no ranges or floating tags.",
+          "verify": "1) Open every dependency file and lockfile (`requirements*.txt`, `poetry.lock`, `package-lock.json`, `go.sum`) plus Dockerfile `FROM` and install lines. 2) Look for ranges (`^`, `~`, `>=`, `*`), missing lockfiles, and floating tags. 3) Answer no if any dependency is unpinned, including install commands in Dockerfiles or CI scripts that bypass the lockfile.",
+          "met": "no",
+          "evidence": "Dockerfile:7",
+          "quote": "RUN pip install --target /opt/site .",
+          "counter_search": "",
+          "note": "Only direct dependencies are pinned with == in pyproject.toml:7-17; there is no lockfile or --require-hashes anywhere in the repo, so transitive packages float at build and the Docker and CI installs (ci.yaml:19) resolve them fresh.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C05.2",
+          "check": "Model IDs in config are pinned snapshots (plus checkpoint, weights, and adapter versions where supported), not aliases such as 'latest'.",
+          "verify": "1) Find every model ID in config, env files, and code defaults. 2) Follow env vars to their fallback value. 3) Answer no if any is an alias (`-latest`, undated name), falls back to one when unset, or leaves out the checkpoint, weights, or adapter version where one is used and the provider supports pinning it.",
+          "met": "yes",
+          "evidence": "deploy/k8s/deployment.yaml:41",
+          "quote": "value: \"claude-sonnet-4-5-20250929\"",
+          "counter_search": "Searched all files for claude- ids, latest and undated names; MODEL_ID and EXTRACTOR_MODEL_ID have no defaults (settings.py:80-81).",
+          "note": "Both model ids are dated snapshots; no adapter or checkpoint exists.",
+          "coverage": [
+            {
+              "subject": "primary model id in deployment env",
+              "status": "enforced",
+              "evidence": "deploy/k8s/deployment.yaml:41",
+              "quote": "value: \"claude-sonnet-4-5-20250929\"",
+              "note": "Dated snapshot id, not an alias such as latest."
+            },
+            {
+              "subject": "extractor model id in deployment env",
+              "status": "enforced",
+              "evidence": "deploy/k8s/deployment.yaml:43",
+              "quote": "value: \"claude-haiku-4-5-20251001\"",
+              "note": "Dated snapshot id, not an alias such as latest."
+            },
+            {
+              "subject": "primary model id in manifest",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:42",
+              "quote": "model_id: \"claude-sonnet-4-5-20250929\"",
+              "note": "Matches the deployment value; manifest id_kind says pinned snapshot."
+            },
+            {
+              "subject": "extractor model id in manifest",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:54",
+              "quote": "model_id: \"claude-haiku-4-5-20251001\"",
+              "note": "Matches the deployment value and is a dated snapshot."
+            },
+            {
+              "subject": "env fallback for model ids",
+              "status": "enforced",
+              "evidence": "app/settings.py:80",
+              "quote": "model_id=_env(\"MODEL_ID\"),",
+              "note": "No default; missing value raises at startup. EXTRACTOR_MODEL_ID same at :81."
+            },
+            {
+              "subject": "code-default model ids",
+              "status": "enforced",
+              "evidence": "app/budget.py:31",
+              "quote": "\"claude-sonnet-4-5-20250929\": (Decimal(\"3.00\"), Decimal(\"15.00\")),",
+              "note": "Only price table keys, dated snapshots; no alias used as default."
+            },
+            {
+              "subject": "adapter/weights versions",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:45",
+              "quote": "adapter: none",
+              "note": "None used, so nothing further to pin."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C05.3",
+          "check": "Self-hosted weights, adapters, and datasets have their signatures checked against an approved signer before loading, and loading stops if the check fails.",
+          "verify": "1) Find load paths for self-hosted weights, adapters, and datasets. 2) Check a signature check against an approved signer (for example OpenSSF Model Signing, `cosign verify` with a pinned identity) runs before loading. 3) Answer no if any path skips it, any signer is accepted, or a failure is caught and loading continues. If nothing is self-hosted, answer yes citing the config that shows that.",
+          "met": "yes",
+          "evidence": "release/manifest.yaml:45",
+          "quote": "adapter: none",
+          "counter_search": "Searched for weight, adapter and dataset load paths; none exist.",
+          "note": "Nothing is self-hosted, so no signature checks are needed.",
+          "coverage": [
+            {
+              "subject": "self-hosted weights/adapters/datasets",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:45",
+              "quote": "adapter: none",
+              "note": "Nothing self-hosted; hosted Anthropic models only, retrieval: none (manifest:91)."
+            },
+            {
+              "subject": "load paths",
+              "status": "enforced",
+              "evidence": "app/loop.py:150",
+              "quote": "response = await self.client.messages.create(**request)",
+              "note": "No weight, adapter or dataset load path exists in the code."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C05.4",
+          "check": "Pickle-based model formats are refused at load unless an approved exception and scan are recorded.",
+          "verify": "1) Search for pickle-capable loads: `pickle.load`, `torch.load`, `joblib.load`, `.pkl`, `.pt`, `.bin` files. 2) Check the loader refuses these formats unless an approved exception and scan are recorded. 3) Answer no if any pickle-based load runs without that check.",
+          "met": "yes",
+          "evidence": "app/loop.py:150",
+          "quote": "response = await self.client.messages.create(**request)",
+          "counter_search": "Searched for pickle, torch, joblib, .pkl, .pt, .bin and safetensors; no matches in code, config or Dockerfile.",
+          "note": "No local model loading of any format.",
+          "coverage": [
+            {
+              "subject": "pickle-capable loads in code",
+              "status": "enforced",
+              "evidence": "app/loop.py:150",
+              "quote": "response = await self.client.messages.create(**request)",
+              "note": "No pickle/torch/joblib load or .pkl/.pt/.bin handling exists; only hosted API calls."
+            },
+            {
+              "subject": "model artifacts",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:46",
+              "quote": "fine_tune: none",
+              "note": "No model files shipped; image contains only app code, prompts and config (Dockerfile:15-19)."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C05.5",
+          "check": "The model version the provider or runtime reports serving is recorded separately from the requested model name.",
+          "verify": "1) Find model call sites and their response handling. 2) Check the served version from the response or runtime (for example the response `model` field) is stored in its own field. 3) Answer no if only the requested name is recorded, or the served field is filled with the requested value.",
+          "met": "yes",
+          "evidence": "app/loop.py:158",
+          "quote": "\"served_model\": response.model,",
+          "counter_search": "Checked both model call sites (loop.py:150, extractor.py:74); both record response.model separately from the requested model.",
+          "note": "Served model is stored in its own field from the response.",
+          "coverage": [
+            {
+              "subject": "main loop model call",
+              "status": "enforced",
+              "evidence": "app/loop.py:158",
+              "quote": "\"served_model\": response.model,",
+              "note": "Stored as served_model beside requested_model (loop.py:157), taken from the response."
+            },
+            {
+              "subject": "extractor model call",
+              "status": "enforced",
+              "evidence": "app/extractor.py:80",
+              "quote": "payload={\"requested_model\": request[\"model\"], \"served_model\": response.model,",
+              "note": "Same separate recording in the sub-agent."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "Dockerfile:7 Transitive dependencies are not locked; no lockfile or hashes."
+      ],
+      "violates": [
+        "Pin dependency versions"
+      ],
+      "also_affects": [],
+      "summary": "Direct dependencies are pinned but there is no lockfile, so transitive packages are unpinned.",
+      "next_step": "Generate a hashed lockfile and install with --require-hashes in the Dockerfile and CI.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "C06",
+      "gate": "G2",
+      "title": "Re-test changed behavior",
+      "requirement": "Before promotion, run typical allowed tasks and attack cases against the release candidate. Include destructive-action denial, access limits, injection containment, audit attribution, and stopping. Include retrieval, memory, and checker tests where they apply. If misalignment is in scope, include attempts to slip past monitoring and the stop path. Keep the results for the exact candidate manifest.",
+      "not_covered": [
+        {
+          "problem": "Running config drifting from the approved baseline unnoticed",
+          "owner": "C04"
+        },
+        {
+          "problem": "No tested rollback to an approved setup",
+          "owner": "C07"
+        },
+        {
+          "problem": "Config changes made without a reviewed diff and named author",
+          "owner": "C02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yaml",
+          "line": 20,
+          "note": "The test job runs the unit suite on the source checkout, not against the built candidate image digest or model ids, with no pass criteria in config. The release job only needs: test (ci.yaml:41) and builds a new image after; no gate evaluates the candidate manifest."
+        }
+      ],
+      "checks": [
+        {
+          "id": "C06.1",
+          "check": "A CI release gate runs the test suite against the exact candidate (manifest digest and model IDs), with pass criteria set before the run, and blocks promotion on any blocking failure.",
+          "verify": "1) Open the CI workflow for release or promotion. 2) Check it runs the suite against the candidate's manifest digest and model IDs, with pass criteria in config before the run. 3) Check promotion depends on it. 4) Answer no if the job uses `continue-on-error`, `|| true`, or allowed failures, tests a different build, or promotion can run without it.",
+          "met": "no",
+          "evidence": ".github/workflows/ci.yaml:20",
+          "quote": "- run: pytest -q",
+          "counter_search": "",
+          "note": "The test job runs the unit suite on the source checkout, not against the built candidate image digest or model ids, with no pass criteria in config. The release job only needs: test (ci.yaml:41) and builds a new image after; no gate evaluates the candidate manifest.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C06.2",
+          "check": "The suite includes cases for destructive-action denial, access limits, injection containment, audit attribution, and stopping, plus retrieval, memory, and checker tests where these apply.",
+          "verify": "1) List the test cases in the release suite. 2) Check each category exists: destructive-action denial, access limits, injection containment, audit attribution, stopping, plus retrieval, memory, and checker tests where those features exist. 3) Answer no if any category is missing or its tests are skipped (`skip`, `xfail`, excluded markers).",
+          "met": "no",
+          "evidence": "tests/test_gate.py:38",
+          "quote": "async def test_payment_requires_approval():",
+          "counter_search": "",
+          "note": "Suite has gate approval, budget, redaction and one injection-text test. No tests for audit attribution, stopping/kill switch, tenant access limits, memory, or end-to-end injection containment or the extractor/checker; the agent has memory (tools/memory.py) and a kill switch (killswitch.py).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C06.3",
+          "check": "Test results are stored linked to the exact candidate manifest.",
+          "verify": "1) Find where CI stores test results (artifacts, uploads, database). 2) Check each result is tagged with the candidate's manifest digest or type ID. 3) Answer no if results stay only in CI logs, are tagged only by branch or build number, or are not stored.",
+          "met": "no",
+          "evidence": ".github/workflows/ci.yaml:20",
+          "quote": "- run: pytest -q",
+          "counter_search": "",
+          "note": "Results go only to the CI log; no artifact upload or storage tagged with the manifest digest or agent-type-id.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        ".github/workflows/ci.yaml:41 Release depends only on unit tests run on source, not on a candidate-manifest release suite."
+      ],
+      "violates": [
+        "run typical allowed tasks and attack cases against the release candidate"
+      ],
+      "also_affects": [],
+      "summary": "Release is gated only by unit tests on source, the suite lacks several required categories, and results are not stored against the manifest.",
+      "next_step": "Add a release-candidate suite (destructive denial, access limits, injection, attribution, stop, memory) run against the image digest and model ids, with stored results keyed to the manifest.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "C07",
+      "gate": "G2",
+      "title": "Rollback and restart",
+      "requirement": "Keep an approved recovery setup and show that rollback works. Confirm each hosted model it names is still offered, and record the announced retirement date. Account for changed credentials, memory and index state, checkpoints, and queued work. Don't restore revoked permissions or replay unsafe side effects just because the old artifact still exists.",
+      "not_covered": [
+        {
+          "problem": "Changed or tampered checkpoints accepted, or unsafe replay of actions",
+          "owner": "R14"
+        },
+        {
+          "problem": "Hosted model changing behind a fixed name",
+          "owner": "C05"
+        },
+        {
+          "problem": "Stop doesn't halt running work or open tool streams within a set time",
+          "owner": "R11"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "release/manifest.yaml",
+          "line": 3,
+          "note": "Only the current release manifest exists; no earlier approved recovery manifest and no rollback script, pipeline or runbook anywhere in the repo (README Operating section lists only halt, release, network)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "C07.1",
+          "check": "An approved recovery setup is defined with references that can't change, and a rollback procedure or pipeline exists in code.",
+          "verify": "1) Find the recovery setup: a pinned earlier manifest or release record. 2) Check its references are digests or fixed versions. 3) Find a rollback script, pipeline, or runbook in the repo. 4) Answer no if references are tags or aliases, or no rollback procedure exists.",
+          "met": "no",
+          "evidence": "release/manifest.yaml:3",
+          "quote": "release: \"procurement-agent 2026.09.4\"",
+          "counter_search": "",
+          "note": "Only the current release manifest exists; no earlier approved recovery manifest and no rollback script, pipeline or runbook anywhere in the repo (README Operating section lists only halt, release, network).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C07.2",
+          "check": "Credentials and permission grants are managed apart from the rolled-back artifacts, so a rollback does not restore revoked access.",
+          "verify": "1) Open the rollback procedure. 2) Check what it restores. 3) Answer no if it re-applies IAM policies, RoleBindings, secrets, or API keys from the old release, so revoked access comes back. Answer unknown if credentials are managed in another system and the repo does not show how.",
+          "met": "unknown",
+          "evidence": "README.md:55",
+          "quote": "## Operating",
+          "counter_search": "",
+          "note": "No rollback procedure exists to inspect. Credentials come from the STS and projected tokens (identity.py:99-112) outside release artifacts, but the repo does not show how a rollback would treat them.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C07.3",
+          "check": "The rollback procedure handles memory and index state, checkpoints, and queued work explicitly (drain, migrate, or discard), so unsafe side effects are not replayed.",
+          "verify": "1) Open the rollback procedure. 2) Look for explicit steps for memory and index state, checkpoints, and queued work: drain, migrate, or discard. 3) Answer no if any of these is not handled, or queued work is replayed as-is.",
+          "met": "no",
+          "evidence": "README.md:55",
+          "quote": "## Operating",
+          "counter_search": "",
+          "note": "No rollback procedure handles memory/index state (dept_notes), checkpoints or queued work; nothing drains, migrates or discards them.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C07.4",
+          "check": "Each hosted model named in the recovery setup has a recorded retirement date.",
+          "verify": "1) List the hosted models named in the recovery setup. 2) Check each has a recorded retirement date. 3) Answer no if any hosted model lacks one.",
+          "met": "no",
+          "evidence": "release/manifest.yaml:42",
+          "quote": "model_id: \"claude-sonnet-4-5-20250929\"",
+          "counter_search": "",
+          "note": "Hosted models named in the manifest (also :54) carry no retirement date field or value.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "README.md:55 No rollback procedure or recovery setup is defined."
+      ],
+      "violates": [
+        "Keep an approved recovery setup and show that rollback works"
+      ],
+      "also_affects": [],
+      "summary": "No approved recovery setup, rollback procedure, or model retirement dates exist in the repo.",
+      "next_step": "Define a pinned prior manifest and a rollback pipeline that handles credentials, memory, and queues, and record retirement dates for each hosted model.",
+      "lead_role": "operations"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

@@ -1,9 +1,22 @@
 # Dedicated MCP review qualification
 
-This evaluates forced invocation of `skills/brace-mcp-review` on synthetic source
-fixtures. It does not qualify native skill discovery, live MCP behavior, current
-advisory discovery, or deployment safety. No no-skill baseline is included, so it
-cannot measure the skill's causal improvement over the model alone.
+The [2026-10-26 real-source advice evaluation](../field-reviews/2026-10-26/README.md) completed six fresh
+Sonnet reviews of official GitHub, Notion self-hosted and reference filesystem
+implementations. All six contained incorrect/unsupported assertions (plain: eight
+grouped claims; skill: five, including minor inventories). Independent audits
+separate useful findings, conditional remedies and material false assurances.
+One report per arm per implementation establishes neither skill gain nor
+deployment safety; the candidate skill remains unchanged.
+
+The new [coverage evaluation](coverage/README.md) is built before further skill
+changes. It adds four paired families, matched skill/no-skill arms, source-anchored
+keys and separate coverage/evaluator metrics. Its completed three-arm results
+and the subsequent deeper study are linked below.
+
+The original protocol below evaluates forced invocation of
+`skills/brace-mcp-review` on synthetic source fixtures without a no-skill baseline.
+Later comparisons add detailed/plain/brief-skill arms. None qualifies native skill
+discovery, live MCP behavior, current advisory discovery, or deployment safety.
 
 ## Protocol frozen before scoring, 2026-10-23
 
@@ -82,3 +95,25 @@ The final [results and audit](../results/2026-10-23-mcp-source-table/README.md)
 separate reviewer quality from grader faults. After auditing those traces, the
 current runner also records reviewer and grader policy issues separately; the
 campaigns retain their original runner snapshots and combined raw status.
+
+The [three-arm coverage comparison](coverage/README.md) separates a detailed
+expert prompt, a plain review request and a short MCP-skill invocation.
+[Current campaign](../results/2026-10-24-mcp-three-arm/README.md); previous
+two-arm added-value results remain preserved.
+
+The [deeper fixture edition](deep/README.md) was independently authored, frozen
+and key-audited before the [latest skill repairs](../results/2026-10-25-mcp-skill-repair-v3/README.md).
+The [first deeper comparison](../results/2026-10-25-mcp-deep-source-graded/README.md)
+uses independent source grading after a narrow
+[calibration gate](../results/2026-10-25-mcp-source-calibration/README.md).
+Discovery and incorrect claims are separate from coverage and report completeness.
+These cases become known regressions after use; qualification limits remain.
+
+
+The [stateful difficulty pilot](stateful/README.md) adds six issue/corrected pairs
+for cross-request, revocation, representation, retry, idempotency and approval
+binding reasoning. The [completed plain-request pilot](../results/2026-10-26-mcp-stateful-plain-pilot/README.md)
+found all 18 required observations across 36 reviews, so these cases still have
+a discovery ceiling. Its hidden witnesses are static source traces; independent
+source audit acceptance and report grading are recorded separately. The existing runner can freeze it with `--data evals/mcp/stateful`,
+but model campaigns and runtime execution are outside fixture construction.

@@ -1,0 +1,395 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-10-20T13:33:39Z",
+  "scope": "Batch review of E10, E11, E12 only, on the procurement agent repo (app/, migrations/, config/, deploy/k8s, release/, README). Gateway and in-process extractor sub-agent audit code was read. ERP MCP gateway, payments API, Slack proxy, the Postgres instance, OTel collector, alert routing, runbooks and on-call config are outside the repo and were not seen. Nothing was run. Pre-scan hits H001-H007 belong to B07, B08, B09, B11 and R05, outside this batch, and are left for those batches. No challenges were run for this batch.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "E10",
+      "gate": "G1",
+      "title": "Audit across service boundaries",
+      "requirement": "Rebuild a run across the gateway, tool services, and delegated workers, with all six identity fields kept. Check that the agent can't erase or rewrite its audit history, either directly or by asking a more powerful tool or peer. Check that a vendor boundary doesn't leave any action untraceable to the agent and instance that did it.",
+      "not_covered": [
+        {
+          "problem": "Audit retention, access, redaction, or export rules missing",
+          "owner": "E11"
+        },
+        {
+          "problem": "Authorization decisions missing the policy version in the run record",
+          "owner": "R13"
+        },
+        {
+          "problem": "Instance or tenant labels taken from what the model supplies",
+          "owner": "A04"
+        },
+        {
+          "problem": "Recovery checkpoints not tamper-evident",
+          "owner": "R14"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "app/mcp_client.py",
+          "line": 77,
+          "note": "Audit rows carry all six fields in the gateway and the in-process extractor sub-agent, but outbound calls to the ERP gateway send no trace context (only run_id/business_unit in _meta, mcp_client.py:125), and pay_invoice sends no trace header (payments.py:31). No httpx/OTel instrumentation is installed (pyproject.toml). The mail ingest write (ingest.py:142) and the approval decision (main.py:183) write no audit row. Tool services themselves are outside this repo."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E10.1",
+          "check": "The gateway, tool services, and delegated workers each write audit records with all six identity fields and the shared trace context.",
+          "verify": "1) Find audit writers in the gateway, tool services, and delegated workers. 2) Check each writes all six identity fields and the shared trace context. 3) Answer no if any component writes records without them or starts a new trace. Answer unknown if a component's code is outside this repo.",
+          "met": "no",
+          "evidence": "app/mcp_client.py:77",
+          "quote": "headers={\"Authorization\": f\"Bearer {token}\", \"Mcp-Protocol-Version\": \"2025-06-18\"},",
+          "counter_search": "Searched app, pyproject.toml, Dockerfile for traceparent/instrument: none found.",
+          "note": "Audit rows carry all six fields in the gateway and the in-process extractor sub-agent, but outbound calls to the ERP gateway send no trace context (only run_id/business_unit in _meta, mcp_client.py:125), and pay_invoice sends no trace header (payments.py:31). No httpx/OTel instrumentation is installed (pyproject.toml). The mail ingest write (ingest.py:142) and the approval decision (main.py:183) write no audit row. Tool services themselves are outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E10.2",
+          "check": "The agent's credentials have no permission to delete, update, or overwrite audit records (for example an append-only or WORM store with IAM denies).",
+          "verify": "1) Find the agent's IAM role or database grants and the audit store config. 2) Check the agent has no delete, update, or overwrite rights (`DeleteObject`, overwriting `PutObject`, `UPDATE`, `DELETE`, `TRUNCATE`) and the store is append-only or WORM (Object Lock). 3) Answer no if the agent's credentials can delete or rewrite records, or grant `*`. Answer unknown if these are set outside this repo.",
+          "met": "yes",
+          "evidence": "migrations/001_init.sql:121",
+          "quote": "GRANT SELECT, INSERT ON audit_events TO procurement_agent;",
+          "counter_search": "Searched migrations and deploy for UPDATE/DELETE/TRUNCATE/GRANT ALL/PUBLIC grants on audit_events and for other credentials: only SELECT,INSERT for the agent role; ops has SELECT only.",
+          "note": "Agent DB role can insert and read audit rows but not update, delete or truncate. Live DB role membership is outside the repo.",
+          "coverage": [
+            {
+              "subject": "procurement_agent DB grants on audit_events",
+              "status": "enforced",
+              "evidence": "migrations/001_init.sql:121",
+              "quote": "GRANT SELECT, INSERT ON audit_events TO procurement_agent;",
+              "note": "Agent role gets only SELECT and INSERT on the audit table."
+            },
+            {
+              "subject": "blanket revoke of agent role privileges",
+              "status": "enforced",
+              "evidence": "migrations/001_init.sql:120",
+              "quote": "REVOKE ALL ON ALL TABLES IN SCHEMA public FROM procurement_agent;",
+              "note": "All earlier table privileges are removed before the narrow grants."
+            },
+            {
+              "subject": "agent DB connection identity",
+              "status": "enforced",
+              "evidence": "deploy/k8s/deployment.yaml:45",
+              "quote": "value: \"postgresql://procurement_agent@procurement-db.procurement-data.svc.cluster.local:5432/procurement?sslmode=verify-full\"",
+              "note": "The running agent connects as procurement_agent, not the owner role."
+            },
+            {
+              "subject": "ops role on audit_events",
+              "status": "enforced",
+              "evidence": "migrations/001_init.sql:132",
+              "quote": "GRANT SELECT ON audit_events TO procurement_ops;",
+              "note": "The operator role can only read audit rows, not change them."
+            },
+            {
+              "subject": "Kubernetes API token for the pod",
+              "status": "not_applicable",
+              "evidence": "deploy/k8s/deployment.yaml:20",
+              "quote": "automountServiceAccountToken: false",
+              "note": "No Kubernetes API credential is mounted, so no cluster-side audit store access."
+            },
+            {
+              "subject": "STS-issued tokens (erp, payments, slack audiences)",
+              "status": "enforced",
+              "evidence": "app/identity.py:94",
+              "quote": "async def token_for(self, audience: str, scope: str, ident: RunIdentity) -> str:",
+              "note": "Tokens are bound to ERP, payments or Slack audiences, none for an audit store."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E10.3",
+          "check": "No tool or peer the agent can call is able to delete or rewrite audit records on its behalf, or such requests are held for approval under B05.",
+          "verify": "1) List the tools and peers the agent can call. 2) For each, check whether it can delete or rewrite audit records (database admin, log management, storage tools). 3) Answer no if any can and such requests are not held for approval under B05.",
+          "met": "yes",
+          "evidence": "config/tools.yaml:5",
+          "quote": "read_document: \"Read vendor quotes, invoices and emails that arrived through the mail gateway.\"",
+          "counter_search": "Searched app/tools and config for audit_events, DELETE, TRUNCATE, log or storage admin tools: no tool touches audit storage; ERP tools are pinned and none is audit related.",
+          "note": "Nine tools plus the extractor peer, none can delete or rewrite audit rows.",
+          "coverage": [
+            {
+              "subject": "role procurement tool allowlist",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:5",
+              "quote": "read_document: \"Read vendor quotes, invoices and emails that arrived through the mail gateway.\"",
+              "note": "Role lists nine tools; none is a database, log or storage admin tool."
+            },
+            {
+              "subject": "erp_call generic ERP reads",
+              "status": "enforced",
+              "evidence": "app/gate.py:35",
+              "quote": "if not operation.startswith(self.erp_read_prefixes):",
+              "note": "Only budget, vendor, invoice and po read namespaces pass; no audit operation."
+            },
+            {
+              "subject": "ERP MCP pinned tool set",
+              "status": "enforced",
+              "evidence": "app/mcp_client.py:95",
+              "quote": "expected = self.pins.get(tool[\"name\"])",
+              "note": "Startup rejects any ERP tool not in the pinned manifest list, none audit-related."
+            },
+            {
+              "subject": "memory_write tool",
+              "status": "enforced",
+              "evidence": "app/tools/memory.py:76",
+              "quote": "await pool.execute(",
+              "note": "Only inserts into dept_notes with fixed SQL, never touching audit_events."
+            },
+            {
+              "subject": "extractor sub-agent peer",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:14",
+              "quote": "extractor:",
+              "note": "Peer role only has read_document, so it cannot reach audit storage."
+            },
+            {
+              "subject": "post_slack_message and pay_invoice vendors",
+              "status": "not_applicable",
+              "evidence": "app/tools/slack.py:72",
+              "quote": "return await slack.post(channel=args[\"channel\"], text=args[\"text\"])",
+              "note": "These call Slack and payments APIs only, which hold no audit records."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E10.4",
+          "check": "Calls into vendor services are mapped from the gateway's verified identity and correlation ID to the vendor's job or receipt ID.",
+          "verify": "1) Find calls into vendor services. 2) Check the gateway stores its verified identity and correlation ID together with the vendor's job or receipt ID. 3) Answer no if the vendor ID is not stored, or stored without the link to identity and correlation ID.",
+          "met": "no",
+          "evidence": "app/loop.py:93",
+          "quote": "return _error(use.id, f\"{use.name} failed: {type(exc).__name__}\")",
+          "counter_search": "Searched app for receipt/job_id/idempotency storage: only the tool_result payload holds the vendor id.",
+          "note": "On success tool_result stores the vendor payment_id/PO result beside operation_id, tenant, instance and trace_id (loop.py:95-100). On any exception after the vendor call (30s timeout, bad response body) tool_error stores only the exception type and message, no vendor id, and pay_invoice's Idempotency-Key (payments.py:33) is not stored. A vendor action can exist with no vendor receipt linked to the agent instance. Generic erp_call results are stored as returned, with no guaranteed job id.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "app/mcp_client.py:77 ERP calls carry no trace context, so the tool-service segment cannot join the gateway trace",
+        "app/loop.py:93 A failed vendor call (timeout or bad body) records no vendor job or receipt id, so the action may be untraceable"
+      ],
+      "violates": [
+        "Check that a vendor boundary doesn't leave any action untraceable to the agent and instance that did it"
+      ],
+      "also_affects": [],
+      "summary": "Agent and sub-agent audit rows keep all six fields and the agent cannot edit them, but vendor segments are not joined by trace context and failed vendor calls store no receipt id.",
+      "next_step": "Send traceparent and a correlation id to ERP and payments, store the vendor id or idempotency key on every outcome including errors, and audit mail ingest and approval decisions.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E11",
+      "gate": "G2",
+      "title": "Protect shared evidence",
+      "requirement": "Set rules for how long audit records are kept, who can see them, what is redacted, how their integrity is checked, and how they are exported and restored. Test pulling up a past run, and test that missing records or a broken pipeline get noticed. Keep records long enough for investigations and for the law. For example, the EU AI Act requires providers and deployers of high-risk systems to keep automatically generated logs for at least six months (Articles 19 and 26). High-impact actions must fail closed when required audit capture isn't working.",
+      "not_covered": [
+        {
+          "problem": "Agent able to erase or rewrite its own audit history",
+          "owner": "E10"
+        },
+        {
+          "problem": "Run record missing denials, approvals, or results",
+          "owner": "R13"
+        },
+        {
+          "problem": "Secrets left in tool output, responses, or normal logs",
+          "owner": "R03"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "app/audit.py",
+          "line": 67,
+          "note": "digest() hashes single payloads (result_sha256, args) but audit rows have no prev-hash chain, signature, sequence number or delivery receipt (audit_events columns 001_init.sql:4-27). Nothing verifies a hash. No alert on gaps or pipeline failure anywhere in the repo. Grants make the table insert-only for the agent, which is not WORM or tamper evidence."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E11.1",
+          "check": "Audit retention is set in config to cover the investigation window and the legal minimum (for example at least six months for EU AI Act high-risk systems).",
+          "verify": "1) Find retention settings for audit storage: bucket lifecycle rules, log retention days, TTLs. 2) Check the value covers the investigation window and the legal minimum (for example six months for EU AI Act high-risk systems). 3) Answer no if retention is shorter or unset. Answer unknown if audit storage is configured outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Audit rows go to Postgres audit_events (migrations/001_init.sql:4). The repo has no retention, TTL, partition, purge job or lifecycle rule, and nothing deletes audit rows. The database lives in the procurement-data namespace (deployment.yaml:45), so backup/archive retention is set outside this repo. Searched whole repo for retention|retain|lifecycle|TTL.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E11.2",
+          "check": "Access to audit records is limited by role, and redaction rules apply to sensitive fields.",
+          "verify": "1) Find IAM policies or ACLs on audit storage. 2) Check reads are limited by role. 3) Check redaction rules apply to sensitive fields. 4) Answer no if read access is broad (`*`, all engineers) or no redaction exists.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "audit_events is readable by the DB roles procurement_agent and procurement_ops (001_init.sql:121,132), and audit.record redacts payloads (audit.py:116). Who belongs to procurement_ops, any exports, and the OTel collector are outside this repo. The agent role can SELECT audit rows of every tenant (no row-level security). Redaction is regex-only (redact.py:16-29).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E11.3",
+          "check": "Integrity protection (hash chain, signatures, or WORM) plus sequence numbers or delivery receipts let missing records be detected, with an alert on gaps or pipeline failure.",
+          "verify": "1) Open the audit writer and store config. 2) Check for integrity protection (hash chain, signatures, or WORM) plus sequence numbers or delivery receipts. 3) Check an alert fires on gaps or pipeline failure. 4) Answer no if any piece is missing, or a hash is computed but never verified.",
+          "met": "no",
+          "evidence": "app/audit.py:67",
+          "quote": "def digest(value: Any) -> str:",
+          "counter_search": "Searched app, migrations, deploy, config for prev_hash/sequence/seq/verify/alert/object lock: none.",
+          "note": "digest() hashes single payloads (result_sha256, args) but audit rows have no prev-hash chain, signature, sequence number or delivery receipt (audit_events columns 001_init.sql:4-27). Nothing verifies a hash. No alert on gaps or pipeline failure anywhere in the repo. Grants make the table insert-only for the agent, which is not WORM or tamper evidence.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E11.4",
+          "check": "High-impact actions are blocked when required audit capture is down.",
+          "verify": "1) Find high-impact action paths. 2) Check they confirm audit capture is working before the action runs. 3) Answer no if audit write errors are caught and the action proceeds, or the audit record is written only after success.",
+          "met": "yes",
+          "evidence": "app/loop.py:68",
+          "quote": "authz = await audit.record(",
+          "counter_search": "Searched for try/except around audit.record and for tool.invoke before the audit writes: loop.py only catches BudgetExceeded and tool errors; no swallow of audit errors.",
+          "note": "Proposal and authz rows are awaited before tool.invoke, and a failed insert raises and stops the run.",
+          "coverage": [
+            {
+              "subject": "audit write failure raises",
+              "status": "enforced",
+              "evidence": "app/audit.py:93",
+              "quote": "await pool.execute(",
+              "note": "Insert is awaited with no try/except so any DB failure raises to the caller."
+            },
+            {
+              "subject": "tool_proposed written before any action",
+              "status": "enforced",
+              "evidence": "app/loop.py:55",
+              "quote": "proposed = await audit.record(",
+              "note": "The proposal row is written before gate or tool invocation, aborting on failure."
+            },
+            {
+              "subject": "authz_decision written before invoke",
+              "status": "enforced",
+              "evidence": "app/loop.py:68",
+              "quote": "authz = await audit.record(",
+              "note": "Decision row is awaited before tool.invoke, so pay_invoice and PO creation wait for it."
+            },
+            {
+              "subject": "high-impact tool invocation after audit",
+              "status": "enforced",
+              "evidence": "app/loop.py:83",
+              "quote": "output = await tool.invoke(use.input, ident)",
+              "note": "Invoke is reached only after both audit writes returned successfully."
+            },
+            {
+              "subject": "run loop exception handling",
+              "status": "enforced",
+              "evidence": "app/loop.py:175",
+              "quote": "except BudgetExceeded as exc:",
+              "note": "Only budget errors are caught, so audit write errors propagate and end the run."
+            },
+            {
+              "subject": "subagent tool execution",
+              "status": "enforced",
+              "evidence": "app/extractor.py:96",
+              "quote": "results.append(await self.deps.execute_tool(ident, registry, use, decision, ctx))",
+              "note": "Sub-agent tools use the same execute_tool path with audit-first writes."
+            },
+            {
+              "subject": "run start audit",
+              "status": "enforced",
+              "evidence": "app/loop.py:133",
+              "quote": "run_node = await audit.record(",
+              "note": "Run start row is written before the first model turn in the loop."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "app/audit.py:67 Audit rows have no hash chain, sequence number, delivery receipt or gap alert"
+      ],
+      "violates": [
+        "how their integrity is checked"
+      ],
+      "also_affects": [],
+      "summary": "Audit writes fail closed before actions, but rows have no integrity chain, sequence numbers or gap alerts, and retention and access are not set in the repo.",
+      "next_step": "Add a hash chain or signed batches with sequence numbers, a verifier job that alerts on gaps, and retention and access rules for audit storage.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E12",
+      "gate": "G3",
+      "title": "Fleet incident response",
+      "requirement": "Run a drill where a shared tool or agent type is compromised. Find the affected instances and tenants. Quarantine the dependency, revoke the access involved, stop affected work, and alert the named responders. Check that alerts about abuse across agents, and about budgets, reach the team that can act. Name who decides whether to report outside the organization and share information.",
+      "not_covered": [
+        {
+          "problem": "Kill switch for a single agent not drilled",
+          "owner": "R11"
+        },
+        {
+          "problem": "No owner named on each side of a shared control",
+          "owner": "E01"
+        },
+        {
+          "problem": "Tool or MCP server approved without vetting or pinning",
+          "owner": "E02"
+        },
+        {
+          "problem": "Budget and rate limits not enforced outside the model",
+          "owner": "B07"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "app/loop.py",
+          "line": 127,
+          "note": "killswitch.assert_running is called once at run start; running work is not re-checked"
+        },
+        {
+          "file": "app/killswitch.py",
+          "line": 19,
+          "note": "halt scopes are only 'fleet' or one tenant; no tool or agent-type quarantine"
+        },
+        {
+          "file": "app/loop.py",
+          "line": 181,
+          "note": "only alert is a budget message to one Slack channel; no cross-agent abuse alert or named responder"
+        }
+      ],
+      "checks": [],
+      "red_flags_found": [
+        "app/loop.py:127 Halt is only read once at run start and scopes are only fleet or tenant, so a compromised tool or agent type cannot be quarantined and running work is not stopped"
+      ],
+      "violates": [
+        "Quarantine the dependency, revoke the access involved, stop affected work"
+      ],
+      "also_affects": [
+        "R11"
+      ],
+      "summary": "The only stop control is a fleet or tenant halt checked at run start; there is no tool or agent-type quarantine, no fleet impact query, and the only alert is one Slack channel for budgets.",
+      "next_step": "Add tool and agent-type quarantine checked on every step, a query from tool version to instances and tenants, abuse alerts to a named on-call, and a runbook naming who decides on outside reporting.",
+      "lead_role": "security"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

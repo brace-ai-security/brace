@@ -21,6 +21,16 @@ KEY = {"must_find": [{"id": "gap"}], "guards": [{"id": "guard"}], "forbidden_out
 
 
 class HarnessTests(unittest.TestCase):
+    def test_system_constraints_do_not_expand_the_user_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp) / "work"; work.mkdir()
+            with patch.object(qualify.subprocess, "run") as run, patch.object(qualify, "parse_events", return_value=({}, {}, [])):
+                run.return_value.returncode = 0
+                qualify.call(work, "Please review with brace-mcp-review", Path(tmp) / "events.log", 1, system_context="catalog metadata")
+                args, kwargs = run.call_args
+                self.assertEqual(kwargs["input"], "Please review with brace-mcp-review")
+                self.assertEqual(args[0][args[0].index("--append-system-prompt") + 1], qualify.SAFETY + "catalog metadata")
+
     def test_grade_requires_real_quotes_every_case_and_zero_assurance_errors(self):
         report = "observed path:1; external control unknown"
         self.assertTrue(qualify.grade(report, verdict(), KEY)["pass"])
@@ -69,6 +79,36 @@ class HarnessTests(unittest.TestCase):
             log.write_text("\n".join(map(json.dumps, events)))
             self.assertTrue(qualify.parse_events(log, work)[2])
             self.assertEqual(qualify.parse_events(log, work, structured=True)[2], [])
+
+    def test_boundary_requests_are_diagnostic_only_after_confirmed_denial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp); log = work / "events.log"
+            init = {"type": "system", "subtype": "init", "model": "claude-sonnet-5-5", "tools": ["Read", "Glob"], "mcp_servers": []}
+            request = {"type": "assistant", "message": {"model": "claude-sonnet-5-5", "content": [
+                {"type": "tool_use", "id": "outside", "name": "Read", "input": {"file_path": "../expected/key.json"}},
+                {"type": "tool_use", "id": "shell", "name": "Bash", "input": {"command": "ls"}},
+                {"type": "tool_use", "id": "glob", "name": "Glob", "input": {"pattern": "/outside/expected/*.json"}}]}}
+            done = {"type": "result", "result": "report", "is_error": False}
+            denied = {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "outside", "is_error": True,
+                 "content": "Path is outside; --restricted confines the file tools to the working directory."},
+                {"type": "tool_result", "tool_use_id": "shell", "is_error": True,
+                 "content": "Error: No such tool available: Bash."},
+                {"type": "tool_result", "tool_use_id": "glob", "is_error": True,
+                 "content": "Path is outside; --restricted confines the file tools to the working directory."}]}}
+            def parse(events):
+                log.write_text("\n".join(map(json.dumps, events)))
+                return qualify.parse_events(log, work)[2]
+            issues = parse([init, request, denied, done])
+            self.assertEqual(len(issues), 3)
+            self.assertTrue(all(i.startswith("Blocked tool request:") for i in issues))
+            issues = parse([init, request, done])
+            self.assertFalse(any(i.startswith("Blocked") for i in issues))
+            self.assertTrue(any("absolute Glob" in i for i in issues))
+            fake_denied = json.loads(json.dumps(denied))
+            fake_denied["message"]["content"][0]["is_error"] = False
+            issues = parse([init, request, fake_denied, done])
+            self.assertIn("Out-of-workspace access: ../expected/key.json", issues)
 
     def test_reviewer_cannot_see_key_or_prior_report_and_error_is_saved(self):
         with tempfile.TemporaryDirectory() as tmp:

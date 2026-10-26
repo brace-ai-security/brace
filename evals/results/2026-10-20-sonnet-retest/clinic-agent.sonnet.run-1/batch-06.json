@@ -1,0 +1,706 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "clinic-agent (local fixture)",
+  "commit": null,
+  "reviewed_at": "2026-10-20T12:33:18Z",
+  "scope": "Batch review of R14, A01, A02, A03, A04 only. Read all of src/, k8s/deployment.yaml, infra/terraform/iam.tf and github.tf, release/manifest.json and config. Not reviewed: other items, CI workflow internals, staff console, IdP, EHR/payments/STS configuration (outside the repo). Pre-scan hits H001-H011 belong to B11, B02, R13 and E03, not this batch, so they were left unresolved. No challenges were run; R14 na_candidate and all ratings are unchallenged. Nothing was executed. Reviewer: claude-sonnet-5-5.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "A01",
+      "gate": "G1",
+      "title": "Distinct agent identity",
+      "requirement": "Give the agent its own verifiable non-human identity, separate from the user who launched it and from unrelated agents. Preserve any explicitly delegated user/system subject separately and bound the authority used. Show that operators can revoke the agent's access independently of that subject, even when a user starts the run.",
+      "not_covered": [
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        },
+        {
+          "problem": "Instance or tenant labels taken from what the model supplies",
+          "owner": "A04"
+        },
+        {
+          "problem": "A credential scoped to more operations, resources, or tenants than needed",
+          "owner": "B02"
+        },
+        {
+          "problem": "Revocation delay from cached or self-contained tokens not measured",
+          "owner": "B04"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 27,
+          "note": "The reminders CronJob service account is annotated with the same IAM role as the agent service account (line 17); iam.tf:15-16 trusts both. One principal serves two workloads."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A01.1",
+          "check": "The agent runs under its own workload principal (service account, IAM role, SPIFFE ID, or agent ID) that no other service or unrelated agent uses.",
+          "verify": "1) Find the agent's identity: pod `serviceAccountName`, IAM role, SPIFFE ID, or agent ID in IaC or deploy config. 2) Search other deployments, services, and agents in the repo for the same name or role. 3) Answer no if it is shared, `default`, the main backend's identity, or only a string label with no credential. Answer unknown if identity is assigned outside this repo.",
+          "met": "no",
+          "evidence": "k8s/deployment.yaml:27",
+          "quote": "eks.amazonaws.com/role-arn: arn:aws:iam::418295730611:role/clinic-agent-runtime",
+          "counter_search": "",
+          "note": "The reminders CronJob service account is annotated with the same IAM role as the agent service account (line 17); iam.tf:15-16 trusts both. One principal serves two workloads.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A01.2",
+          "check": "Tool and API clients use short-lived credentials with a verified acting-agent identity and any separately bounded user/system delegation; they do not copy a login session or reuse a gateway token at a different backend audience.",
+          "verify": "1) Trace every client credential to its issuer, audience, acting principal and delegated subject. 2) Accept authorized OAuth delegation and supported exchange when agent identity and bounded grants survive. 3) Reject copied sessions, shared static keys, or cross-audience token reuse. 4) Mark issuer/downstream guarantees unknown if only external evidence can show them.",
+          "met": "no",
+          "evidence": "src/integrations/ehr-mcp.ts:41",
+          "quote": "body: new URLSearchParams({ grant_type: \"client_credentials\", client_id, client_secret, scope }),",
+          "counter_search": "",
+          "note": "EHR access uses a static per-clinic client secret from Secrets Manager with no acting-agent or delegated-user claim. payments.ts:33 uses a static restricted key the same way. Only the eligibility peer path exchanges the workload token.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A01.3",
+          "check": "For user-initiated runs, the original user is a verified delegated subject while the acting agent retains its own principal.",
+          "verify": "1) Trace user-started runs and credential issuance, including OAuth delegation and token exchange where supported. 2) Check original subject, acting agent and granted task/tenant/resource limits independently. 3) Reject a user label from model-controlled input or replacement of agent identity with a human session. 4) For machine-only operation, cite the configuration showing there is no delegated user; do not invent one.",
+          "met": "no",
+          "evidence": "src/integrations/eligibility-a2a.ts:44",
+          "quote": "scope: `eligibility:read clinic:${clinicId} patient:${patientId}`,",
+          "counter_search": "",
+          "note": "Subject token is the workload token (line 41). The patient appears only as a scope string from EHR data, not as a verified delegated subject. The chat JWT (webchat.ts:28) and SMS sender are never exchanged for EHR or payments credentials.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A01.4",
+          "check": "Permissions are bound to the agent principal in IaC or RBAC, so revoking that principal alone removes the agent's access without disabling the user.",
+          "verify": "1) Find IAM policies, RoleBindings, or grants in Terraform, Helm, or Kubernetes YAML. 2) Check they bind to the agent principal, not to a user, group, or shared role. 3) Check that removing that binding alone would cut the agent's access. 4) Answer no if revoking the agent cannot remove its access independently, or authority uses a shared credential. User grants may legitimately bound an explicitly delegated flow. Answer unknown if permissions are not defined in this repo.",
+          "met": "no",
+          "evidence": "src/integrations/ehr-mcp.ts:36",
+          "quote": "const sec = await sm.send(new GetSecretValueCommand({ SecretId: `clinic-agent/ehr/${clinicId}` }));",
+          "counter_search": "",
+          "note": "EHR and payments authority is long-lived per-clinic client secrets. Revoking the IAM role (iam.tf) stops new secret reads but does not revoke those credentials, which stay valid at the EHR and payments provider, and the same role serves the cron too.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "k8s/deployment.yaml:27 Reminders service account shares the agent IAM role",
+        "src/integrations/payments.ts:33 Payments uses a static per-clinic restricted key, not an agent-bound short-lived credential"
+      ],
+      "violates": [
+        "Show that operators can revoke the agent's access independently of that subject"
+      ],
+      "also_affects": [],
+      "summary": "EHR and payments calls use static per-clinic secrets, and the reminders job shares the agent's IAM role.",
+      "next_step": "Issue short-lived agent-bound credentials with token exchange carrying the delegated user, and give the cron its own role.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "A02",
+      "gate": "G1",
+      "title": "All six identity fields",
+      "requirement": "Check that every action records the accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context. Look at successful, denied, failed, and background actions, not just the main request path.",
+      "not_covered": [
+        {
+          "problem": "Identity labels taken from what the model supplies",
+          "owner": "A04"
+        },
+        {
+          "problem": "Agent-type-id not computed as a hash of its identity inputs",
+          "owner": "A03"
+        },
+        {
+          "problem": "Agent able to erase or rewrite its own audit history",
+          "owner": "E10"
+        },
+        {
+          "problem": "Sub-agent record missing its parent link or parent prompt",
+          "owner": "A06"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/audit/recorder.ts",
+          "line": 60,
+          "note": "Schema requires all six fields and the writer parses every record against it."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A02.1",
+          "check": "The audit record schema has all six fields: accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context.",
+          "verify": "1) Find the audit record schema or the function that writes audit entries. 2) Check for each of the six: accountable party, operational owner, tenant, `agent.type.id`, `agent.instance.id`, trace context (`traceparent` or trace and span IDs). 3) Answer no if any one is missing from the schema or never set.",
+          "met": "yes",
+          "evidence": "src/audit/recorder.ts:60",
+          "quote": "const full = AuditEvent.parse({ ...e, eventId: randomUUID(), ts: new Date().toISOString() });",
+          "counter_search": "Searched audit.record callers and the schema for a missing or optional identity field; all six are required in IdentityFields (recorder.ts:9-14). Value provenance is judged in A02.4.",
+          "note": "Schema requires all six fields and the writer parses every record against it.",
+          "coverage": [
+            {
+              "subject": "accountableParty",
+              "status": "enforced",
+              "evidence": "src/audit/recorder.ts:9",
+              "quote": "accountableParty: z.string().min(1),",
+              "note": "Required in the schema; set from env.accountableParty in the run context."
+            },
+            {
+              "subject": "operationalOwner",
+              "status": "enforced",
+              "evidence": "src/audit/recorder.ts:10",
+              "quote": "operationalOwner: z.string().min(1),",
+              "note": "Required; set from env.operationalOwner. on this path, as quoted here"
+            },
+            {
+              "subject": "tenantId",
+              "status": "enforced",
+              "evidence": "src/audit/recorder.ts:11",
+              "quote": "tenantId: z.string().min(1),",
+              "note": "Required; set from the run context."
+            },
+            {
+              "subject": "agentTypeId",
+              "status": "enforced",
+              "evidence": "src/audit/recorder.ts:12",
+              "quote": "agentTypeId: z.string().startsWith(\"sha256:\"),",
+              "note": "Required sha256 value. on this path, as quoted here"
+            },
+            {
+              "subject": "agentInstanceId",
+              "status": "enforced",
+              "evidence": "src/audit/recorder.ts:13",
+              "quote": "agentInstanceId: z.string().uuid(),",
+              "note": "Required UUID. on this path, as quoted here"
+            },
+            {
+              "subject": "traceparent",
+              "status": "enforced",
+              "evidence": "src/audit/recorder.ts:14",
+              "quote": "traceparent: z.string().regex(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/),",
+              "note": "Required W3C traceparent. on this path, as quoted here"
+            },
+            {
+              "subject": "writer",
+              "status": "enforced",
+              "evidence": "src/audit/recorder.ts:60",
+              "quote": "const full = AuditEvent.parse({ ...e, eventId: randomUUID(), ts: new Date().toISOString() });",
+              "note": "Every record is parsed against the schema before delivery."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A02.2",
+          "check": "All six fields are written on denied, failed, async, and background actions too, not only on the successful main request path.",
+          "verify": "1) List every path that writes an audit record, or should: success, policy deny, `except`/`catch` blocks, retries, queue workers, cron jobs, webhooks, other endpoints such as approvals, and refusals before the run starts (quota, rate limit, auth) that return an error without logging. 2) For each, check all six fields are set, ideally by one shared wrapper. 3) Answer no if any deny, error, async, or background path writes records without them, or writes no record at all.",
+          "met": "no",
+          "evidence": "src/routes/webchat.ts:24",
+          "quote": "if (!auth.startsWith(\"Bearer \")) return reply.code(401).send({ error: \"missing token\" });",
+          "counter_search": "",
+          "note": "Pre-run refusals write no audit record: webchat 401/400/404 (webchat.ts:24,36,40,45) and SMS 400/404 (sms-webhook.ts:57,61). A failed SMS signature is only logged (sms-webhook.ts:52). run.started at loop.ts:36 sits outside the try, so an audit failure there is uncaught.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A02.3",
+          "check": "Trace context (trace and span IDs) is stored in the audit record itself, not only in separate tracing spans.",
+          "verify": "1) Open the audit record writer. 2) Check it stores trace and span IDs (or `traceparent`) as fields in the record itself. 3) Answer no if trace context exists only in OpenTelemetry spans, or the record's trace field is never filled.",
+          "met": "yes",
+          "evidence": "src/audit/recorder.ts:14",
+          "quote": "traceparent: z.string().regex(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/),",
+          "counter_search": "Searched for trace context kept only in spans; no OTel span code writes it. spanAttributes in context-size.ts is separate and the record has its own required field.",
+          "note": "traceparent is a required field of the record, filled by the run context.",
+          "coverage": [
+            {
+              "subject": "traceparent field",
+              "status": "enforced",
+              "evidence": "src/audit/recorder.ts:14",
+              "quote": "traceparent: z.string().regex(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/),",
+              "note": "Trace and span ids are a required field of the record itself."
+            },
+            {
+              "subject": "writer",
+              "status": "enforced",
+              "evidence": "src/audit/recorder.ts:60",
+              "quote": "const full = AuditEvent.parse({ ...e, eventId: randomUUID(), ts: new Date().toISOString() });",
+              "note": "Record is rejected if traceparent is absent."
+            },
+            {
+              "subject": "value source",
+              "status": "enforced",
+              "evidence": "src/agent/identity.ts:96",
+              "quote": "const traceparent = init.traceparent ?? `00-${randomUUID().replace(/-/g, \"\")}-${randomUUID().replace(/-/g, \"\").slice(0, 16)}-01`;",
+              "note": "Run context fills the field, generating one if none is supplied."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A02.4",
+          "check": "Tenant and owner values come from the trusted layer, not from baggage, tracestate, or other unprotected headers.",
+          "verify": "1) Find where tenant and owner values for audit records are read. 2) Trace each back to its source: token claims, verified session, IAM tags, or SPIFFE path, versus OTel baggage, `tracestate`, headers like `X-Tenant-Id`, request body, or tool arguments. 3) Answer no if any path takes them from an unprotected source.",
+          "met": "no",
+          "evidence": "src/routes/webchat.ts:43",
+          "quote": "const tenantId = (req.headers[\"x-clinic-id\"] as string | undefined) ?? claims.clinic_id;",
+          "counter_search": "",
+          "note": "Tenant written to every audit record comes from the caller header first, not the verified claim. SMS tenant comes from the body field 'to' (sms-webhook.ts:60) even when the signature check failed (lines 49-54).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/routes/sms-webhook.ts:51 Failed SMS signature is logged and processing continues with no audit record"
+      ],
+      "violates": [
+        "Look at successful, denied, failed, and background actions"
+      ],
+      "also_affects": [
+        "A04"
+      ],
+      "summary": "Refusals before a run starts and failed SMS signatures write no audit record, and tenant comes from a caller header.",
+      "next_step": "Audit every refusal through the shared wrapper and take tenant only from verified claims.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "A03",
+      "gate": "G1",
+      "title": "Content-derived type identity",
+      "requirement": "Compute the agent-type-id as a hash of the container digest, harness, system prompt, model ID and version, and configuration. The model part includes checkpoint and fine-tune or adapter references where they apply. Keep the list of inputs (the manifest) and the hashing steps. Check that changing any input changes the ID, and that the same manifest gives the same ID.",
+      "not_covered": [
+        {
+          "problem": "Changed running config still reporting the old approved ID",
+          "owner": "C03"
+        },
+        {
+          "problem": "Hosted model changing behind a fixed name",
+          "owner": "C05"
+        },
+        {
+          "problem": "Release manifest missing training job, dataset, or model provider records",
+          "owner": "C01"
+        },
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent/identity.ts",
+          "line": 24,
+          "note": "Manifest hashes image digest, harness version and sha, prompts, models and three config files. System prompt prompts/system.md is not hashed because of the .txt filter. Image digest and git sha come from env and default to an empty string (server.ts:28,30)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A03.1",
+          "check": "The agent-type-id is a hash over a manifest that includes the container digest, harness, system prompt, model ID and version, and configuration.",
+          "verify": "1) Find the code or CI step that computes `agent.type.id` (search `sha256`, `hashlib`, `createHash`, `type_id`). 2) List its inputs. 3) Check each is there: container digest, harness, system prompt, model ID and version, configuration. 4) Answer no if the ID is a label, version string, or git tag, or any input is missing.",
+          "met": "no",
+          "evidence": "src/agent/identity.ts:24",
+          "quote": ".filter((f) => f.endsWith(\".txt\"))",
+          "counter_search": "",
+          "note": "Manifest hashes image digest, harness version and sha, prompts, models and three config files. System prompt prompts/system.md is not hashed because of the .txt filter. Image digest and git sha come from env and default to an empty string (server.ts:28,30).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A03.2",
+          "check": "The hash covers every file that defines the prompt, tools, and configuration, with no file or directory skipped or excluded.",
+          "verify": "1) Open the function that lists files to hash. 2) Write down every filter it applies: hidden files, names starting with '_' or '__', extensions, ignore lists, glob patterns. 3) For each filter, check whether a file that defines tools, prompts, or config would be skipped (for example `__init__.py`, `index.ts`, `.env`, `config/*.local.*`). 4) Answer no if any such file is skipped.",
+          "met": "no",
+          "evidence": "src/agent/identity.ts:24",
+          "quote": ".filter((f) => f.endsWith(\".txt\"))",
+          "counter_search": "",
+          "note": "Only prompts/*.txt are hashed; prompts/system.md (the system prompt read at loop.ts:14) is skipped. Config is a fixed list of three YAML files (line 8).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A03.3",
+          "check": "The model input is a pinned version or snapshot (plus checkpoint and adapter references where used), not an alias and not the app's release number.",
+          "verify": "1) Find the model ID that goes into the manifest or hash. 2) Follow env vars and config to the final value, including defaults such as `getenv('MODEL', ...)`. 3) Answer no if it is an alias (`-latest`, no date or version), falls back to one when unset, or is the app release number. Also no if adapters or checkpoints are used but left out.",
+          "met": "yes",
+          "evidence": "src/config.ts:49",
+          "quote": "export const AGENT_MODEL = \"claude-sonnet-4-5-20250929\";",
+          "counter_search": "Searched for env-based model overrides, -latest aliases and adapters; none. loop.ts:59 and classifier use these constants.",
+          "note": "Both models are dated snapshots with no fallback.",
+          "coverage": [
+            {
+              "subject": "agent model",
+              "status": "enforced",
+              "evidence": "src/config.ts:49",
+              "quote": "export const AGENT_MODEL = \"claude-sonnet-4-5-20250929\";",
+              "note": "Dated snapshot, hard-coded, no env fallback."
+            },
+            {
+              "subject": "classifier model",
+              "status": "enforced",
+              "evidence": "src/config.ts:50",
+              "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";",
+              "note": "Dated snapshot, hard-coded. on this path, as quoted here"
+            },
+            {
+              "subject": "hash input",
+              "status": "enforced",
+              "evidence": "src/agent/identity.ts:29",
+              "quote": "parts.push([\"model.agent\", Buffer.from(AGENT_MODEL)]);",
+              "note": "The pinned id enters the manifest."
+            },
+            {
+              "subject": "adapters",
+              "status": "enforced",
+              "evidence": "release/manifest.json:23",
+              "quote": "\"adapter\": null,",
+              "note": "No adapter or checkpoint is used, so none is omitted."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A03.4",
+          "check": "The manifest is put in a fixed, documented order before hashing, so the same manifest always gives the same ID.",
+          "verify": "1) Open the serialization step before hashing. 2) Check for a fixed order: sorted keys (`sort_keys=True`), sorted file lists, fixed encoding and line endings. 3) Check file lists are not taken straight from directory listing or map iteration order. 4) Answer no if any unsorted dict, map, or filesystem order reaches the hash.",
+          "met": "yes",
+          "evidence": "src/agent/identity.ts:25",
+          "quote": ".sort();",
+          "counter_search": "Searched for unsorted map or directory order reaching the hash; only readdirSync is used and it is sorted, config list is a fixed array.",
+          "note": "Fixed, documented order with NUL framing.",
+          "coverage": [
+            {
+              "subject": "prompt file order",
+              "status": "enforced",
+              "evidence": "src/agent/identity.ts:25",
+              "quote": ".sort();",
+              "note": "Prompt files are sorted before hashing."
+            },
+            {
+              "subject": "config file order",
+              "status": "enforced",
+              "evidence": "src/agent/identity.ts:8",
+              "quote": "const CONFIG_FILES = [\"config/policy.yaml\", \"config/tools.allowlist.yaml\", \"config/budgets.yaml\"];",
+              "note": "Fixed array order. on this path, as quoted here"
+            },
+            {
+              "subject": "framing",
+              "status": "enforced",
+              "evidence": "src/agent/identity.ts:41",
+              "quote": "h.update(\"\\0\");",
+              "note": "Label and bytes are NUL-framed in a fixed order, documented at identity.ts:6-7."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A03.5",
+          "check": "Secret values are not placed in the hashed manifest in a form that exposes them.",
+          "verify": "1) List every value fed into the manifest or hash. 2) Check whether any are secrets: API keys, tokens, passwords, private keys, `.env` contents. 3) Answer no if a secret value is written in plain text to the stored manifest, or the whole environment is dumped into it.",
+          "met": "yes",
+          "evidence": "src/agent/identity.ts:32",
+          "quote": "parts.push([`config:${f}`, readFileSync(join(ROOT, f))]);",
+          "counter_search": "Searched for process.env or secret dumps feeding the manifest; only IMAGE_DIGEST and GIT_SHA pass in. The manifest is not stored, only its hash.",
+          "note": "Inputs hold no secrets.",
+          "coverage": [
+            {
+              "subject": "image digest",
+              "status": "enforced",
+              "evidence": "src/agent/identity.ts:18",
+              "quote": "[\"image\", Buffer.from(inputs.imageDigest)],",
+              "note": "Public digest, not a secret. on this path, as quoted here"
+            },
+            {
+              "subject": "models",
+              "status": "enforced",
+              "evidence": "src/agent/identity.ts:29",
+              "quote": "parts.push([\"model.agent\", Buffer.from(AGENT_MODEL)]);",
+              "note": "No secrets. on this path, as quoted here"
+            },
+            {
+              "subject": "config files",
+              "status": "enforced",
+              "evidence": "src/agent/identity.ts:32",
+              "quote": "parts.push([`config:${f}`, readFileSync(join(ROOT, f))]);",
+              "note": "The three YAML files hold policy, tool allowlist and budgets; no credentials. The environment is not dumped."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "Compute the agent-type-id as a hash of the container digest, harness, system prompt"
+      ],
+      "also_affects": [],
+      "summary": "The type-id hash skips prompts/system.md because it only reads .txt files.",
+      "next_step": "Hash every prompt file, tool definition and harness source, then test that each change alters the ID.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "A04",
+      "gate": "G1",
+      "title": "Trustworthy attribution",
+      "requirement": "Assign instance and tenant identity in the trusted execution layer. Don't accept labels the model supplies. Record the delegated subject \u2014 the user or system whose authority is being used \u2014 separately from the agent's identity. Test that the agent can't pose as another instance or tenant in requests or audit records. Test that trace context survives handoffs between async jobs. Treat trace IDs and caller-supplied labels only as a way to link records. They never prove identity or permission.",
+      "not_covered": [
+        {
+          "problem": "Agent sharing the launching user's identity",
+          "owner": "A01"
+        },
+        {
+          "problem": "Prompt a parent gave a sub-agent not recorded",
+          "owner": "A06"
+        },
+        {
+          "problem": "Sub-agent authorized using an earlier actor's authority",
+          "owner": "E08"
+        },
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/executor.ts",
+          "line": 63,
+          "note": "The model's clinicId tool argument replaces the verified tenant for credential selection, approvals and audit detail. Webchat tenant comes from the x-clinic-id header (webchat.ts:43). SMS tenant comes from the unverified body field 'to'."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A04.1",
+          "check": "Tenant and instance identity are set by the harness or platform from verified context, never from model-produced text or tool arguments.",
+          "verify": "1) Find every place tenant and instance IDs are set for tool calls and records. 2) Check each comes from verified context (token claims, session bound at launch). 3) Check tool JSON schemas the model fills for `tenant_id`, `user_id`, `instance_id`. 4) Answer no if any function uses the model's value, even if another function uses verified context.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:63",
+          "quote": "const clinicId = typeof input.clinicId === \"string\" && input.clinicId ? input.clinicId : ctx.tenantId;",
+          "counter_search": "",
+          "note": "The model's clinicId tool argument replaces the verified tenant for credential selection, approvals and audit detail. Webchat tenant comes from the x-clinic-id header (webchat.ts:43). SMS tenant comes from the unverified body field 'to'.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A04.2",
+          "check": "Tenant or instance labels in tool arguments or agent-controlled headers are rejected or overwritten with the verified values before they are used or logged.",
+          "verify": "1) Find tool handlers and middleware that receive tool arguments and headers. 2) Check that tenant or instance fields in arguments, or headers like `X-Tenant-Id`, are rejected or overwritten with the verified value before use or logging. 3) Answer no if any handler uses or logs the supplied value, or detects a mismatch and continues.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:89",
+          "quote": "await audit.record({ ...base, event: \"tool.executed\", approvalId, detail: { clinicId } });",
+          "counter_search": "",
+          "note": "Supplied clinicId is not rejected or overwritten: it is passed to tool.invoke (line 86), the approval request (line 71) and logged here and at line 87.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A04.3",
+          "check": "The delegated subject is recorded separately from the agent identity.",
+          "verify": "1) Open the audit record schema and writer. 2) Look for a delegated-subject field (the user or system whose authority is used) separate from the agent principal field. 3) Answer no if only one identity is stored, the user overwrites the agent identity, or the field is never filled.",
+          "met": "yes",
+          "evidence": "src/audit/recorder.ts:35",
+          "quote": "subject: z.object({ kind: z.enum([\"patient\", \"staff\", \"system\"]), id: z.string() }),",
+          "counter_search": "Searched for the subject overwriting agent identity fields; agentTypeId and agentInstanceId come from module state (identity.ts:108-109), the subject from the request.",
+          "note": "Delegated subject is a separate field from the agent identity.",
+          "coverage": [
+            {
+              "subject": "subject field in schema",
+              "status": "enforced",
+              "evidence": "src/audit/recorder.ts:35",
+              "quote": "subject: z.object({ kind: z.enum([\"patient\", \"staff\", \"system\"]), id: z.string() }),",
+              "note": "Separate from the agent fields (agentTypeId, agentInstanceId)."
+            },
+            {
+              "subject": "webchat fills it",
+              "status": "enforced",
+              "evidence": "src/routes/webchat.ts:50",
+              "quote": "subject: { kind: claims.role === \"staff\" ? \"staff\" : \"patient\", id: claims.sub },",
+              "note": "Verified JWT sub. on this path, as quoted here"
+            },
+            {
+              "subject": "sms fills it",
+              "status": "enforced",
+              "evidence": "src/routes/sms-webhook.ts:65",
+              "quote": "subject: { kind: \"patient\", id: `phone:${msg.from}` },",
+              "note": "Set from the body; unverified when the signature check fails (see A04.5)."
+            },
+            {
+              "subject": "reminders fill it",
+              "status": "enforced",
+              "evidence": "src/workers/reminders.ts:25",
+              "quote": "const ctx = newRunContext({ tenantId: clinic.id, subject: { kind: \"system\", id: \"reminders-cron\" }, channel: \"reminder\", log });",
+              "note": "System subject recorded separately. on this path, as quoted here"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A04.4",
+          "check": "When work is handed to an async job or queue, the trusted layer attaches the verified attribution and trace context, and the job uses them.",
+          "verify": "1) Find queue producers and enqueue calls (Celery, SQS, Pub/Sub, Kafka, cron). 2) Check the trusted layer adds verified identity and trace context to the job. 3) Check the worker uses those values, not ones the agent wrote. 4) Answer no if workers start new traces without parent context or take tenant from agent-written job data.",
+          "met": "no",
+          "evidence": "src/tools/approvals.ts:42",
+          "quote": "const rec: ApprovalRecord = {",
+          "counter_search": "",
+          "note": "No queue producers exist. The approval handoff to the staff console and back stores runId, tenantId and instance but no traceparent (lines 42-52); the retry is a new run with a new trace. The reminders job starts a fresh trace (reminders.ts:25).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A04.5",
+          "check": "Authorization never treats trace IDs or caller-supplied labels as proof of identity or permission.",
+          "verify": "1) Find authorization and permission-lookup code. 2) Check what each decision is keyed on. 3) Answer no if any check uses a trace ID, span ID, correlation ID, request label, or caller-supplied header as identity or to look up permissions.",
+          "met": "no",
+          "evidence": "src/routes/sms-webhook.ts:51",
+          "quote": "req.log.warn({ err: (err as Error).message }, \"sms webhook signature check failed\");",
+          "counter_search": "",
+          "note": "Failed signature verification is logged and the request continues, so caller-supplied 'to' and 'from' labels select the tenant and subject. Webchat also lets the x-clinic-id header choose the tenant (webchat.ts:43).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/routes/webchat.ts:43 x-clinic-id header overrides the verified clinic_id claim",
+        "src/routes/sms-webhook.ts:51 Signature failure does not reject the request"
+      ],
+      "violates": [
+        "Don't accept labels the model supplies"
+      ],
+      "also_affects": [
+        "A02"
+      ],
+      "summary": "Tenant is taken from the model's clinicId argument, the x-clinic-id header and an unverified SMS body.",
+      "next_step": "Overwrite clinicId with ctx.tenantId, reject mismatches, and reject on failed SMS signature.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "R14",
+      "gate": "G2",
+      "title": "Recovery integrity",
+      "requirement": "If logs or checkpoints drive recovery, make them tamper-evident. Before using them, verify them against a separately protected trust anchor or signing key. Test that verification rejects changed checkpoints. It must also catch truncation, rollback to an older valid checkpoint, and replacement of a whole hash chain. For automatic recovery, confirm the destination supports idempotency: sending the same request twice has the effect of sending it once. Replay only within the destination's documented scope and time window. Confirm that actions you can't undo don't happen twice. Where support is missing or the result is unclear, check that replay pauses for reconciliation instead of sending again.",
+      "not_covered": [
+        {
+          "problem": "What happens to in-flight writes and queued actions at stop",
+          "owner": "R12"
+        },
+        {
+          "problem": "Rollback to an approved earlier release not tested",
+          "owner": "C07"
+        },
+        {
+          "problem": "Agent able to delete or rewrite its own audit history",
+          "owner": "E10"
+        }
+      ],
+      "rating": "na_candidate",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/audit/recorder.ts",
+          "line": 62,
+          "note": "Audit is write-only to Firehose; no code reads it back for recovery or replay"
+        }
+      ],
+      "checks": [
+        {
+          "id": "R14.1",
+          "check": "Checkpoints and audit records used for recovery are hash-chained or signed.",
+          "verify": "1) Find checkpoint and audit storage used for recovery. 2) Check for hash chaining or signatures. 3) Answer no if records are plain rows or files with no chain or signature.",
+          "met": "unknown",
+          "evidence": "src/audit/recorder.ts:62",
+          "quote": "await firehose.send(",
+          "counter_search": "",
+          "note": "Not applicable: no checkpoint, replay or recovery code reads audit records; searched src for retry, replay, resume, recover, checkpoint.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R14.2",
+          "check": "Recovery verifies them against a key or trust anchor stored separately from the records, and refuses any that fail.",
+          "verify": "1) Find recovery code that loads checkpoints. 2) Check it verifies against a key stored separately and refuses failures. 3) Answer no if the key sits in the same store, verification is skipped, or failure is logged and recovery continues.",
+          "met": "unknown",
+          "evidence": "src/audit/recorder.ts:62",
+          "quote": "await firehose.send(",
+          "counter_search": "",
+          "note": "Not applicable: no checkpoint, replay or recovery code reads audit records; searched src for retry, replay, resume, recover, checkpoint.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R14.3",
+          "check": "Verification catches truncation, rollback to an older valid checkpoint, and replacement of the whole chain, for example with a signed head or sequence number held outside the store.",
+          "verify": "1) Check verification uses a signed head or sequence number held outside the store. 2) Answer no if truncation, rollback to an older valid checkpoint, or replacing the whole chain would still pass.",
+          "met": "unknown",
+          "evidence": "src/audit/recorder.ts:62",
+          "quote": "await firehose.send(",
+          "counter_search": "",
+          "note": "Not applicable: no checkpoint, replay or recovery code reads audit records; searched src for retry, replay, resume, recover, checkpoint.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R14.4",
+          "check": "Automatic replay sends idempotency keys that the destination enforces, and only for integrations that support them.",
+          "verify": "1) Find replay code. 2) Check it sends idempotency keys (`Idempotency-Key`, `client_token`) only to integrations that enforce them. 3) Answer no if replay sends without keys, uses a local dedupe table as the only guard, or replays to integrations without support.",
+          "met": "unknown",
+          "evidence": "src/audit/recorder.ts:62",
+          "quote": "await firehose.send(",
+          "counter_search": "",
+          "note": "Not applicable: no checkpoint, replay or recovery code reads audit records; searched src for retry, replay, resume, recover, checkpoint.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R14.5",
+          "check": "When idempotency is missing or the result is unclear, replay pauses for reconciliation instead of resending.",
+          "verify": "1) Find replay handling for unclear results or missing idempotency. 2) Answer no if replay resends instead of pausing for reconciliation, or retry is the default on timeout.",
+          "met": "unknown",
+          "evidence": "src/audit/recorder.ts:62",
+          "quote": "await firehose.send(",
+          "counter_search": "",
+          "note": "Not applicable: no checkpoint, replay or recovery code reads audit records; searched src for retry, replay, resume, recover, checkpoint.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "No checkpoints, replay log or recovery from audit records exists; audit goes write-only to Firehose and the only retry is the SDK's single model-call retry.",
+      "next_step": "Governance to approve N/A after a fresh challenge confirms no recovery or replay path.",
+      "lead_role": "agent_team"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

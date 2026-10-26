@@ -1,0 +1,560 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "procurement-agent",
+  "commit": null,
+  "reviewed_at": "2026-10-20T11:46:38Z",
+  "scope": "Batch R04-R08 only. Read all app/, migrations, config, k8s, CI and README files; ran prescan and inventory (7 hits; R05 hits H006/H007 dismissed). Nothing executed. No monitoring or alert config exists in the repo, so R08 depends on outside evidence. No challenges run.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "R04",
+      "gate": "G2",
+      "title": "Retrieval-corpus integrity",
+      "requirement": "The retrieval corpus is the set of documents the agent searches for context. Its index stores those documents, or smaller passages called chunks, in a search engine or vector database. Limit which identities and sources can add or change content there. For each chunk, keep its source, when it was added, its trust level, and its access permissions. Enforce the requesting tenant's access when searching. Test an unapproved attempt to add content and a search across tenants. Also test quarantining, expiring, and revoking access to seeded test documents. Confirm the affected chunks disappear from search results and caches within a stated time. See the [R04 recipe](CHECKLIST-VERIFICATION.md#r--run-time).",
+      "not_covered": [
+        {
+          "problem": "Memory entries poisoned or shared across tenants",
+          "owner": "R05"
+        },
+        {
+          "problem": "Agent credentials allowing another tenant's data at the API",
+          "owner": "B02"
+        },
+        {
+          "problem": "Retrieved chunks not checked for size, type, or hidden instructions",
+          "owner": "R01"
+        },
+        {
+          "problem": "Embedding or reranker model swapped without review",
+          "owner": "C05"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "migrations/001_init.sql",
+          "line": 59,
+          "note": "documents stores source, received_at and business_unit but no trust level or per-document access-permission field; ingest.py:144 inserts none."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R04.1",
+          "check": "Only named identities and sources can add or change index content, and the ingestion path checks the writer.",
+          "verify": "1) Find index write paths (`upsert`, `add_documents`, `index`, ingestion jobs). 2) Check each verifies the writer identity or source against a named list. 3) Answer no if any write path, including the agent's own tools or an admin endpoint, accepts writes without that check.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Ingest verifies a gateway HMAC (app/ingest.py:89-95) but sender and business_unit come from the signed payload with no named-source list; cannot tell if the gateway restricts senders (outside repo).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R04.2",
+          "check": "Each stored chunk has metadata for source, time added, trust level, and access permissions.",
+          "verify": "1) Find chunk write code and metadata fields. 2) Check source, time added, trust level, and access permissions are stored on every chunk. 3) Answer no if any field is missing, or set only on some ingestion paths.",
+          "met": "no",
+          "evidence": "migrations/001_init.sql:59",
+          "quote": "CREATE TABLE documents (",
+          "counter_search": "",
+          "note": "documents stores source, received_at and business_unit but no trust level or per-document access-permission field; ingest.py:144 inserts none.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R04.3",
+          "check": "Search applies the requesting tenant's access filter at query time, in the store or retrieval code, not after the model answers.",
+          "verify": "1) Find search calls (`similarity_search`, `query`, `search`, `filter=`, `where=`). 2) Check a tenant or access filter is applied in the store query, from the caller's identity. 3) Answer no if filtering happens after retrieval or in the prompt, the filter is optional, or the tenant comes from a model-supplied argument.",
+          "met": "yes",
+          "evidence": "app/tools/documents.py:24",
+          "quote": "WHERE doc_id = $1 AND business_unit = $2 AND status = 'accepted'",
+          "counter_search": "Searched agent for other reads of documents (grep documents/search/similarity); only documents.py:24 reads; ingest.py only inserts. No model-supplied tenant arg.",
+          "note": "Tenant filter is in the SQL using ident.tenant.",
+          "coverage": [
+            {
+              "subject": "read_document query (only documents read path)",
+              "status": "enforced",
+              "evidence": "app/tools/documents.py:24",
+              "quote": "WHERE doc_id = $1 AND business_unit = $2 AND status = 'accepted'",
+              "note": "Tenant filter is in the SQL; $2 is ident.tenant (documents.py:27), taken from the verified OIDC claim, not a model argument."
+            },
+            {
+              "subject": "extract_line_items child path",
+              "status": "enforced",
+              "evidence": "app/tools/documents.py:24",
+              "quote": "WHERE doc_id = $1 AND business_unit = $2 AND status = 'accepted'",
+              "note": "Child identity is built with replace() from the parent, so tenant is inherited; it reads through the same read_document query."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R04.4",
+          "check": "Code can quarantine, expire, and revoke chunks, and it also clears or invalidates search caches.",
+          "verify": "1) Find quarantine, expiry, and revoke code (`delete`, `quarantine`, `ttl`, `expires_at`). 2) Check search excludes those chunks and caches are cleared. 3) Answer no if any of the three operations is missing, or caches (query cache, embedding cache) are not invalidated.",
+          "met": "no",
+          "evidence": "migrations/001_init.sql:124",
+          "quote": "GRANT SELECT, INSERT ON documents TO procurement_agent;",
+          "counter_search": "",
+          "note": "No UPDATE or DELETE grant and no code to quarantine, expire or revoke a stored document after ingest; quarantine happens only at ingest. No cache invalidation code.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "keep its source, when it was added, its trust level, and its access permissions"
+      ],
+      "also_affects": [],
+      "summary": "Documents carry source and time but no trust level or access permissions, and no code can expire or revoke a stored document.",
+      "next_step": "Add trust level and ACL columns, and quarantine/expire/revoke code with cache invalidation.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R05",
+      "gate": "G3",
+      "title": "Memory isolation and write validation",
+      "requirement": "Separate memory by tenant, agent type, instance, and task as needed. Block access across those lines unless it is clearly approved. Check what gets written to memory. Test that one poisoned run can't quietly plant instructions in another run's memory. Don't move the agent's own output into trusted memory without review, and let unverified entries expire. Write checks must also cover content that arrives through ordinary queries, not just special write paths.",
+      "not_covered": [
+        {
+          "problem": "No record of who wrote a memory entry, or no way to remove it",
+          "owner": "R06"
+        },
+        {
+          "problem": "Retrieval search not filtered by the requesting tenant",
+          "owner": "R04"
+        },
+        {
+          "problem": "Agent credentials allowing another tenant's data at the API",
+          "owner": "B02"
+        },
+        {
+          "problem": "Rollback restoring old memory or index state unchecked",
+          "owner": "C07"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "app/tools/memory.py",
+          "line": 44,
+          "note": "Read scope comes from a model-supplied business_unit argument; tool description invites cross-unit lookup; no authorization check."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R05.1",
+          "check": "Memory reads and writes are scoped by tenant, agent type, instance, and task as needed, and cross-scope access is denied unless explicitly allowed.",
+          "verify": "1) Find memory read and write code (`memory`, `store`, `namespace`, keys). 2) Check keys include tenant, agent type, instance, or task as needed. 3) Answer no if keys omit tenant, the scope comes from a model argument, or reads fall back to a shared or global namespace.",
+          "met": "no",
+          "evidence": "app/tools/memory.py:44",
+          "quote": "business_unit = args.get(\"business_unit\") or ident.tenant",
+          "counter_search": "",
+          "note": "Read scope comes from a model-supplied business_unit argument; tool description invites cross-unit lookup; no authorization check.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R05.2",
+          "check": "Every memory write, including content arriving through ordinary queries, passes validation before it is stored.",
+          "verify": "1) List every memory write path, including automatic saves from ordinary conversation. 2) Check each passes validation before storing. 3) Answer no if any path writes without validation, or validation errors are caught and the write continues.",
+          "met": "no",
+          "evidence": "app/tools/memory.py:21",
+          "quote": "INSTRUCTION_LIKE = [",
+          "counter_search": "",
+          "note": "Only write path memory_write runs a regex deny-list (check_note), but 'ignore all\\ninstructions' (newline) and zero-width-split 'ign\u200bore' pass the patterns (checked by regex reading). department and source_doc_id are unvalidated; tool input schemas are not enforced in execute_tool.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R05.3",
+          "check": "The agent's own output cannot reach trusted or shared memory without a review step.",
+          "verify": "1) Find where agent output is written to shared or trusted memory. 2) Check a review step gates the write. 3) Answer no if agent output goes straight into shared or trusted memory, or the review flag defaults to approved.",
+          "met": "no",
+          "evidence": "app/tools/memory.py:52",
+          "quote": "AND (verified OR expires_at > now())",
+          "counter_search": "",
+          "note": "Model-authored notes are readable by every later run of the business unit immediately, before any human review, since unverified rows are returned; prompt-level 'do not save instructions' is the only guard beyond the bypassable regex.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R05.4",
+          "check": "Unverified entries have an expiry that is enforced.",
+          "verify": "1) Find how unverified entries are marked and expired (`ttl`, `expires_at`, cleanup jobs). 2) Check reads filter out expired entries. 3) Answer no if no expiry is set, it is set but never enforced on read or by a job, or the default is no expiry.",
+          "met": "yes",
+          "evidence": "app/tools/memory.py:52",
+          "quote": "AND (verified OR expires_at > now())",
+          "counter_search": "Searched for other dept_notes reads and inserts without expires_at; only memory.py inserts (expires_at set at line 83) and reads.",
+          "note": "Expiry set on every write and enforced in the read query.",
+          "coverage": [
+            {
+              "subject": "memory_read (only dept_notes read path)",
+              "status": "enforced",
+              "evidence": "app/tools/memory.py:52",
+              "quote": "AND (verified OR expires_at > now())",
+              "note": "Unverified rows with passed or NULL expires_at are excluded at query time; write sets 30-day expiry at memory.py:83."
+            },
+            {
+              "subject": "memory_write insert (only dept_notes write path)",
+              "status": "enforced",
+              "evidence": "app/tools/memory.py:83",
+              "quote": ") VALUES ($1, $2, $3, $4, $5, false, false, now() + interval '30 days',",
+              "note": "Every write is unverified with a 30-day expiry."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "app/tools/memory.py:44 memory_read business_unit comes from model arguments; cross-tenant read",
+        "app/tools/memory.py:21 instruction-like deny-list bypassed by newline or zero-width characters"
+      ],
+      "violates": [
+        "Block access across those lines unless it is clearly approved"
+      ],
+      "also_affects": [],
+      "summary": "memory_read accepts a model-supplied business_unit, and the write deny-list is bypassed by newlines or zero-width characters.",
+      "next_step": "Ignore the business_unit argument, use ident.tenant, and normalize text before validation.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R06",
+      "gate": "G3",
+      "title": "Memory provenance and cleanup",
+      "requirement": "For any memory entry, look up who wrote it, when, for which task, from what input, and the context size at the time. Show that you can find, quarantine, and remove bad entries, and control their reuse in later sessions.",
+      "not_covered": [
+        {
+          "problem": "Memory not separated by tenant, agent type, instance, or task",
+          "owner": "R05"
+        },
+        {
+          "problem": "Poisoned retrieval documents not quarantined or expired",
+          "owner": "R04"
+        },
+        {
+          "problem": "Context size not logged for each action decision",
+          "owner": "R07"
+        },
+        {
+          "problem": "Prompt a parent gave a sub-agent not recorded",
+          "owner": "A06"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "app/tools/memory.py",
+          "line": 94,
+          "note": "Writer, time, run and context tokens are always stored, but source input is optional and model-supplied (null if omitted), and context_compacted is not stored."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R06.1",
+          "check": "Each memory entry stores its writer, time, task, source input, and context size at write time.",
+          "verify": "1) Find the memory entry schema. 2) Check fields for writer, time, task, source input, and context size. 3) Answer no if any is missing, or set only on some write paths.",
+          "met": "no",
+          "evidence": "app/tools/memory.py:94",
+          "quote": "args.get(\"source_doc_id\"),",
+          "counter_search": "",
+          "note": "Writer, time, run and context tokens are always stored, but source input is optional and model-supplied (null if omitted), and context_compacted is not stored.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R06.2",
+          "check": "Derived entries such as summaries keep links to the entries they came from.",
+          "verify": "1) Find summary or derived-entry creation code. 2) Check it stores links to source entry IDs. 3) Answer no if derived entries keep no source links.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No summary or derived-note creation code found in app/ (grep dept_notes: only memory.py); nothing to link, so unclear whether derived entries will exist.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R06.3",
+          "check": "Code can find entries by source or writer and quarantine or delete them, along with derived entries and caches.",
+          "verify": "1) Find code that queries by source or writer and quarantines or deletes. 2) Check it also handles derived entries and caches. 3) Answer no if lookup by source or writer is impossible, or derived entries and caches are left in place.",
+          "met": "no",
+          "evidence": "migrations/001_init.sql:133",
+          "quote": "GRANT SELECT, UPDATE (verified, verified_by, quarantined) ON dept_notes TO procurement_ops;",
+          "counter_search": "",
+          "note": "Indexes exist on writer_instance and source_doc_id, but no code in the repo finds by source or writer and quarantines or deletes; the admin UI the memory.py docstring mentions is not in the repo. No DELETE grant exists.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R06.4",
+          "check": "Quarantined or deleted entries are excluded from retrieval in later sessions.",
+          "verify": "1) Find memory retrieval code. 2) Check it excludes quarantined or deleted entries in new sessions. 3) Answer no if retrieval ignores the quarantine flag, or a cache or index still returns removed entries.",
+          "met": "yes",
+          "evidence": "app/tools/memory.py:51",
+          "quote": "AND NOT quarantined",
+          "counter_search": "Searched for other dept_notes reads, caches and DELETE paths; only memory_read reads and it excludes quarantined; no cache layer for notes.",
+          "note": "Quarantine flag excluded in SQL every session.",
+          "coverage": [
+            {
+              "subject": "memory_read (only dept_notes read path)",
+              "status": "enforced",
+              "evidence": "app/tools/memory.py:51",
+              "quote": "AND NOT quarantined",
+              "note": "Quarantined rows are excluded in SQL on every session; no DELETE grant, no read cache for notes."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "Show that you can find, quarantine, and remove bad entries"
+      ],
+      "also_affects": [],
+      "summary": "Source input is optional on notes, and no code finds notes by writer or source and quarantines or deletes them.",
+      "next_step": "Require source_doc_id and add a quarantine-by-writer/source tool covering derived entries.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R07",
+      "gate": "G2",
+      "title": "Decision-time context size",
+      "requirement": "For each action, log how full the model's context was when it decided, in tokens. Document how you count. Say whether each value was measured, estimated, or unavailable. Cover cached input, compaction (shrinking the context), and limits the provider hides. Per-call billing totals don't automatically equal context size. Use them only if your counting method shows they match. A missing value is a clear gap, never zero. Check that the value survives tool handoffs and can be searched next to the action's identity and result. See the [telemetry conventions](otel-conventions.md).",
+      "not_covered": [
+        {
+          "problem": "Behavior not compared across context-size ranges",
+          "owner": "R09"
+        },
+        {
+          "problem": "Token or cost limits not enforced outside the model",
+          "owner": "B07"
+        },
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "app/extractor.py",
+          "line": 54,
+          "note": "subagent_started and subagent_finished (extractor.py:89) are recorded with no context, though the parent's ctx is available in execute_tool; run_started (loop.py:134), budget_exceeded (loop.py:177) and background_job (main.py:76) also pass none, stored as unavailable."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R07.1",
+          "check": "Each action record includes the model's context size in tokens at decision time.",
+          "verify": "1) Inventory every model call, including classifiers and helpers, and every action/audit write. 2) Trace available decision-time context into each record. 3) Answer no when an available measure is dropped; NULL/unavailable is not permission to omit a value that exists. Do not exclude routing decisions or delegate start/result events merely by calling them lifecycle events.",
+          "met": "no",
+          "evidence": "app/extractor.py:54",
+          "quote": "kind=\"subagent_started\",",
+          "counter_search": "",
+          "note": "subagent_started and subagent_finished (extractor.py:89) are recorded with no context, though the parent's ctx is available in execute_tool; run_started (loop.py:134), budget_exceeded (loop.py:177) and background_job (main.py:76) also pass none, stored as unavailable.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R07.2",
+          "check": "Each value is labeled measured, estimated, or unavailable, and a missing value is stored as unknown, never as zero.",
+          "verify": "1) Find where context size is recorded. 2) Check a label of measured, estimated, or unavailable, and how missing values are stored. 3) Answer no if there is no label, or a missing value defaults to `0` (`or 0`, `?? 0`, `.get(..., 0)`).",
+          "met": "yes",
+          "evidence": "app/context_size.py:49",
+          "quote": "if total <= 0:",
+          "counter_search": "Searched for or 0 / default 0 on context values: budget.py:90 and context_size.py:45 sum usage but a zero total becomes unavailable/NULL.",
+          "note": "Labeled count_tokens_api, usage_sum_estimate or unavailable; NULL never zero.",
+          "coverage": [
+            {
+              "subject": "ContextMeasure labels and unavailable value",
+              "status": "enforced",
+              "evidence": "app/context_size.py:49",
+              "quote": "if total <= 0:",
+              "note": "Zero totals become unavailable with tokens=None and method 'unavailable'; counted values carry count_tokens_api or usage_sum_estimate; DB CHECK context_tokens IS NULL OR >0."
+            },
+            {
+              "subject": "audit.record default when no context passed",
+              "status": "enforced",
+              "evidence": "app/audit.py:94",
+              "quote": "measure = context or ContextMeasure.unavailable()",
+              "note": "Missing context stored as NULL with label unavailable, not 0."
+            },
+            {
+              "subject": "dept_notes context columns",
+              "status": "enforced",
+              "evidence": "app/tools/memory.py:97",
+              "quote": "ctx.method,",
+              "note": "Method label stored beside tokens; current_context default is unavailable (loop.py:47)."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R07.3",
+          "check": "The count comes from a stated method that handles cached input and compaction, not a copied per-call billing total.",
+          "verify": "1) Find how context size is counted. 2) Check a stated method covers cached input and compaction. 3) Answer no if it copies `usage.input_tokens` or a billing total with no stated method that matches it, or ignores cache and compaction.",
+          "met": "yes",
+          "evidence": "app/loop.py:149",
+          "quote": "ctx = await measure_context(self.client, request, compacted)",
+          "counter_search": "Searched for uses of usage.input_tokens as context size: only the labeled fallback in context_size.py:45; no other copy.",
+          "note": "Counted by token-count endpoint on the post-compaction request; documented in context_size.py docstring and README.",
+          "coverage": [
+            {
+              "subject": "loop model call",
+              "status": "enforced",
+              "evidence": "app/loop.py:149",
+              "quote": "ctx = await measure_context(self.client, request, compacted)",
+              "note": "Counts the exact post-compaction request via count_tokens, including cached prefix; compacted flag recorded."
+            },
+            {
+              "subject": "extractor model call",
+              "status": "enforced",
+              "evidence": "app/extractor.py:73",
+              "quote": "ctx = await measure_context(self.client, request, compacted=False)",
+              "note": "Same counting method; the extractor never compacts (fixed 4 turns)."
+            },
+            {
+              "subject": "fallback estimate",
+              "status": "enforced",
+              "evidence": "app/context_size.py:45",
+              "quote": "int(usage.input_tokens or 0)",
+              "note": "Fallback sums input plus cache read plus cache creation, labeled usage_sum_estimate, not a bare billing copy."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R07.4",
+          "check": "The value is carried across tool handoffs and stored with the action's identity, result, and trace ID.",
+          "verify": "1) Inventory parent-to-child calls, tool calls, child returns and their audit records. 2) Trace the producer, call arguments, callee and result record for each path. 3) Answer no when available parent or child context is dropped on either direction; correct logging inside one leaf tool is not proof of handoff coverage.",
+          "met": "no",
+          "evidence": "app/extractor.py:92",
+          "quote": "return items",
+          "counter_search": "",
+          "note": "Child ctx is dropped on return; the parent tool_result (loop.py:95) logs the parent ctx only, and the parent ctx is not passed to the child's subagent_started record (extractor.py:54). Neither direction of the handoff carries context size.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "app/extractor.py:54 subagent_started/finished and other audit rows omit available context size"
+      ],
+      "violates": [
+        "Check that the value survives tool handoffs"
+      ],
+      "also_affects": [],
+      "summary": "Sub-agent start and finish records and several other audit rows drop available context size.",
+      "next_step": "Pass parent ctx to subagent_started and the child's final ctx to subagent_finished and the parent result.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R08",
+      "gate": "G3",
+      "title": "Security monitoring",
+      "requirement": "Keep security rules and baselines separate from answer-quality monitoring. Test encoded payloads, unexpected outbound traffic, writes outside scope, privilege escalation, and repeated denied calls. Check that alerts reach a named responder.",
+      "not_covered": [
+        {
+          "problem": "Chains of individually allowed actions going undetected",
+          "owner": "R09"
+        },
+        {
+          "problem": "No test of a second-model review against evasive behavior",
+          "owner": "R10"
+        },
+        {
+          "problem": "No drill for a compromised shared tool or agent type",
+          "owner": "E12"
+        },
+        {
+          "problem": "Rate and cost limits not enforced outside the model",
+          "owner": "B07"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "low",
+      "evidence": [],
+      "checks": [
+        {
+          "id": "R08.1",
+          "check": "Security detection rules and baselines are defined separately from answer-quality monitoring.",
+          "verify": "1) Find detection rules and monitoring config (SIEM rules, alert config, eval dashboards). 2) Check security rules are separate from answer-quality metrics. 3) Answer no if only quality monitoring exists. Answer unknown if monitoring lives outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No detection rules, SIEM/alert config, or monitoring config anywhere in the repo (searched alert, siem, detect, pager, opsgenie, on-call, prometheus, anomal, baseline); only budget-stop Slack post at loop.py:180. Monitoring may live in a platform outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R08.2",
+          "check": "Rules exist for encoded payloads, unexpected outbound traffic, out-of-scope writes, privilege escalation, and repeated denied calls.",
+          "verify": "1) Read the security detection rules. 2) Check for encoded payloads, unexpected outbound traffic, out-of-scope writes, privilege escalation, and repeated denied calls. 3) Answer no if any is missing, or denied calls are never logged so the rule cannot fire.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No security detection rules in repo for encoded payloads, egress, out-of-scope writes, privilege escalation or repeated denials. Denied calls are logged (tool_denied/authz_decision audit rows) so rules could be built elsewhere; could not be confirmed.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R08.3",
+          "check": "Alerts from these rules route to a named responder or on-call target in config.",
+          "verify": "1) Find alert routing (PagerDuty, Opsgenie, alertmanager receivers, on-call config). 2) Check the security rules route to a named responder. 3) Answer no if alerts go only to a dashboard or log, or the receiver is empty. Answer unknown if routing lives outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No alert routing config in repo. Only alert is a Slack post to channel #procurement-agent-ops on budget exceeded (loop.py:180), a channel not a named responder, and not a security rule.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "The repo has no security detection rules or alert routing, which may live in a platform outside it.",
+      "next_step": "Provide the detection rules and alert routing config with a named responder.",
+      "lead_role": "security"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {
+    "H006": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "lru_cache(maxsize=1) on get_settings() caches static config, no tenant or user data"
+    },
+    "H007": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "lru_cache(maxsize=1) on _role_tools(path) caches role-to-tool names from tools.yaml, no tenant data"
+    }
+  }
+}

@@ -8,6 +8,7 @@ The split is deliberate. **The AI drafts. People approve.** An AI reading a repo
 
 | Piece | What it does | Where |
 |---|---|---|
+| `brace-threat-model` skill | Models a proposed design's assets, trust boundaries, capability combinations and harm paths, mapped to controls, assumptions and verification needs. | [skills/brace-threat-model/](skills/brace-threat-model/SKILL.md) |
 | `brace-review` skill | Reads the agent's code and config and rates all 53 items: likely_pass, gap, needs_evidence, or na_candidate, with file and line evidence. Reports text in the repo that tries to steer the review. | [skills/brace-review/](skills/brace-review/SKILL.md) |
 | `brace-mcp-review` skill | Focused static MCP server/client/gateway review, mapped to BRACE items and primary research. Reports evidence, gaps and unknowns; never launches servers or approves deployment. | [skills/brace-mcp-review/](skills/brace-mcp-review/SKILL.md) |
 | `brace-tests` skill | Turns the [verification recipes](CHECKLIST-VERIFICATION.md) into tests and drill scripts that produce dated evidence files. | [skills/brace-tests/](skills/brace-tests/SKILL.md) |
@@ -16,6 +17,10 @@ The split is deliberate. **The AI drafts. People approve.** An AI reading a repo
 | Evals | Sample agent repos with planted gaps, used to measure how well `brace-review` works. | [evals/](evals/README.md) |
 
 ## How it fits together
+
+Before implementation, use `brace-threat-model` when design threat modeling is
+needed. Its output supplies scope and verification questions for the workflow
+below; proposed controls are not evidence that the controls exist.
 
 1. **Set up.** Copy `tools/brace/` into the agent's repo and run `python tools/brace/brace.py init`. Fill in `.brace/deployment.yaml`: the task, tenants, data, worst damage, the people in each [role](ROLES.md), and who may approve. Governance fills in the stakes and autonomy rating.
 2. **Review.** Run the `brace-review` skill. It writes `brace-findings.json` and a readable report. Fix the gaps it finds, starting with G1.

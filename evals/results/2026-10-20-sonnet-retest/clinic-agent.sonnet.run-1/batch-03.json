@@ -1,0 +1,850 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "clinic-agent (local fixture)",
+  "commit": null,
+  "reviewed_at": "2026-10-20T12:23:54Z",
+  "scope": "Batch review of B11, B12, R01, R02, R03 only, read-only. Reviewed Dockerfile, k8s/deployment.yaml, .github workflows and CODEOWNERS, infra/terraform, src/ (agent loop, executor, registry, routes, integrations, audit), prompts, config, release manifest and test/controls.test.ts. Not reviewed: other items; GitHub repo settings and deploy environments outside the code; the display client; runtime behaviour. Prescan hits H001-H004 resolved; other hits belong to other items. Challenges not run. Model: claude-sonnet-5-5, default reasoning setting.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "B11",
+      "gate": "G2",
+      "title": "Minimal, isolated runtime",
+      "requirement": "Remove shells, downloaders, package managers, mounts, and privileges the agent doesn't need. As a container baseline, meet the Kubernetes Pod Security Standards \"restricted\" profile or the same controls elsewhere. That means non-root, no privilege escalation, all capabilities dropped, and a seccomp profile set. Where supported, also use a read-only root filesystem and user namespaces; the restricted profile doesn't require those two. For running untrusted code, use a sandbox that fits the threat, such as a microVM or a user-space kernel. Ordinary containers share the host's kernel. For managed runtimes, record the provider's isolation evidence and what you can't see. Test that host access is blocked. A blocked probe does not prove the sandbox resists every escape.",
+      "not_covered": [
+        {
+          "problem": "Container image not pinned by digest or signature-checked",
+          "owner": "B10"
+        },
+        {
+          "problem": "Outbound traffic to unapproved internet destinations",
+          "owner": "B09"
+        },
+        {
+          "problem": "Network path to admin systems or other tenants' resources",
+          "owner": "B08"
+        }
+      ],
+      "rating": "likely_pass",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 87,
+          "note": "Pod and container contexts set non-root, no escalation, drop ALL, RuntimeDefault seccomp; Dockerfile runs as 65532; namespace enforces restricted."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B11.1",
+          "check": "Container settings set non-root, no privilege escalation, all capabilities dropped, and a seccomp profile, matching Pod Security 'restricted' or the same controls.",
+          "verify": "1) Find pod `securityContext` and container `securityContext`, plus namespace labels. 2) Check `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`. 3) Answer no if any is missing on any container (including init and sidecars), set the wrong way, or overridden per container, or the Dockerfile runs as root with no override.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:87",
+          "quote": "allowPrivilegeEscalation: false",
+          "counter_search": "Searched k8s/deployment.yaml for every container, initContainers, sidecars, and per-container overrides; only agent and reminders containers exist, none sets runAsNonRoot:false, privileged:true or a weaker seccomp profile.",
+          "note": "Pod and container contexts set non-root, no escalation, drop ALL, RuntimeDefault seccomp; Dockerfile runs as 65532; namespace enforces restricted.",
+          "coverage": [
+            {
+              "subject": "Deployment agent pod securityContext",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:68",
+              "quote": "runAsNonRoot: true",
+              "note": "Pod-level non-root and RuntimeDefault seccomp (line 72-73). as shown by the quoted line of code"
+            },
+            {
+              "subject": "Deployment agent container",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:92",
+              "quote": "drop: [\"ALL\"]",
+              "note": "allowPrivilegeEscalation false (87), drop ALL (92), RuntimeDefault seccomp (94)."
+            },
+            {
+              "subject": "CronJob reminders pod securityContext",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:136",
+              "quote": "runAsNonRoot: true",
+              "note": "Pod-level non-root (136) and RuntimeDefault seccomp (140) inherited by the container."
+            },
+            {
+              "subject": "CronJob reminders container",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:157",
+              "quote": "drop: [\"ALL\"]",
+              "note": "allowPrivilegeEscalation false (153) and drop ALL (157); runAsNonRoot and seccomp inherited from pod level, not overridden."
+            },
+            {
+              "subject": "init containers and sidecars",
+              "status": "not_applicable",
+              "evidence": "k8s/deployment.yaml:74",
+              "quote": "containers:",
+              "note": "Each pod template has a single container and no initContainers key."
+            },
+            {
+              "subject": "Dockerfile user",
+              "status": "enforced",
+              "evidence": "Dockerfile:20",
+              "quote": "USER 65532:65532",
+              "note": "Final stage runs as non-root UID. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Namespace Pod Security label",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:6",
+              "quote": "pod-security.kubernetes.io/enforce: restricted",
+              "note": "Namespace enforces restricted as a backstop. as shown by the quoted line of code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B11.2",
+          "check": "The final image has no shell, downloader, or package manager the agent does not need.",
+          "verify": "1) Read the final stage of each Dockerfile (after the last `FROM`). 2) Check base image and installs for `bash`, `sh`, `curl`, `wget`, `apt`, `apk`, `pip`, `npm`. 3) Answer no if the final image has any the agent does not need, or the final stage is a full OS image (ubuntu, debian, python) not distroless or scratch.",
+          "met": "yes",
+          "evidence": "Dockerfile:10",
+          "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot",
+          "counter_search": "Searched Dockerfile final stage (after line 10) for RUN, apt, apk, curl, wget, pip, npm, sh, bash; found only COPY lines.",
+          "note": "Final stage is distroless nodejs with no shell or package manager and no RUN steps.",
+          "coverage": [
+            {
+              "subject": "Final stage base image",
+              "status": "enforced",
+              "evidence": "Dockerfile:10",
+              "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot",
+              "note": "Distroless runtime image, no shell or package manager."
+            },
+            {
+              "subject": "Final stage installs",
+              "status": "enforced",
+              "evidence": "Dockerfile:14",
+              "quote": "COPY --from=build --chown=65532:65532 /app/node_modules ./node_modules",
+              "note": "Only COPY from the build stage; no RUN in the final stage."
+            },
+            {
+              "subject": "Build stage npm",
+              "status": "not_applicable",
+              "evidence": "Dockerfile:5",
+              "quote": "RUN npm ci --ignore-scripts",
+              "note": "npm exists only in the build stage, which is not shipped."
+            },
+            {
+              "subject": "Reminders CronJob image",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:143",
+              "quote": "image: 418295730611.dkr.ecr.us-west-2.amazonaws.com/clinic-agent@sha256",
+              "note": "Same image digest as the agent, so same final stage."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B11.3",
+          "check": "There is no privileged mode, hostPath or Docker socket mount, or host network or PID namespace.",
+          "verify": "1) Search manifests and compose for `privileged`, `hostPath`, `docker.sock`, `hostNetwork`, `hostPID`, `hostIPC`, `network_mode: host`, `pid: host`. 2) Answer no if any appears on the agent's workloads, including sidecars and init containers.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:63",
+          "quote": "hostNetwork: false",
+          "counter_search": "Searched k8s/ and src for privileged, hostPath, docker.sock, hostNetwork, hostPID, hostIPC, network_mode; only explicit false values found. No compose file exists.",
+          "note": "No privileged mode, host mounts, or host namespaces on either workload.",
+          "coverage": [
+            {
+              "subject": "Deployment hostNetwork",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:63",
+              "quote": "hostNetwork: false",
+              "note": "Explicit false. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Deployment hostPID",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:64",
+              "quote": "hostPID: false",
+              "note": "Explicit false. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Deployment hostIPC",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:65",
+              "quote": "hostIPC: false",
+              "note": "Explicit false. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Deployment privileged",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:88",
+              "quote": "privileged: false",
+              "note": "Explicit false. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Deployment volumes",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:104",
+              "quote": "- name: tmp",
+              "note": "Only emptyDir (memory) and a projected serviceAccountToken; no hostPath or docker socket."
+            },
+            {
+              "subject": "CronJob privileged",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:154",
+              "quote": "privileged: false",
+              "note": "Explicit false. as shown by the quoted line of code"
+            },
+            {
+              "subject": "CronJob host namespaces and volumes",
+              "status": "not_applicable",
+              "evidence": "k8s/deployment.yaml:141",
+              "quote": "containers:",
+              "note": "CronJob spec sets no hostNetwork, hostPID, hostIPC, hostPath or volumes, so defaults apply (false/none)."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B11.4",
+          "check": "If the agent runs untrusted or model-written code, that code runs in a separate sandbox such as gVisor, Kata, or a microVM, not in the agent's own container.",
+          "verify": "1) Find code execution tools (`subprocess`, `exec`, `eval`, `child_process`, `os/exec`, code interpreter). 2) Check where that code runs (`runtimeClassName: gvisor`, Kata, Firecracker, remote sandbox API). 3) Answer no if model-written or untrusted code runs in the agent's own process or container, or the sandbox call falls back to local execution on error. Answer yes if no such code runs.",
+          "met": "yes",
+          "evidence": "src/tools/executor.ts:86",
+          "quote": "const raw = await tool.invoke(args,",
+          "counter_search": "Searched src for child_process, exec, spawn, eval(, new Function, vm, code interpreter; no match. Tools are fixed native functions and a remote EHR MCP server.",
+          "note": "No model-written or untrusted code is executed in the container.",
+          "coverage": [
+            {
+              "subject": "Tool dispatch",
+              "status": "not_applicable",
+              "evidence": "src/tools/executor.ts:86",
+              "quote": "const raw = await tool.invoke(args,",
+              "note": "invoke calls fixed native functions or a remote MCP call, not model-written code."
+            },
+            {
+              "subject": "EHR MCP calls",
+              "status": "not_applicable",
+              "evidence": "src/integrations/ehr-mcp.ts:95",
+              "quote": "const res = await c.callTool(",
+              "note": "Executed on the remote EHR server, not in this container."
+            },
+            {
+              "subject": "Native tool set",
+              "status": "not_applicable",
+              "evidence": "src/tools/executor.ts:104",
+              "quote": "return {",
+              "note": "Native tools are payments, sms, insurance only; none evaluates code."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Pod, container and image settings meet the restricted profile and ship no shell or host access.",
+      "next_step": "Collect runtime evidence: admission result, image contents and a host-access probe.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B12",
+      "gate": "G1",
+      "title": "Reviewed harness and instructions",
+      "requirement": "Version and review the harness, system prompt, and rules files before release. Allow production changes only through a release process that records who made them. Protect source branches from history rewrites, so the reviewed diff stays available. Link the deployed versions to the approved review. Complete the full configuration checks in section C.",
+      "not_covered": [
+        {
+          "problem": "Running config drifting from the approved baseline",
+          "owner": "C04"
+        },
+        {
+          "problem": "Model or dependency change promoted without review and re-testing",
+          "owner": "C05"
+        },
+        {
+          "problem": "A tool server changing its description or schema after approval",
+          "owner": "E03"
+        },
+        {
+          "problem": "Release candidate not re-tested against attack cases",
+          "owner": "C06"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/agent/loop.ts",
+          "line": 14,
+          "note": "System and classifier prompts, policy, allowlist, budgets and manifest are read from files baked into the image."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B12.1",
+          "check": "The harness, system prompt, and rules files are in version control and loaded from the reviewed build, not fetched at run time from a database, URL, or feature flag.",
+          "verify": "1) Find where the system prompt and rules are loaded (`system_prompt`, `CLAUDE.md`, `AGENTS.md`, `prompts/`). 2) Check they come from files in the repo or build. 3) Answer no if any part is fetched at run time from a database, URL, feature flag, or env var with no recorded version, or a remote source overrides the file when available.",
+          "met": "yes",
+          "evidence": "src/agent/loop.ts:14",
+          "quote": "const SYSTEM_TEMPLATE = readFileSync(join(ROOT, \"prompts/system.md\"), \"utf8\");",
+          "counter_search": "Searched src for fetch(, http, database reads, feature flags and env reads that supply prompts or rules; fetch is used only for token, SMS, payments and eligibility calls. Only env read near prompts is CLINIC_AGENT_ROOT, fixed in the Dockerfile.",
+          "note": "System and classifier prompts, policy, allowlist, budgets and manifest are read from files baked into the image.",
+          "coverage": [
+            {
+              "subject": "System prompt",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:14",
+              "quote": "const SYSTEM_TEMPLATE = readFileSync(join(ROOT, \"prompts/system.md\"), \"utf8\");",
+              "note": "Read from the build at start-up. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Classifier prompt",
+              "status": "enforced",
+              "evidence": "src/agent/classifier.ts:13",
+              "quote": "export const CLASSIFIER_PROMPT = readFileSync(join(ROOT, \"prompts/intent-classifier.txt\"), \"utf8\");",
+              "note": "Read from the build. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Policy, allowlist, budgets, manifest",
+              "status": "enforced",
+              "evidence": "src/config.ts:44",
+              "quote": "export const policy = loadYaml<Policy>(\"config/policy.yaml\");",
+              "note": "Rules files loaded from files in the image (lines 44-47)."
+            },
+            {
+              "subject": "Prompts and config baked into image",
+              "status": "enforced",
+              "evidence": "Dockerfile:17",
+              "quote": "COPY --chown=65532:65532 prompts ./prompts",
+              "note": "Image build copies prompts, config, release. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Root path override",
+              "status": "enforced",
+              "evidence": "src/config.ts:5",
+              "quote": "export const ROOT = process.env.CLINIC_AGENT_ROOT ?? process.cwd();",
+              "note": "Env var picks the directory only; Dockerfile:13 sets it to /app."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B12.2",
+          "check": "CODEOWNERS or required-review rules cover the prompt, rules, and harness files.",
+          "verify": "1) Read `CODEOWNERS` and review rules (`.github/`, rulesets, branch protection IaC). 2) Check patterns match prompt, rules, and harness paths. 3) Answer no if those paths are uncovered, the pattern misses them (wrong glob, case), or no CODEOWNERS exists. Answer unknown if required reviews are set only in repo settings outside the code.",
+          "met": "yes",
+          "evidence": ".github/CODEOWNERS:4",
+          "quote": "/prompts/",
+          "counter_search": "Read .github/CODEOWNERS and infra/terraform/github.tf; checked each path glob against prompts/, config/, release/, src/agent, src/routes, src/server.ts, src/tools. Every path matches at least the * default.",
+          "note": "CODEOWNERS covers prompts, config, tools and, through the default pattern, the harness; code owner review is required on main.",
+          "coverage": [
+            {
+              "subject": "prompts/",
+              "status": "enforced",
+              "evidence": ".github/CODEOWNERS:4",
+              "quote": "/prompts/",
+              "note": "Platform leads own prompts. as shown by the quoted line of code"
+            },
+            {
+              "subject": "config/ rules and policy",
+              "status": "enforced",
+              "evidence": ".github/CODEOWNERS:5",
+              "quote": "/config/",
+              "note": "Platform leads own config. as shown by the quoted line of code"
+            },
+            {
+              "subject": "release/ manifest",
+              "status": "enforced",
+              "evidence": ".github/CODEOWNERS:6",
+              "quote": "/release/",
+              "note": "Platform leads own manifest. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Harness src/agent, src/routes, src/server.ts, src/integrations",
+              "status": "enforced",
+              "evidence": ".github/CODEOWNERS:3",
+              "quote": "@northbay-clinics/clinic-agent-devs",
+              "note": "Covered by the default pattern; owner clinic-agent-devs. as shown by the quoted line of code"
+            },
+            {
+              "subject": "src/tools/",
+              "status": "enforced",
+              "evidence": ".github/CODEOWNERS:10",
+              "quote": "/src/tools/",
+              "note": "Platform leads own the executor and registry. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Required code owner review",
+              "status": "enforced",
+              "evidence": "infra/terraform/github.tf:27",
+              "quote": "require_code_owner_reviews      = true",
+              "note": "Branch protection enforces CODEOWNERS reviews. as shown by the quoted line of code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B12.3",
+          "check": "Production deploys run only from CI on the reviewed branch and record the commit, tag, or digest deployed.",
+          "verify": "1) Read deploy workflows and scripts. 2) Check deploy triggers only on the reviewed branch and records commit, tag, or digest. 3) Answer no if `workflow_dispatch` or a script deploys any branch or local build, deploy scripts accept manual laptop pushes, or no version is recorded. Answer unknown if deploy is outside this repo.",
+          "met": "no",
+          "evidence": "infra/terraform/github.tf:58",
+          "quote": "deployment_branch_policy {",
+          "counter_search": "",
+          "note": "The production-emergency environment is not limited to protected branches. deploy.yml:51 lets workflow_dispatch deploy from any hotfix/* branch and line 74 applies k8s/deployment.yaml from that checkout. hotfix/* has no branch protection or required review, so the applied manifest is unreviewed.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B12.4",
+          "check": "Branch protection config blocks force-pushes and history rewrites on the source branch.",
+          "verify": "1) Search for branch protection IaC (`github_branch_protection`, rulesets JSON). 2) Check force-push and deletion are blocked on the source branch. 3) Answer no if `allow_force_pushes: true` or bypass is open to the agent's identity. Answer unknown if protection is set only in repo settings and not in code.",
+          "met": "no",
+          "evidence": "infra/terraform/github.tf:16",
+          "quote": "pattern       = \"main\"",
+          "counter_search": "",
+          "note": "Branch protection blocks force-push and deletion only on main. hotfix/* branches, which can be deployed (github.tf:67), have no protection, so history can be rewritten there.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "infra/terraform/github.tf:58 production-emergency deploys from unprotected hotfix/* branches; k8s manifest applied from that checkout is not reviewed"
+      ],
+      "violates": [
+        "Protect source branches from history rewrites, so the reviewed diff stays available"
+      ],
+      "also_affects": [],
+      "summary": "Emergency deploys run from hotfix/* branches that have no branch protection, so applied manifests can go out unreviewed.",
+      "next_step": "Protect hotfix/* branches or deploy emergencies only from reviewed main commits.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R01",
+      "gate": "G2",
+      "title": "Validate every input boundary, including API responses",
+      "requirement": "List every input the agent receives. That includes API responses (errors and streamed content too), tool and connector output, incoming webhooks and callbacks, messages from other agents, user input, fetched pages, files, and retrieved chunks. Authenticate each sender (prove who sent it), and verify signatures where they exist. Treat content as untrusted even when it comes from an authenticated service or an internal one. Before content reaches the model or runs anywhere, check its type, schema, and size. Also check its content for attack payloads and hidden prompt-injection instructions. Reject or hold aside bad payloads. If a required check fails to run, don't let unchecked content through. Test broken, oversized, faked, and hostile responses from each integration.",
+      "not_covered": [
+        {
+          "problem": "Injected instructions in valid content reaching forbidden tools unblocked",
+          "owner": "R02"
+        },
+        {
+          "problem": "Hidden instructions in tool names, descriptions, or schemas",
+          "owner": "E04"
+        },
+        {
+          "problem": "Replayed peer-agent requests with no freshness or nonce check",
+          "owner": "E07"
+        },
+        {
+          "problem": "Secrets leaking into outputs or normal logs",
+          "owner": "R03"
+        },
+        {
+          "problem": "Unapproved sources able to add documents to the retrieval corpus",
+          "owner": "R04"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/executor.ts",
+          "line": 88,
+          "note": "Tool and EHR output (including eligibility results) goes through redactPhi only before reaching the model; no type, schema or size validation (ehr-mcp.ts:97 returns structuredContent ?? content unchecked). Patient text gets only length and shape checks."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R01.1",
+          "check": "Every input path passes through validation code: API and tool responses (including errors and streams), webhooks and callbacks, agent messages, user input, fetched pages, files, and retrieved chunks.",
+          "verify": "1) List every input: tool and API responses (errors, streams), webhooks, agent messages, user input, fetched pages, files, retrieved chunks. 2) Trace each to where it enters the model context. 3) Answer no if any path, including error bodies, stream chunks, or a second handler, reaches the model without passing validation code.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:88",
+          "quote": "const safe = redactPhi(raw);",
+          "counter_search": "",
+          "note": "Tool and EHR output (including eligibility results) goes through redactPhi only before reaching the model; no type, schema or size validation (ehr-mcp.ts:97 returns structuredContent ?? content unchecked). Patient text gets only length and shape checks.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R01.2",
+          "check": "Type, schema, and size checks run before content, including streamed chunks, is added to the model context or executed.",
+          "verify": "1) Find validation code (`pydantic`, `zod`, `jsonschema`, size limits, `max_bytes`, content-type checks). 2) Check it runs before content is added to the context or executed, including per stream chunk. 3) Answer no if validation runs after use, only on success responses, streams skip it, or there is no size limit.",
+          "met": "no",
+          "evidence": "src/integrations/ehr-mcp.ts:97",
+          "quote": "return res.structuredContent ?? res.content;",
+          "counter_search": "",
+          "note": "EHR tool results are not schema-checked or size-limited before JSON.stringify into the model context (executor.ts:25).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R01.3",
+          "check": "Senders are authenticated, and signatures are verified where the integration provides them, including for internal and authenticated services.",
+          "verify": "1) Find webhook, callback, and inbound handlers. 2) Check sender authentication and signature verification (`hmac.compare_digest`, `verify_signature`, mTLS). 3) Answer no if any handler skips it, internal services are trusted without auth, the signature is compared with `==`, or a verify failure is caught and processing continues.",
+          "met": "no",
+          "evidence": "src/routes/sms-webhook.ts:52",
+          "quote": "req.log.warn({ err: (err as Error).message }, \"sms webhook signature check failed\");",
+          "counter_search": "",
+          "note": "The signature failure is caught and logged, and processing continues, so a forged inbound SMS reaches runAgent.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R01.4",
+          "check": "Content is also screened for attack payloads or injection instructions, not only for structure.",
+          "verify": "1) Find content screening (injection detector, pattern rules, classifier, encoded-payload checks). 2) Check it runs on content, not just schema. 3) Answer no if only type or schema checks exist, or screening covers some inputs (for example user input) but not tool output, fetched pages, or retrieved chunks.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:90",
+          "quote": "return toolResult(call.id, safe);",
+          "counter_search": "",
+          "note": "No injection or payload screening exists on tool output, eligibility results or patient messages; the scanner in metadata-scan.ts covers server metadata only.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R01.5",
+          "check": "Bad payloads are rejected or held aside, and if a check errors, times out, or is skipped, the content is blocked.",
+          "verify": "1) Find what happens when validation fails or errors. 2) Read `try`/`except`, `catch`, timeout, and default branches. 3) Answer no if failures log and continue, an error or timeout passes content through, a feature flag can skip checks, or bad content is truncated and still used.",
+          "met": "no",
+          "evidence": "src/routes/sms-webhook.ts:53",
+          "quote": "deps.metrics.increment(\"sms.signature_failed\");",
+          "counter_search": "",
+          "note": "After a failed signature check the handler only increments a metric and falls through to parsing and running the agent; the content is not blocked.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/routes/sms-webhook.ts:52 SMS signature failure is logged and processing continues"
+      ],
+      "violates": [
+        "If a required check fails to run, don't let unchecked content through"
+      ],
+      "also_affects": [],
+      "summary": "SMS webhook processes messages after a failed signature check, and tool output reaches the model with no schema, size or payload screening.",
+      "next_step": "Reject on signature failure; validate and screen tool and peer output before it enters the context.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R02",
+      "gate": "G2",
+      "title": "Separate data from instructions and test injection containment",
+      "requirement": "Keep API responses, connector messages, and other outside content out of trusted system and policy channels. Label where each piece came from and how much it is trusted. Test prompt injection in responses that pass schema checks. Include free-text fields, error messages, documents, and tool output. Checks and channel separation can't guarantee that prompt injection is prevented. So show that credential limits, tool permissions, and destructive-action gates still block harm if the model follows an injected instruction. Repeat each attack and include adaptive versions. One failed attempt makes a defense look stronger than it is. B05 covers agents that combine untrusted input, sensitive access, and outside actions.",
+      "not_covered": [
+        {
+          "problem": "Missing type, schema, or size checks on API responses",
+          "owner": "R01"
+        },
+        {
+          "problem": "Hidden instructions in tool names, descriptions, or schemas",
+          "owner": "E04"
+        },
+        {
+          "problem": "One run planting instructions in another run's memory",
+          "owner": "R05"
+        },
+        {
+          "problem": "Generated output run as SQL or shell without parameterizing",
+          "owner": "R03"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent/loop.ts",
+          "line": 52,
+          "note": "Patient text and tool results go in user messages; the system prompt is a file plus a trusted clinic name."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R02.1",
+          "check": "Outside content (API responses, tool output, documents, connector messages) goes into user or tool message roles, never into the system or policy prompt.",
+          "verify": "1) Find where model requests are built (`system=`, `messages`, `role: system`, prompt templates). 2) Trace outside content (tool output, documents, API responses) into the request. 3) Answer no if any outside content is concatenated into the system or policy prompt, including retrieved context or tool descriptions from servers.",
+          "met": "yes",
+          "evidence": "src/agent/loop.ts:52",
+          "quote": "{ role: \"user\", content: `<patient_message>${escapeTags(patientText)}</patient_message>` },",
+          "counter_search": "Searched src for system:, role: \"system\", and string concatenation into SYSTEM_TEMPLATE; only clinic.name from the ConfigMap directory is substituted (loop.ts:49).",
+          "note": "Patient text and tool results go in user messages; the system prompt is a file plus a trusted clinic name.",
+          "coverage": [
+            {
+              "subject": "Patient message",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:52",
+              "quote": "{ role: \"user\", content: `<patient_message>${escapeTags(patientText)}</patient_message>` },",
+              "note": "User role. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Tool and API results",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:93",
+              "quote": "messages.push({ role: \"user\", content: results });",
+              "note": "Tool results go in the user role. as shown by the quoted line of code"
+            },
+            {
+              "subject": "System prompt build",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:49",
+              "quote": "const system = SYSTEM_TEMPLATE.replace(\"{{clinicName}}\", clinic.name);",
+              "note": "clinic.name comes from the ConfigMap clinic directory, not outside content."
+            },
+            {
+              "subject": "MCP tool descriptions",
+              "status": "enforced",
+              "evidence": "src/agent/loop.ts:50",
+              "quote": "const tools = registry.definitions();",
+              "note": "Descriptions go in the tools field after the registry scan, not the system prompt."
+            },
+            {
+              "subject": "Classifier request",
+              "status": "enforced",
+              "evidence": "src/agent/classifier.ts:51",
+              "quote": "messages: [{ role: \"user\", content: `<patient_message>${text}</patient_message>` }],",
+              "note": "User role; system is the fixed classifier prompt."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R02.2",
+          "check": "Each piece of outside content carries a source and trust label in the model request.",
+          "verify": "1) Find where outside content is wrapped before the model request. 2) Check each piece carries a source and trust label. 3) Answer no if some sources (for example tool output or retrieved chunks) have no label, or labels are set by the content itself.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:25",
+          "quote": "return { type: \"tool_result\", tool_use_id: id, content: JSON.stringify(content), is_error: isError };",
+          "counter_search": "",
+          "note": "Tool results carry no source or trust label; only the patient message has a tag (loop.ts:52), and that tag has no trust level.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R02.3",
+          "check": "Credential limits, tool permissions, and B05 action gates block the actions an injected instruction could cause, enforced in code the model cannot change.",
+          "verify": "1) List actions an injected instruction could cause: sends, writes, deletes, fetches. 2) Check each is blocked by credential scope, tool allowlist, or B05 gate in harness code. 3) Answer no if any harmful action is stopped only by the model declining, or the limit can be changed by tool arguments or model output.",
+          "met": "no",
+          "evidence": "src/workflows/eligibility-check.ts:40",
+          "quote": "const refund = await payments.refundDeposit(",
+          "counter_search": "",
+          "note": "insurance__check_eligibility refunds a deposit with no approval, bypassing the policy.yaml highImpactTools gate on payments__refund_deposit. Also ehr__update_appointment can set status to cancelled (tools.allowlist.yaml:17) without the cancel approval, and executor.ts:63 lets model-supplied clinicId pick the tenant.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R02.4",
+          "check": "Containment does not rely on prompt wording, delimiters, or an injection detector.",
+          "verify": "1) Find the defenses relied on for injection. 2) Check whether removing prompt wording, delimiters, or the detector would leave harmful actions blocked. 3) Answer no if containment depends on system-prompt rules, delimiter tags, or a detector, with no code-level block behind it.",
+          "met": "no",
+          "evidence": "prompts/system.md:14",
+          "quote": "- To book, use `ehr__book_appointment`. To move an appointment to another time or provider, or to",
+          "counter_search": "",
+          "note": "Stopping cancellation through ehr__update_appointment depends only on prompt wording (system.md:14-19); no code blocks status=cancelled.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R02.5",
+          "check": "Injection tests repeat each fixture a set number of times, include adaptive variants and schema-valid payloads, and report success rates.",
+          "verify": "1) Find injection tests (`tests/`, eval suites, red-team fixtures). 2) Check fixtures repeat a set number of times, include adaptive variants and schema-valid payloads, and report a success rate. 3) Answer no if each test runs once, uses only malformed inputs, or reports pass/fail. Answer unknown if tests live outside this repo.",
+          "met": "no",
+          "evidence": "test/controls.test.ts:51",
+          "quote": "it.each([",
+          "counter_search": "",
+          "note": "Injection fixtures are metadata-only, each run once with pass/fail; there are no repeated, adaptive or schema-valid payload tests for patient text or tool output and no success rates.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/workflows/eligibility-check.ts:40 eligibility tool refunds a deposit with no staff approval",
+        "src/tools/executor.ts:63 model-supplied clinicId selects the tenant for tool calls"
+      ],
+      "violates": [
+        "show that credential limits, tool permissions, and destructive-action gates still block harm if the model follows an injected instruction"
+      ],
+      "also_affects": [],
+      "summary": "Eligibility tool refunds without approval, update_appointment can cancel, and the model can choose the clinic, so code does not contain an injected instruction.",
+      "next_step": "Gate refunds and cancellations in code regardless of tool, and take clinicId from the authenticated context.",
+      "lead_role": "security"
+    },
+    {
+      "item": "R03",
+      "gate": "G2",
+      "title": "Prevent output and log leakage",
+      "requirement": "Remove secrets and limit sensitive data before tool output, debug output, or responses reach the model, outside recipients, or normal logs. Some clients fetch URLs on their own when they display output, such as Markdown images and link previews. These can leak data without any tool call, so block them or allow only approved URLs. Check generated output before it goes into SQL, a shell, an HTML page, or anything else that runs it. Use parameterized queries and commands (for example, argument lists for shell calls), and the right escaping for each context. Test with fake secrets and injection payloads. Confirm that leaks and unintended execution are blocked, and that redacted audit evidence is kept.",
+      "not_covered": [
+        {
+          "problem": "A tool call sending data to an unapproved destination",
+          "owner": "B09"
+        },
+        {
+          "problem": "Long-lived secrets checked into config or baked into images",
+          "owner": "B03"
+        },
+        {
+          "problem": "Incoming hostile payloads not validated",
+          "owner": "R01"
+        },
+        {
+          "problem": "Retrieval returning another tenant's documents",
+          "owner": "R04"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/tools/executor.ts",
+          "line": 87,
+          "note": "The raw tool result is logged before redactPhi runs on the next line."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R03.1",
+          "check": "Secrets and sensitive fields are redacted from tool output, debug output, and error text before they reach the model, outside recipients, or normal logs.",
+          "verify": "1) Find redaction code (`redact`, `mask`, secret patterns) and where tool output, errors, and debug text go. 2) Check redaction runs before the model, outside recipients, and logs. 3) Answer no if any path skips it, such as error messages, exception traces, debug logging, or `logger.info(response)` before redaction.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:87",
+          "quote": "ctx.log.info({ tool: call.name, toolUseId: call.id, clinicId, result: raw }, \"tool result\");",
+          "counter_search": "",
+          "note": "The raw tool result is logged before redactPhi runs on the next line.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R03.2",
+          "check": "The display client blocks auto-fetched URLs (Markdown images, link previews) or allows only approved hosts.",
+          "verify": "1) Find the display client or renderer (Markdown render, link unfurl, image tags). 2) Check auto-fetched URLs are blocked or limited to approved hosts (CSP `img-src`, URL allowlist). 3) Answer no if Markdown images or previews load any URL. Answer unknown if the display client is outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "The display client (SMS handsets and the web chat widget) is outside this repo. Replies are plain text from out.text (webchat.ts:57) with no URL or Markdown filtering in this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R03.3",
+          "check": "Generated SQL uses parameterized queries, shell calls use argument lists with no string-built commands, and HTML output is escaped for its context.",
+          "verify": "1) Search for SQL, shell, and HTML built from generated output (`execute(f`, `+ query`, `shell=True`, `exec(`, `innerHTML`, `dangerouslySetInnerHTML`, `|safe`). 2) Check for parameters, argument lists, and context escaping. 3) Answer no if any query or command is string-built, uses `shell=True` or `sh -c` with model input, or HTML is unescaped.",
+          "met": "yes",
+          "evidence": "src/routes/webchat.ts:57",
+          "quote": "return reply.send({ reply: out.text, handoff: out.handoff !== null, runId: ctx.runId });",
+          "counter_search": "Searched src for execute(, query(, child_process, exec, spawn, eval, innerHTML, dangerouslySetInnerHTML, sh -c; found none. DynamoDB calls use fixed expressions with values (approvals.ts:54, budget.ts:40). No HTML is built.",
+          "note": "No SQL, shell or HTML is built from generated output in this repo; outputs are JSON or plain SMS text.",
+          "coverage": [
+            {
+              "subject": "DynamoDB approvals",
+              "status": "enforced",
+              "evidence": "src/tools/approvals.ts:68",
+              "quote": "new GetCommand({ TableName: policy.approval.table, Key: { id: req.approvalId }, ConsistentRead: true })",
+              "note": "Key object, no expression string. as shown by the quoted line of code"
+            },
+            {
+              "subject": "DynamoDB budgets",
+              "status": "enforced",
+              "evidence": "src/agent/budget.ts:41",
+              "quote": "ConditionExpression: \"attribute_not_exists(used) OR used <= :room\",",
+              "note": "Fixed expression with placeholders. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Payments URL",
+              "status": "enforced",
+              "evidence": "src/integrations/payments.ts:29",
+              "quote": "encodeURIComponent(req.depositId)",
+              "note": "Model-supplied id is URL-encoded. as shown by the quoted line of code"
+            },
+            {
+              "subject": "SMS template render",
+              "status": "enforced",
+              "evidence": "src/integrations/sms.ts:19",
+              "quote": "replace(/[^\\p{L}\\p{N} .,:'/-]/gu, \"\")",
+              "note": "Template vars are stripped of special characters. as shown by the quoted line of code"
+            },
+            {
+              "subject": "Shell execution",
+              "status": "not_applicable",
+              "evidence": "src/tools/executor.ts:86",
+              "quote": "const raw = await tool.invoke(args,",
+              "note": "No shell or child_process use anywhere in src."
+            },
+            {
+              "subject": "HTML output",
+              "status": "not_applicable",
+              "evidence": "src/routes/webchat.ts:57",
+              "quote": "return reply.send({ reply: out.text,",
+              "note": "Replies are JSON text; the repo builds no HTML."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R03.4",
+          "check": "Redacted audit evidence is kept rather than discarded.",
+          "verify": "1) Find redaction code and audit logging. 2) Check redacted records are written to an audit store. 3) Answer no if redaction drops the whole record, or the evidence is discarded instead of kept.",
+          "met": "no",
+          "evidence": "src/audit/recorder.ts:91",
+          "quote": "if (DROP_KEYS.has(k)) continue;",
+          "counter_search": "",
+          "note": "redactPhi silently drops fields and no redacted evidence is written to the audit stream; tool.executed audit records carry only clinicId (executor.ts:89).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/tools/executor.ts:87 raw tool result logged before redaction"
+      ],
+      "violates": [
+        "Remove secrets and limit sensitive data before tool output, debug output, or responses reach the model, outside recipients, or normal logs"
+      ],
+      "also_affects": [],
+      "summary": "Raw tool results are logged before redaction, and redacted data is dropped with no audit evidence kept.",
+      "next_step": "Redact before logging and write redacted audit evidence.",
+      "lead_role": "agent_team"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {
+    "H001": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "Hardening is set: pod and container contexts in k8s/deployment.yaml set runAsNonRoot, no escalation, drop ALL, RuntimeDefault seccomp (lines 68-94, 136-157)."
+    },
+    "H002": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "Hardening is set: pod and container contexts in k8s/deployment.yaml set runAsNonRoot, no escalation, drop ALL, RuntimeDefault seccomp (lines 68-94, 136-157)."
+    },
+    "H003": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "Hardening is set: pod and container contexts in k8s/deployment.yaml set runAsNonRoot, no escalation, drop ALL, RuntimeDefault seccomp (lines 68-94, 136-157)."
+    },
+    "H004": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "Hardening is set: pod and container contexts in k8s/deployment.yaml set runAsNonRoot, no escalation, drop ALL, RuntimeDefault seccomp (lines 68-94, 136-157)."
+    }
+  }
+}

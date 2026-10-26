@@ -1,0 +1,736 @@
+{
+  "B11": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "B11.1",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:87, k8s/deployment.yaml:92",
+        "quote": "allowPrivilegeEscalation: false\ncapabilities:\n              drop: [\"ALL\"]",
+        "note": "Both workloads (Deployment agent, CronJob reminders) set pod-level runAsNonRoot and seccomp RuntimeDefault, with container-level allowPrivilegeEscalation false and drop ALL. No container overrides pod-level values. Namespace enforces restricted. Dockerfile uses USER 65532. No init containers or sidecars.",
+        "coverage": [
+          {
+            "subject": "Deployment agent container",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:90",
+            "quote": "runAsNonRoot: true",
+            "note": "also seccomp RuntimeDefault at line 94, drop ALL at 92"
+          },
+          {
+            "subject": "CronJob reminders container",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:136",
+            "quote": "runAsNonRoot: true",
+            "note": "pod-level runAsNonRoot and seccomp RuntimeDefault (line 140) inherited; container sets allowPrivilegeEscalation false and drop ALL (lines 153,157)"
+          },
+          {
+            "subject": "Namespace PSS label",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:6",
+            "quote": "pod-security.kubernetes.io/enforce: restricted",
+            "note": "enforce, audit and warn all restricted"
+          },
+          {
+            "subject": "Dockerfile user",
+            "status": "enforced",
+            "evidence": "Dockerfile:20",
+            "quote": "USER 65532:65532",
+            "note": "non-root"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "per-container override",
+            "input": "look for container securityContext that overrides pod-level non-root or seccomp, or init/sidecar containers",
+            "trace": "only one container per workload; no override of runAsNonRoot or seccompProfile; no initContainers",
+            "outcome": "blocked",
+            "evidence": "k8s/deployment.yaml:74",
+            "quote": "containers:"
+          }
+        ]
+      },
+      {
+        "id": "B11.2",
+        "result": "holds",
+        "evidence": "Dockerfile:10",
+        "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:9b2e4c6a8d0f1e3c5a7b9d1f3e5c7a9b1d3f5e7c9a1b3d5f7e9c1a3b5d7f9e1c",
+        "note": "Final stage is distroless with no shell or package manager; npm ci and build occur only in the build stage; CMD runs node directly.",
+        "coverage": [
+          {
+            "subject": "final stage base image",
+            "status": "enforced",
+            "evidence": "Dockerfile:10",
+            "quote": "FROM gcr.io/distroless/nodejs22-debian12:nonroot",
+            "note": "distroless"
+          },
+          {
+            "subject": "final stage installs",
+            "status": "enforced",
+            "evidence": "Dockerfile:14",
+            "quote": "COPY --from=build --chown=65532:65532 /app/node_modules ./node_modules",
+            "note": "only COPY, no RUN in final stage"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "shell/downloader in final stage",
+            "input": "search final stage for RUN, apt, apk, curl, wget, sh",
+            "trace": "final stage has no RUN; CMD is exec form",
+            "outcome": "blocked",
+            "evidence": "Dockerfile:22",
+            "quote": "CMD [\"dist/server.js\"]"
+          }
+        ]
+      },
+      {
+        "id": "B11.3",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:63",
+        "quote": "hostNetwork: false",
+        "note": "hostNetwork, hostPID and hostIPC explicitly false; privileged false; the only volumes are emptyDir and a projected service account token. No hostPath or docker.sock anywhere.",
+        "coverage": [
+          {
+            "subject": "Deployment host namespaces",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:64",
+            "quote": "hostPID: false",
+            "note": "hostIPC false at line 65"
+          },
+          {
+            "subject": "Volumes",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:104",
+            "quote": "emptyDir: { medium: Memory, sizeLimit: 32Mi }",
+            "note": "no hostPath"
+          },
+          {
+            "subject": "privileged flag",
+            "status": "enforced",
+            "evidence": "k8s/deployment.yaml:88",
+            "quote": "privileged: false",
+            "note": "also on CronJob line 154"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "grep host access",
+            "input": "privileged|hostPath|docker.sock|hostNetwork|hostPID|network_mode",
+            "trace": "searched all of agent/; only false values found; no compose file",
+            "outcome": "blocked",
+            "evidence": "k8s/deployment.yaml:65",
+            "quote": "hostIPC: false"
+          }
+        ]
+      },
+      {
+        "id": "B11.4",
+        "result": "holds",
+        "evidence": "src/tools/executor.ts:20",
+        "quote": "const ALLOWED = new Set(allowlist.tools.map((t) => t.tool));",
+        "note": "No code execution (child_process, exec, spawn, eval, vm, Function, interpreter) in src; tools are fixed, allowlisted integrations, so no model-written code runs.",
+        "coverage": [
+          {
+            "subject": "tool executor",
+            "status": "not_applicable",
+            "evidence": "src/tools/executor.ts:49",
+            "quote": "if (!ALLOWED.has(call.name)) return deny(\"not_allowlisted\");",
+            "note": "dispatches only to registered native or MCP tools; no code interpreter"
+          },
+          {
+            "subject": "src code-execution search",
+            "status": "not_applicable",
+            "evidence": "src/tools/metadata-scan.ts:64",
+            "quote": "const m = re.exec(s);",
+            "note": "only match is RegExp.exec, not code execution"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "model-written code execution",
+            "input": "model asks for arbitrary code run",
+            "trace": "executeTool denies tools not in allowlist; no exec/eval/spawn sinks exist in src",
+            "outcome": "not_applicable",
+            "evidence": "src/tools/executor.ts:49",
+            "quote": "if (!ALLOWED.has(call.name)) return deny(\"not_allowlisted\");"
+          }
+        ]
+      }
+    ],
+    "applicability": "present",
+    "evidence": "k8s/deployment.yaml:75",
+    "quote": "- name: agent",
+    "search_explanation": "Applicability can never be N/A for B11 because the agent runs in a container. Searched Dockerfile, k8s manifests, src, config, infra and workflows for runtime settings, host access flags and code execution sinks.",
+    "note": "Restricted PSS controls, distroless final image, no host access, and no code execution all verified; no failures."
+  },
+  "R04": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "R04.1",
+        "result": "holds",
+        "evidence": "release/manifest.json:62",
+        "quote": "\"retrieval\": \"none\",",
+        "note": "Not applicable: no retrieval corpus or index. No retrieval corpus or index exists; grep for vector/embed/upsert/chunk/search/index/corpus finds only EHR slot search tool, a URLSearchParams, and an SDK import.",
+        "coverage": [
+          {
+            "subject": "index write/search/lifecycle paths",
+            "status": "not_applicable",
+            "evidence": "README.md:26",
+            "quote": "There is no vector store and no conversation memory.",
+            "note": "No retrieval corpus or index exists; grep for vector/embed/upsert/chunk/search/index/corpus finds only EHR slot search tool, a URLSearchParams, and an SDK import."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "missed index path",
+            "input": "search src/, config/, infra for upsert/embed/chunk/similarity/vector store clients",
+            "trace": "no matches; only ehr__search_slots (EHR MCP tool for appointment slots, not a document corpus); package.json has no vector/search dependency",
+            "outcome": "not_applicable",
+            "evidence": "release/manifest.json:62",
+            "quote": "\"retrieval\": \"none\","
+          }
+        ]
+      },
+      {
+        "id": "R04.2",
+        "result": "holds",
+        "evidence": "release/manifest.json:62",
+        "quote": "\"retrieval\": \"none\",",
+        "note": "Not applicable: no retrieval corpus or index. No retrieval corpus or index exists; grep for vector/embed/upsert/chunk/search/index/corpus finds only EHR slot search tool, a URLSearchParams, and an SDK import.",
+        "coverage": [
+          {
+            "subject": "index write/search/lifecycle paths",
+            "status": "not_applicable",
+            "evidence": "README.md:26",
+            "quote": "There is no vector store and no conversation memory.",
+            "note": "No retrieval corpus or index exists; grep for vector/embed/upsert/chunk/search/index/corpus finds only EHR slot search tool, a URLSearchParams, and an SDK import."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "missed index path",
+            "input": "search src/, config/, infra for upsert/embed/chunk/similarity/vector store clients",
+            "trace": "no matches; only ehr__search_slots (EHR MCP tool for appointment slots, not a document corpus); package.json has no vector/search dependency",
+            "outcome": "not_applicable",
+            "evidence": "release/manifest.json:62",
+            "quote": "\"retrieval\": \"none\","
+          }
+        ]
+      },
+      {
+        "id": "R04.3",
+        "result": "holds",
+        "evidence": "release/manifest.json:62",
+        "quote": "\"retrieval\": \"none\",",
+        "note": "Not applicable: no retrieval corpus or index. No retrieval corpus or index exists; grep for vector/embed/upsert/chunk/search/index/corpus finds only EHR slot search tool, a URLSearchParams, and an SDK import.",
+        "coverage": [
+          {
+            "subject": "index write/search/lifecycle paths",
+            "status": "not_applicable",
+            "evidence": "README.md:26",
+            "quote": "There is no vector store and no conversation memory.",
+            "note": "No retrieval corpus or index exists; grep for vector/embed/upsert/chunk/search/index/corpus finds only EHR slot search tool, a URLSearchParams, and an SDK import."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "missed index path",
+            "input": "search src/, config/, infra for upsert/embed/chunk/similarity/vector store clients",
+            "trace": "no matches; only ehr__search_slots (EHR MCP tool for appointment slots, not a document corpus); package.json has no vector/search dependency",
+            "outcome": "not_applicable",
+            "evidence": "release/manifest.json:62",
+            "quote": "\"retrieval\": \"none\","
+          }
+        ]
+      },
+      {
+        "id": "R04.4",
+        "result": "holds",
+        "evidence": "release/manifest.json:62",
+        "quote": "\"retrieval\": \"none\",",
+        "note": "Not applicable: no retrieval corpus or index. No retrieval corpus or index exists; grep for vector/embed/upsert/chunk/search/index/corpus finds only EHR slot search tool, a URLSearchParams, and an SDK import.",
+        "coverage": [
+          {
+            "subject": "index write/search/lifecycle paths",
+            "status": "not_applicable",
+            "evidence": "README.md:26",
+            "quote": "There is no vector store and no conversation memory.",
+            "note": "No retrieval corpus or index exists; grep for vector/embed/upsert/chunk/search/index/corpus finds only EHR slot search tool, a URLSearchParams, and an SDK import."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "missed index path",
+            "input": "search src/, config/, infra for upsert/embed/chunk/similarity/vector store clients",
+            "trace": "no matches; only ehr__search_slots (EHR MCP tool for appointment slots, not a document corpus); package.json has no vector/search dependency",
+            "outcome": "not_applicable",
+            "evidence": "release/manifest.json:62",
+            "quote": "\"retrieval\": \"none\","
+          }
+        ]
+      }
+    ],
+    "applicability": "absent",
+    "evidence": "release/manifest.json:62, README.md:26",
+    "quote": "\"retrieval\": \"none\",\nThere is no vector store and no conversation memory.",
+    "search_explanation": "No retrieval corpus or index exists; grep for vector/embed/upsert/chunk/search/index/corpus finds only EHR slot search tool, a URLSearchParams, and an SDK import. package.json dependencies contain no vector DB or search client; prompts are static files; all data comes from the EHR at run time.",
+    "note": "Agent has no retrieval corpus or search index, so the N/A condition is met.",
+    "violates": []
+  },
+  "R14": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "R14.1",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:125, src/audit/recorder.ts:62",
+        "quote": "      backoffLimit: 0\n      await firehose.send(",
+        "note": "Not applicable: audit records are write-only (Firehose to S3); no code reads logs or checkpoints for recovery, and no automatic replay exists.",
+        "coverage": [
+          {
+            "subject": "audit recorder (write-only Firehose sink)",
+            "status": "not_applicable",
+            "evidence": "src/audit/recorder.ts:62",
+            "quote": "      await firehose.send(",
+            "note": "Only PutRecord; never read back to drive recovery."
+          },
+          {
+            "subject": "agent loop state (in-memory messages, no checkpoint)",
+            "status": "not_applicable",
+            "evidence": "src/agent/loop.ts:41",
+            "quote": "    const messages: Anthropic.MessageParam[] = [",
+            "note": "A new run starts fresh from the patient message; nothing persisted or resumed."
+          },
+          {
+            "subject": "reminders CronJob retry",
+            "status": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "      backoffLimit: 0",
+            "note": "No Job-level retry, so no automatic replay."
+          },
+          {
+            "subject": "approval table / re-call after approval",
+            "status": "not_applicable",
+            "evidence": "prompts/system.md:18",
+            "quote": "the patient a staff member will confirm shortly. When the conversation resumes with an approval",
+            "note": "Re-call is a new model-issued tool call gated by checkApproval; it is not log/checkpoint-driven recovery. Refunds also carry a provider-enforced idempotency key (payments.ts:35)."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "recovery_replay",
+            "input": "Crash mid-run or reminder job failure",
+            "trace": "loop.ts catch records run.stopped and hands off to staff; reminders.ts catch logs and continues to next clinic; backoffLimit 0 so no pod retry; no code loads audit/checkpoint data",
+            "outcome": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "      backoffLimit: 0"
+          }
+        ]
+      },
+      {
+        "id": "R14.2",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:125, src/audit/recorder.ts:62",
+        "quote": "      backoffLimit: 0\n      await firehose.send(",
+        "note": "Not applicable: audit records are write-only (Firehose to S3); no code reads logs or checkpoints for recovery, and no automatic replay exists.",
+        "coverage": [
+          {
+            "subject": "audit recorder (write-only Firehose sink)",
+            "status": "not_applicable",
+            "evidence": "src/audit/recorder.ts:62",
+            "quote": "      await firehose.send(",
+            "note": "Only PutRecord; never read back to drive recovery."
+          },
+          {
+            "subject": "agent loop state (in-memory messages, no checkpoint)",
+            "status": "not_applicable",
+            "evidence": "src/agent/loop.ts:41",
+            "quote": "    const messages: Anthropic.MessageParam[] = [",
+            "note": "A new run starts fresh from the patient message; nothing persisted or resumed."
+          },
+          {
+            "subject": "reminders CronJob retry",
+            "status": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "      backoffLimit: 0",
+            "note": "No Job-level retry, so no automatic replay."
+          },
+          {
+            "subject": "approval table / re-call after approval",
+            "status": "not_applicable",
+            "evidence": "prompts/system.md:18",
+            "quote": "the patient a staff member will confirm shortly. When the conversation resumes with an approval",
+            "note": "Re-call is a new model-issued tool call gated by checkApproval; it is not log/checkpoint-driven recovery. Refunds also carry a provider-enforced idempotency key (payments.ts:35)."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "recovery_replay",
+            "input": "Crash mid-run or reminder job failure",
+            "trace": "loop.ts catch records run.stopped and hands off to staff; reminders.ts catch logs and continues to next clinic; backoffLimit 0 so no pod retry; no code loads audit/checkpoint data",
+            "outcome": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "      backoffLimit: 0"
+          }
+        ]
+      },
+      {
+        "id": "R14.3",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:125, src/audit/recorder.ts:62",
+        "quote": "      backoffLimit: 0\n      await firehose.send(",
+        "note": "Not applicable: audit records are write-only (Firehose to S3); no code reads logs or checkpoints for recovery, and no automatic replay exists.",
+        "coverage": [
+          {
+            "subject": "audit recorder (write-only Firehose sink)",
+            "status": "not_applicable",
+            "evidence": "src/audit/recorder.ts:62",
+            "quote": "      await firehose.send(",
+            "note": "Only PutRecord; never read back to drive recovery."
+          },
+          {
+            "subject": "agent loop state (in-memory messages, no checkpoint)",
+            "status": "not_applicable",
+            "evidence": "src/agent/loop.ts:41",
+            "quote": "    const messages: Anthropic.MessageParam[] = [",
+            "note": "A new run starts fresh from the patient message; nothing persisted or resumed."
+          },
+          {
+            "subject": "reminders CronJob retry",
+            "status": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "      backoffLimit: 0",
+            "note": "No Job-level retry, so no automatic replay."
+          },
+          {
+            "subject": "approval table / re-call after approval",
+            "status": "not_applicable",
+            "evidence": "prompts/system.md:18",
+            "quote": "the patient a staff member will confirm shortly. When the conversation resumes with an approval",
+            "note": "Re-call is a new model-issued tool call gated by checkApproval; it is not log/checkpoint-driven recovery. Refunds also carry a provider-enforced idempotency key (payments.ts:35)."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "recovery_replay",
+            "input": "Crash mid-run or reminder job failure",
+            "trace": "loop.ts catch records run.stopped and hands off to staff; reminders.ts catch logs and continues to next clinic; backoffLimit 0 so no pod retry; no code loads audit/checkpoint data",
+            "outcome": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "      backoffLimit: 0"
+          }
+        ]
+      },
+      {
+        "id": "R14.4",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:125, src/audit/recorder.ts:62",
+        "quote": "      backoffLimit: 0\n      await firehose.send(",
+        "note": "Not applicable: audit records are write-only (Firehose to S3); no code reads logs or checkpoints for recovery, and no automatic replay exists.",
+        "coverage": [
+          {
+            "subject": "audit recorder (write-only Firehose sink)",
+            "status": "not_applicable",
+            "evidence": "src/audit/recorder.ts:62",
+            "quote": "      await firehose.send(",
+            "note": "Only PutRecord; never read back to drive recovery."
+          },
+          {
+            "subject": "agent loop state (in-memory messages, no checkpoint)",
+            "status": "not_applicable",
+            "evidence": "src/agent/loop.ts:41",
+            "quote": "    const messages: Anthropic.MessageParam[] = [",
+            "note": "A new run starts fresh from the patient message; nothing persisted or resumed."
+          },
+          {
+            "subject": "reminders CronJob retry",
+            "status": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "      backoffLimit: 0",
+            "note": "No Job-level retry, so no automatic replay."
+          },
+          {
+            "subject": "approval table / re-call after approval",
+            "status": "not_applicable",
+            "evidence": "prompts/system.md:18",
+            "quote": "the patient a staff member will confirm shortly. When the conversation resumes with an approval",
+            "note": "Re-call is a new model-issued tool call gated by checkApproval; it is not log/checkpoint-driven recovery. Refunds also carry a provider-enforced idempotency key (payments.ts:35)."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "recovery_replay",
+            "input": "Crash mid-run or reminder job failure",
+            "trace": "loop.ts catch records run.stopped and hands off to staff; reminders.ts catch logs and continues to next clinic; backoffLimit 0 so no pod retry; no code loads audit/checkpoint data",
+            "outcome": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "      backoffLimit: 0"
+          }
+        ]
+      },
+      {
+        "id": "R14.5",
+        "result": "holds",
+        "evidence": "k8s/deployment.yaml:125, src/audit/recorder.ts:62",
+        "quote": "      backoffLimit: 0\n      await firehose.send(",
+        "note": "Not applicable: audit records are write-only (Firehose to S3); no code reads logs or checkpoints for recovery, and no automatic replay exists.",
+        "coverage": [
+          {
+            "subject": "audit recorder (write-only Firehose sink)",
+            "status": "not_applicable",
+            "evidence": "src/audit/recorder.ts:62",
+            "quote": "      await firehose.send(",
+            "note": "Only PutRecord; never read back to drive recovery."
+          },
+          {
+            "subject": "agent loop state (in-memory messages, no checkpoint)",
+            "status": "not_applicable",
+            "evidence": "src/agent/loop.ts:41",
+            "quote": "    const messages: Anthropic.MessageParam[] = [",
+            "note": "A new run starts fresh from the patient message; nothing persisted or resumed."
+          },
+          {
+            "subject": "reminders CronJob retry",
+            "status": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "      backoffLimit: 0",
+            "note": "No Job-level retry, so no automatic replay."
+          },
+          {
+            "subject": "approval table / re-call after approval",
+            "status": "not_applicable",
+            "evidence": "prompts/system.md:18",
+            "quote": "the patient a staff member will confirm shortly. When the conversation resumes with an approval",
+            "note": "Re-call is a new model-issued tool call gated by checkApproval; it is not log/checkpoint-driven recovery. Refunds also carry a provider-enforced idempotency key (payments.ts:35)."
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "recovery_replay",
+            "input": "Crash mid-run or reminder job failure",
+            "trace": "loop.ts catch records run.stopped and hands off to staff; reminders.ts catch logs and continues to next clinic; backoffLimit 0 so no pod retry; no code loads audit/checkpoint data",
+            "outcome": "not_applicable",
+            "evidence": "k8s/deployment.yaml:125",
+            "quote": "      backoffLimit: 0"
+          }
+        ]
+      }
+    ],
+    "applicability": "absent",
+    "evidence": "k8s/deployment.yaml:125, src/audit/recorder.ts:62",
+    "quote": "      backoffLimit: 0\n      await firehose.send(",
+    "search": "Grepped all of agent/ (case-insensitive) for checkpoint, replay, resume, recover, idempot, hash, hmac, retry, sequence. Read audit/recorder.ts, agent/loop.ts, tools/executor.ts, tools/approvals.ts, workers/reminders.ts, integrations/payments.ts, k8s CronJob and terraform state tables. Audit is write-only to Firehose/S3, the loop keeps state in memory, the CronJob has backoffLimit 0, and no code reads logs or checkpoints back or retries automatically. The only DynamoDB 'recovery' hit is point-in-time recovery, which is infrastructure backup and not agent-driven.",
+    "note": "No logs or checkpoints drive recovery and there is no automatic replay, so the N/A condition is met."
+  },
+  "A07": {
+    "verdict": "upheld",
+    "checks": [
+      {
+        "id": "A07.1",
+        "result": "holds",
+        "evidence": "release/manifest.json:27",
+        "quote": "\"role\": \"intent_classifier\",",
+        "note": "Searched all src for SDK clients, model strings, embed/rerank/moderation/judge calls. Only Anthropic client (loop.ts) makes calls: agent model (primary, not helper), classifier (helper), and count_tokens (token counting, not a model decision). Manifest models[] lists both; config.ts pins both.",
+        "coverage": [
+          {
+            "subject": "intent classifier helper",
+            "status": "enforced",
+            "evidence": "release/manifest.json:29",
+            "quote": "\"requestedId\": \"claude-haiku-4-5-20251001\",",
+            "note": "Listed in inventory and called at classifier.ts"
+          },
+          {
+            "subject": "agent model (inventory completeness)",
+            "status": "enforced",
+            "evidence": "release/manifest.json:20",
+            "quote": "\"requestedId\": \"claude-sonnet-4-5-20250929\",",
+            "note": "Primary model also inventoried"
+          },
+          {
+            "subject": "count_tokens call",
+            "status": "not_applicable",
+            "evidence": "src/agent/context-size.ts:32",
+            "quote": "const r = await client.messages.countTokens(req, { signal });",
+            "note": "Token counting only; no decision made"
+          },
+          {
+            "subject": "embeddings/rerank/moderation/world model",
+            "status": "not_applicable",
+            "evidence": "package.json:17",
+            "quote": "\"@anthropic-ai/sdk\": \"0.65.0\",",
+            "note": "No other model clients or calls found; reminders worker states no model involved"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "missed helper path",
+            "input": "search for embed/rerank/moderat/judge/openai/bedrock",
+            "trace": "grep across repo returned only Anthropic SDK uses and comments",
+            "outcome": "blocked",
+            "evidence": "src/workers/reminders.ts:9",
+            "quote": "// Daily reminder job (Kubernetes CronJob). Templated reminders only; no model involved."
+          }
+        ]
+      },
+      {
+        "id": "A07.2",
+        "result": "holds",
+        "evidence": "src/config.ts:50",
+        "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";",
+        "note": "Hard-coded constant in config but dated snapshot, no env override or alias fallback; identity = sha256 of model+prompt+config.",
+        "coverage": [
+          {
+            "subject": "classifier model id",
+            "status": "enforced",
+            "evidence": "src/config.ts:50",
+            "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";",
+            "note": "Dated snapshot, no env var"
+          },
+          {
+            "subject": "classifier prompt+config identity",
+            "status": "enforced",
+            "evidence": "src/agent/classifier.ts:15",
+            "quote": "export const CLASSIFIER_ID = `sha256:${createHash(\"sha256\")",
+            "note": "Hash over model, prompt and config"
+          },
+          {
+            "subject": "agent model id",
+            "status": "enforced",
+            "evidence": "src/config.ts:49",
+            "quote": "export const AGENT_MODEL = \"claude-sonnet-4-5-20250929\";",
+            "note": "Dated snapshot"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "alias/env override",
+            "input": "set env vars to change model",
+            "trace": "model constants do not read process.env",
+            "outcome": "blocked",
+            "evidence": "src/config.ts:50",
+            "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";"
+          }
+        ]
+      },
+      {
+        "id": "A07.3",
+        "result": "holds",
+        "evidence": "src/agent/loop.ts:42",
+        "quote": "await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });",
+        "note": "Recorded on every branch before routing, including failures; detail includes classifierId, requestedModel, servedModel, intent, route, failure.",
+        "coverage": [
+          {
+            "subject": "classifier decision log",
+            "status": "enforced",
+            "evidence": "src/agent/loop.ts:42",
+            "quote": "await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });",
+            "note": "Unconditional, before route check"
+          },
+          {
+            "subject": "decision carries identity",
+            "status": "enforced",
+            "evidence": "src/agent/classifier.ts:13",
+            "quote": "const base = { classifierId: CLASSIFIER_ID, requestedModel: CLASSIFIER_MODEL };",
+            "note": "base spread into every return path"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "log only on success",
+            "input": "classifier times out",
+            "trace": "catch returns {...base,...failure}; loop records intent.classified before checking route",
+            "outcome": "blocked",
+            "evidence": "src/agent/loop.ts:42",
+            "quote": "await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });"
+          }
+        ]
+      },
+      {
+        "id": "A07.4",
+        "result": "holds",
+        "evidence": "src/agent/classifier.ts:64",
+        "quote": "if (res.model !== CLASSIFIER_MODEL) {",
+        "note": "Timeout/API error, model mismatch, invalid output and low confidence all return route staff; loop hands off to staff.",
+        "coverage": [
+          {
+            "subject": "timeout/api error",
+            "status": "enforced",
+            "evidence": "src/agent/classifier.ts:56",
+            "quote": "return { ...base, servedModel: null, intent: null, confidence: null, route: \"staff\", failure: timeout ? \"timeout\" : \"api_error\" };",
+            "note": "Fails to staff"
+          },
+          {
+            "subject": "version mismatch",
+            "status": "enforced",
+            "evidence": "src/agent/classifier.ts:60",
+            "quote": "return { ...base, servedModel: res.model, intent: null, confidence: null, route: \"staff\", failure: \"model_mismatch\" };",
+            "note": "Served model compared to pinned"
+          },
+          {
+            "subject": "invalid output",
+            "status": "enforced",
+            "evidence": "src/agent/classifier.ts:69",
+            "quote": "return { ...base, servedModel: res.model, intent: null, confidence: null, route: \"staff\", failure: \"invalid_output\" };",
+            "note": "Parse/zod failure goes to staff"
+          },
+          {
+            "subject": "low confidence",
+            "status": "enforced",
+            "evidence": "src/agent/classifier.ts:73",
+            "quote": "return { ...base, servedModel: res.model, ...parsed, route: \"staff\", failure: \"low_confidence\" };",
+            "note": "Fails to staff"
+          },
+          {
+            "subject": "caller honours route",
+            "status": "enforced",
+            "evidence": "src/agent/loop.ts:44",
+            "quote": "if (intent.route === \"staff\") {",
+            "note": "Stops before agent loop"
+          }
+        ],
+        "deviations": [],
+        "attempts": [
+          {
+            "category": "swapped model",
+            "input": "served model claude-haiku-4-5 alias with book intent",
+            "trace": "res.model !== CLASSIFIER_MODEL -> staff",
+            "outcome": "blocked",
+            "evidence": "src/agent/classifier.ts:64",
+            "quote": "if (res.model !== CLASSIFIER_MODEL) {"
+          },
+          {
+            "category": "unparseable output",
+            "input": "reply text 'book'",
+            "trace": "JSON.parse throws -> invalid_output staff",
+            "outcome": "blocked",
+            "evidence": "src/agent/classifier.ts:69",
+            "quote": "return { ...base, servedModel: res.model, intent: null, confidence: null, route: \"staff\", failure: \"invalid_output\" };"
+          }
+        ]
+      }
+    ],
+    "applicability": "present",
+    "evidence": "src/agent/classifier.ts:1",
+    "quote": "import type Anthropic from \"@anthropic-ai/sdk\";",
+    "note": "Agent uses a Haiku 4.5 intent-classifier helper model that is inventoried, pinned, identity-logged and fails closed to staff.",
+    "search": "Searched all agent files case-insensitively for model, claude, anthropic, embed, rerank, moderat, judge, verif, classif, openai, bedrock; only the intent classifier is a helper model; count_tokens is not a decision.",
+    "search_explanation": "Searched all agent files case-insensitively for model, claude, anthropic, embed, rerank, moderat, judge, verif, classif, openai, bedrock; only the intent classifier is a helper model; count_tokens is not a decision.",
+    "violates": []
+  }
+}

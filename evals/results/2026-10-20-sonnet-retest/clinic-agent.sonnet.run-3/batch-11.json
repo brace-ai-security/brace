@@ -1,0 +1,329 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-10-20T15:56:02Z",
+  "scope": "Batch review of E10, E11, E12 only. Read audit/recorder.ts, agent/loop.ts, tools/executor.ts, workers/reminders.ts, workflows/eligibility-check.ts, integrations (EHR MCP, payments, SMS, eligibility A2A), control/kill-switch.ts, routes, Terraform (iam.tf, main.tf), config, README and release manifest. Not found in repo: audit read-role policy, alarms/alerting, incident runbooks or drills, anything inside vendor or peer services. No code run.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "E10",
+      "gate": "G1",
+      "title": "Audit across service boundaries",
+      "requirement": "Rebuild a run across the gateway, tool services, and delegated workers, with all six identity fields kept. Check that the agent can't erase or rewrite its audit history, either directly or by asking a more powerful tool or peer. Check that a vendor boundary doesn't leave any action untraceable to the agent and instance that did it.",
+      "not_covered": [
+        {
+          "problem": "Audit retention, access, redaction, or export rules missing",
+          "owner": "E11"
+        },
+        {
+          "problem": "Authorization decisions missing the policy version in the run record",
+          "owner": "R13"
+        },
+        {
+          "problem": "Instance or tenant labels taken from what the model supplies",
+          "owner": "A04"
+        },
+        {
+          "problem": "Recovery checkpoints not tamper-evident",
+          "owner": "R14"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/integrations/payments.ts",
+          "line": 35,
+          "note": "vendor call carries no correlation ID; executor audit stores no vendor receipt"
+        }
+      ],
+      "checks": [
+        {
+          "id": "E10.1",
+          "check": "The gateway, tool services, and delegated workers each write audit records with all six identity fields and the shared trace context.",
+          "verify": "1) Find audit writers in the gateway, tool services, and delegated workers. 2) Check each writes all six identity fields and the shared trace context. 3) Answer no if any component writes records without them or starts a new trace. Answer unknown if a component's code is outside this repo.",
+          "met": "unknown",
+          "evidence": "src/integrations/eligibility-a2a.ts:61",
+          "quote": "headers: { authorization: `Bearer ${token}`, \"content-type\": \"application/json\", traceparent: opts.traceparent },",
+          "counter_search": "",
+          "note": "Gateway, executor, reminder worker and eligibility workflow audit writers all spread ctx.identity() (six fields incl. traceparent). The delegated eligibility agent receives traceparent but writes its audit outside this repo; EHR MCP (ehr-mcp.ts:58), payments and SMS calls carry no trace context. Cannot confirm peer/vendor records.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E10.2",
+          "check": "The agent's credentials have no permission to delete, update, or overwrite audit records (for example an append-only or WORM store with IAM denies).",
+          "verify": "1) Find the agent's IAM role or database grants and the audit store config. 2) Check the agent has no delete, update, or overwrite rights (`DeleteObject`, overwriting `PutObject`, `UPDATE`, `DELETE`, `TRUNCATE`) and the store is append-only or WORM (Object Lock). 3) Answer no if the agent's credentials can delete or rewrite records, or grant `*`. Answer unknown if these are set outside this repo.",
+          "met": "yes",
+          "evidence": "infra/terraform/iam.tf:52",
+          "quote": "Action   = [\"firehose:PutRecord\", \"firehose:PutRecordBatch\"]",
+          "counter_search": "Searched all runtime role statements and the bucket config for s3:Delete*, PutObject, dynamodb/log admin, wildcards on the audit bucket; only dynamodb on clinic-agent-* tables and secrets read exist. Audit bucket has Object Lock COMPLIANCE.",
+          "note": "Agent role can only put Firehose records; bucket is WORM.",
+          "coverage": [
+            {
+              "subject": "clinic-agent-runtime role (agent pods, both service accounts)",
+              "status": "enforced",
+              "evidence": "infra/terraform/iam.tf:52",
+              "quote": "Action   = [\"firehose:PutRecord\", \"firehose:PutRecordBatch\"]",
+              "note": "Only audit permission is Firehose put; no s3 or delete/update rights on the audit bucket, and no wildcard grant in the runtime policy."
+            },
+            {
+              "subject": "audit S3 bucket store",
+              "status": "enforced",
+              "evidence": "infra/terraform/main.tf:136",
+              "quote": "object_lock_enabled = true",
+              "note": "Object Lock enabled; default retention in COMPLIANCE mode (main.tf default_retention) so objects cannot be overwritten or deleted by anyone."
+            },
+            {
+              "subject": "firehose delivery role",
+              "status": "enforced",
+              "evidence": "infra/terraform/iam.tf:103",
+              "quote": "Action   = [\"s3:PutObject\", \"s3:AbortMultipartUpload\", \"s3:GetBucketLocation\"]",
+              "note": "Delivery role is not the agent's credential and has no delete."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E10.3",
+          "check": "No tool or peer the agent can call is able to delete or rewrite audit records on its behalf, or such requests are held for approval under B05.",
+          "verify": "1) List the tools and peers the agent can call. 2) For each, check whether it can delete or rewrite audit records (database admin, log management, storage tools). 3) Answer no if any can and such requests are not held for approval under B05.",
+          "met": "yes",
+          "evidence": "src/tools/executor.ts:55",
+          "quote": "if (!ALLOWED.has(call.name)) return deny(\"not_allowlisted\");",
+          "counter_search": "Searched allowlist, native tools and peer client for any audit/log/S3/admin capability; none found. The EHR MCP tool list is server supplied but executor denies non-allowlisted names.",
+          "note": "No callable tool or peer touches audit storage.",
+          "coverage": [
+            {
+              "subject": "ehr__* tools (7 allowlisted EHR MCP tools)",
+              "status": "enforced",
+              "evidence": "config/tools.allowlist.yaml:6",
+              "quote": "- tool: ehr__find_patient",
+              "note": "Allowlist (enforced at executor.ts:55) lists only patient/appointment tools; none touches audit storage."
+            },
+            {
+              "subject": "payments__refund_deposit",
+              "status": "enforced",
+              "evidence": "src/integrations/payments.ts:29",
+              "quote": "const res = await fetch(`${BASE}/deposits/${encodeURIComponent(req.depositId)}/refunds`, {",
+              "note": "Only posts a refund request to the payments provider API."
+            },
+            {
+              "subject": "sms__send_to_patient / sms__send_freeform",
+              "status": "enforced",
+              "evidence": "src/integrations/sms.ts:31",
+              "quote": "const res = await fetch(`${BASE}/messages`, {",
+              "note": "Only posts outbound SMS messages to the SMS provider API."
+            },
+            {
+              "subject": "insurance__check_eligibility and eligibility-agent peer",
+              "status": "enforced",
+              "evidence": "src/integrations/eligibility-a2a.ts:57",
+              "quote": "const requestId = randomUUID();",
+              "note": "Peer receives a read-only eligibility:read token (eligibility-a2a.ts:44); allowlist has no log/admin tool."
+            },
+            {
+              "subject": "executor allowlist gate",
+              "status": "enforced",
+              "evidence": "src/tools/executor.ts:55",
+              "quote": "if (!ALLOWED.has(call.name)) return deny(\"not_allowlisted\");",
+              "note": "Any tool not in allowlist (e.g. a server-added log tool) is denied."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E10.4",
+          "check": "Calls into vendor services are mapped from the gateway's verified identity and correlation ID to the vendor's job or receipt ID.",
+          "verify": "1) Find calls into vendor services. 2) Check the gateway stores its verified identity and correlation ID together with the vendor's job or receipt ID. 3) Answer no if the vendor ID is not stored, or stored without the link to identity and correlation ID.",
+          "met": "no",
+          "evidence": "src/integrations/payments.ts:35",
+          "quote": "\"idempotency-key\": req.idempotencyKey,",
+          "counter_search": "",
+          "note": "tool.executed records no vendor job/receipt ID: refund id, SMS messageId and EHR results are discarded on the executor path. Reminder worker stores messageId (reminders.ts:44) and eligibility refund stores refundId (eligibility-check.ts:52), but the eligibility requestId (eligibility-a2a.ts:57) is never audited, and payments sends only an idempotency key, no correlation ID (payments.ts:35).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/integrations/payments.ts:35 payments call sends only an idempotency key; no correlation ID or trace context, and the refund id is dropped by the executor audit record"
+      ],
+      "violates": [
+        "Check that a vendor boundary doesn't leave any action untraceable to the agent and instance that did it"
+      ],
+      "also_affects": [],
+      "summary": "Vendor calls through the executor store no vendor job or receipt ID linked to identity and correlation ID, so some actions are untraceable.",
+      "next_step": "Record the refund id, SMS messageId, EHR result id and eligibility requestId in the audit event with run id and traceparent; pass the correlation ID to vendors where they accept it.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E11",
+      "gate": "G2",
+      "title": "Protect shared evidence",
+      "requirement": "Set rules for how long audit records are kept, who can see them, what is redacted, how their integrity is checked, and how they are exported and restored. Test pulling up a past run, and test that missing records or a broken pipeline get noticed. Keep records long enough for investigations and for the law. For example, the EU AI Act requires providers and deployers of high-risk systems to keep automatically generated logs for at least six months (Articles 19 and 26). High-impact actions must fail closed when required audit capture isn't working.",
+      "not_covered": [
+        {
+          "problem": "Agent able to erase or rewrite its own audit history",
+          "owner": "E10"
+        },
+        {
+          "problem": "Run record missing denials, approvals, or results",
+          "owner": "R13"
+        },
+        {
+          "problem": "Secrets left in tool output, responses, or normal logs",
+          "owner": "R03"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "infra/terraform/main.tf",
+          "line": 144,
+          "note": "7 years object lock retention."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E11.1",
+          "check": "Audit retention is set in config to cover the investigation window and the legal minimum (for example at least six months for EU AI Act high-risk systems).",
+          "verify": "1) Find retention settings for audit storage: bucket lifecycle rules, log retention days, TTLs. 2) Check the value covers the investigation window and the legal minimum (for example six months for EU AI Act high-risk systems). 3) Answer no if retention is shorter or unset. Answer unknown if audit storage is configured outside this repo.",
+          "met": "yes",
+          "evidence": "infra/terraform/main.tf:144",
+          "quote": "years = 7",
+          "counter_search": "Searched for lifecycle rules or shorter expiration on the audit bucket and Firehose; none exist, only default COMPLIANCE retention.",
+          "note": "7 years object lock retention.",
+          "coverage": [
+            {
+              "subject": "audit bucket clinic-agent-audit-*",
+              "status": "enforced",
+              "evidence": "infra/terraform/main.tf:144",
+              "quote": "years = 7",
+              "note": "COMPLIANCE-mode default retention of 7 years, above six-month legal minimum."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E11.2",
+          "check": "Access to audit records is limited by role, and redaction rules apply to sensitive fields.",
+          "verify": "1) Find IAM policies or ACLs on audit storage. 2) Check reads are limited by role. 3) Check redaction rules apply to sensitive fields. 4) Answer no if read access is broad (`*`, all engineers) or no redaction exists.",
+          "met": "no",
+          "evidence": "src/audit/recorder.ts:60",
+          "quote": "const full = AuditEvent.parse({ ...e, eventId: randomUUID(), ts: new Date().toISOString() });",
+          "counter_search": "",
+          "note": "audit.record never calls redactPhi (only used on tool results at executor.ts:88); subject.id is the patient phone number (sms-webhook.ts:65) and tool.failed reasons carry raw error text. No IAM or bucket policy limiting audit reads exists in the repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E11.3",
+          "check": "Integrity protection (hash chain, signatures, or WORM) plus sequence numbers or delivery receipts let missing records be detected, with an alert on gaps or pipeline failure.",
+          "verify": "1) Open the audit writer and store config. 2) Check for integrity protection (hash chain, signatures, or WORM) plus sequence numbers or delivery receipts. 3) Check an alert fires on gaps or pipeline failure. 4) Answer no if any piece is missing, or a hash is computed but never verified.",
+          "met": "no",
+          "evidence": "src/audit/recorder.ts:62",
+          "quote": "await firehose.send(",
+          "counter_search": "",
+          "note": "Object Lock COMPLIANCE gives WORM, but records carry no sequence number, the PutRecord response (receipt) is ignored, there is no verifier for gaps, and no alarm or alert resource exists for pipeline failure or error_output_prefix objects.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E11.4",
+          "check": "High-impact actions are blocked when required audit capture is down.",
+          "verify": "1) Find high-impact action paths. 2) Check they confirm audit capture is working before the action runs. 3) Answer no if audit write errors are caught and the action proceeds, or the audit record is written only after success.",
+          "met": "no",
+          "evidence": "src/tools/executor.ts:89",
+          "quote": "await audit.record({ ...base, event: \"tool.executed\", approvalId, detail: { clinicId } });",
+          "counter_search": "",
+          "note": "The executed audit record is written only after tool.invoke at executor.ts:86 succeeds, so high-impact refunds, cancellations and freeform SMS run before their own record exists. Same ordering in eligibility-check.ts:40-45 (refund then audit) and no approval gate there; reminders.ts:35-36 sends SMS before audit.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/tools/executor.ts:85 high-impact tool runs inside the try (lines 84-86) before its audit record is written at line 89; audit capture is not confirmed first",
+        "src/tools/executor.ts:84 audit write follows the action"
+      ],
+      "violates": [
+        "High-impact actions must fail closed when required audit capture isn't working"
+      ],
+      "also_affects": [],
+      "summary": "Audit has 7-year WORM retention but no gap detection or alerting, no audit redaction or read-role policy, and actions run before their audit record exists.",
+      "next_step": "Write a pre-action audit intent record and block on failure; add sequence numbers, a gap verifier and alarms; apply redactPhi to audit fields and add a reader-role policy on the audit bucket.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E12",
+      "gate": "G3",
+      "title": "Fleet incident response",
+      "requirement": "Run a drill where a shared tool or agent type is compromised. Find the affected instances and tenants. Quarantine the dependency, revoke the access involved, stop affected work, and alert the named responders. Check that alerts about abuse across agents, and about budgets, reach the team that can act. Name who decides whether to report outside the organization and share information.",
+      "not_covered": [
+        {
+          "problem": "Kill switch for a single agent not drilled",
+          "owner": "R11"
+        },
+        {
+          "problem": "No owner named on each side of a shared control",
+          "owner": "E01"
+        },
+        {
+          "problem": "Tool or MCP server approved without vetting or pinning",
+          "owner": "E02"
+        },
+        {
+          "problem": "Budget and rate limits not enforced outside the model",
+          "owner": "B07"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "low",
+      "evidence": [],
+      "checks": [],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "The repo has a halt switch and an on-call channel, but no fleet compromise drill, dependency quarantine, access revocation, abuse or budget alerting, or named disclosure decision-maker.",
+      "next_step": "Run the fleet drill for a compromised shared tool or agent type and link the responder, alert routing and disclosure owner evidence.",
+      "lead_role": "security"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {
+    "H009": {
+      "verdict": "confirmed",
+      "item": "E11",
+      "reason": "executor.ts:89 audit written after tool.invoke succeeds; high-impact action not blocked on audit capture (E11.4)"
+    },
+    "H010": {
+      "verdict": "confirmed",
+      "item": "E11",
+      "reason": "Same try block: tool.executed audit only after success at line 89 (E11.4)"
+    },
+    "H006": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "loop.ts:36 run.started audit is awaited before work; failure raises AuditUnavailable, no action runs"
+    },
+    "H007": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "loop.ts audit calls inside try (42,45,66) throw AuditUnavailable on failure and stop the run via catch; model.decision is audited before any tool executes"
+    },
+    "H008": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "loop.ts:106 try only wraps the run.stopped audit after the run is already halted; failure is logged at line 109 and nothing proceeds"
+    }
+  }
+}

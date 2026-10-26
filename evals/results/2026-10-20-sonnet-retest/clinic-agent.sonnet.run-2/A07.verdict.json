@@ -1,0 +1,198 @@
+{
+  "verdict": "upheld",
+  "checks": [
+    {
+      "id": "A07.1",
+      "result": "holds",
+      "evidence": "release/manifest.json:27",
+      "quote": "\"role\": \"intent_classifier\",",
+      "note": "Searched all src for SDK clients, model strings, embed/rerank/moderation/judge calls. Only Anthropic client (loop.ts) makes calls: agent model (primary, not helper), classifier (helper), and count_tokens (token counting, not a model decision). Manifest models[] lists both; config.ts pins both.",
+      "coverage": [
+        {
+          "subject": "intent classifier helper",
+          "status": "enforced",
+          "evidence": "release/manifest.json:29",
+          "quote": "\"requestedId\": \"claude-haiku-4-5-20251001\",",
+          "note": "Listed in inventory and called at classifier.ts"
+        },
+        {
+          "subject": "agent model (inventory completeness)",
+          "status": "enforced",
+          "evidence": "release/manifest.json:20",
+          "quote": "\"requestedId\": \"claude-sonnet-4-5-20250929\",",
+          "note": "Primary model also inventoried"
+        },
+        {
+          "subject": "count_tokens call",
+          "status": "not_applicable",
+          "evidence": "src/agent/context-size.ts:32",
+          "quote": "const r = await client.messages.countTokens(req, { signal });",
+          "note": "Token counting only; no decision made"
+        },
+        {
+          "subject": "embeddings/rerank/moderation/world model",
+          "status": "not_applicable",
+          "evidence": "package.json:17",
+          "quote": "\"@anthropic-ai/sdk\": \"0.65.0\",",
+          "note": "No other model clients or calls found; reminders worker states no model involved"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "missed helper path",
+          "input": "search for embed/rerank/moderat/judge/openai/bedrock",
+          "trace": "grep across repo returned only Anthropic SDK uses and comments",
+          "outcome": "blocked",
+          "evidence": "src/workers/reminders.ts:9",
+          "quote": "// Daily reminder job (Kubernetes CronJob). Templated reminders only; no model involved."
+        }
+      ]
+    },
+    {
+      "id": "A07.2",
+      "result": "holds",
+      "evidence": "src/config.ts:50",
+      "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";",
+      "note": "Hard-coded constant in config but dated snapshot, no env override or alias fallback; identity = sha256 of model+prompt+config.",
+      "coverage": [
+        {
+          "subject": "classifier model id",
+          "status": "enforced",
+          "evidence": "src/config.ts:50",
+          "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";",
+          "note": "Dated snapshot, no env var"
+        },
+        {
+          "subject": "classifier prompt+config identity",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:15",
+          "quote": "export const CLASSIFIER_ID = `sha256:${createHash(\"sha256\")",
+          "note": "Hash over model, prompt and config"
+        },
+        {
+          "subject": "agent model id",
+          "status": "enforced",
+          "evidence": "src/config.ts:49",
+          "quote": "export const AGENT_MODEL = \"claude-sonnet-4-5-20250929\";",
+          "note": "Dated snapshot"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "alias/env override",
+          "input": "set env vars to change model",
+          "trace": "model constants do not read process.env",
+          "outcome": "blocked",
+          "evidence": "src/config.ts:50",
+          "quote": "export const CLASSIFIER_MODEL = \"claude-haiku-4-5-20251001\";"
+        }
+      ]
+    },
+    {
+      "id": "A07.3",
+      "result": "holds",
+      "evidence": "src/agent/loop.ts:42",
+      "quote": "await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });",
+      "note": "Recorded on every branch before routing, including failures; detail includes classifierId, requestedModel, servedModel, intent, route, failure.",
+      "coverage": [
+        {
+          "subject": "classifier decision log",
+          "status": "enforced",
+          "evidence": "src/agent/loop.ts:42",
+          "quote": "await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });",
+          "note": "Unconditional, before route check"
+        },
+        {
+          "subject": "decision carries identity",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:13",
+          "quote": "const base = { classifierId: CLASSIFIER_ID, requestedModel: CLASSIFIER_MODEL };",
+          "note": "base spread into every return path"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "log only on success",
+          "input": "classifier times out",
+          "trace": "catch returns {...base,...failure}; loop records intent.classified before checking route",
+          "outcome": "blocked",
+          "evidence": "src/agent/loop.ts:42",
+          "quote": "await audit.record({ ...ident(), event: \"intent.classified\", detail: { ...intent } });"
+        }
+      ]
+    },
+    {
+      "id": "A07.4",
+      "result": "holds",
+      "evidence": "src/agent/classifier.ts:64",
+      "quote": "if (res.model !== CLASSIFIER_MODEL) {",
+      "note": "Timeout/API error, model mismatch, invalid output and low confidence all return route staff; loop hands off to staff.",
+      "coverage": [
+        {
+          "subject": "timeout/api error",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:56",
+          "quote": "return { ...base, servedModel: null, intent: null, confidence: null, route: \"staff\", failure: timeout ? \"timeout\" : \"api_error\" };",
+          "note": "Fails to staff"
+        },
+        {
+          "subject": "version mismatch",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:60",
+          "quote": "return { ...base, servedModel: res.model, intent: null, confidence: null, route: \"staff\", failure: \"model_mismatch\" };",
+          "note": "Served model compared to pinned"
+        },
+        {
+          "subject": "invalid output",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:69",
+          "quote": "return { ...base, servedModel: res.model, intent: null, confidence: null, route: \"staff\", failure: \"invalid_output\" };",
+          "note": "Parse/zod failure goes to staff"
+        },
+        {
+          "subject": "low confidence",
+          "status": "enforced",
+          "evidence": "src/agent/classifier.ts:73",
+          "quote": "return { ...base, servedModel: res.model, ...parsed, route: \"staff\", failure: \"low_confidence\" };",
+          "note": "Fails to staff"
+        },
+        {
+          "subject": "caller honours route",
+          "status": "enforced",
+          "evidence": "src/agent/loop.ts:44",
+          "quote": "if (intent.route === \"staff\") {",
+          "note": "Stops before agent loop"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "swapped model",
+          "input": "served model claude-haiku-4-5 alias with book intent",
+          "trace": "res.model !== CLASSIFIER_MODEL -> staff",
+          "outcome": "blocked",
+          "evidence": "src/agent/classifier.ts:64",
+          "quote": "if (res.model !== CLASSIFIER_MODEL) {"
+        },
+        {
+          "category": "unparseable output",
+          "input": "reply text 'book'",
+          "trace": "JSON.parse throws -> invalid_output staff",
+          "outcome": "blocked",
+          "evidence": "src/agent/classifier.ts:69",
+          "quote": "return { ...base, servedModel: res.model, intent: null, confidence: null, route: \"staff\", failure: \"invalid_output\" };"
+        }
+      ]
+    }
+  ],
+  "applicability": "present",
+  "evidence": "src/agent/classifier.ts:1",
+  "quote": "import type Anthropic from \"@anthropic-ai/sdk\";",
+  "note": "Agent uses a Haiku 4.5 intent-classifier helper model that is inventoried, pinned, identity-logged and fails closed to staff.",
+  "search": "Searched all agent files case-insensitively for model, claude, anthropic, embed, rerank, moderat, judge, verif, classif, openai, bedrock; only the intent classifier is a helper model; count_tokens is not a decision.",
+  "search_explanation": "Searched all agent files case-insensitively for model, claude, anthropic, embed, rerank, moderat, judge, verif, classif, openai, bedrock; only the intent classifier is a helper model; count_tokens is not a decision.",
+  "violates": []
+}

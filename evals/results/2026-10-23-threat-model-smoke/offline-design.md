@@ -1,0 +1,3 @@
+# Proposed offline summarizer
+A local user manually selects public text files for an offline model to summarize to the console. Files may contain malicious instructions. The harness offers no tools, filesystem writes, network access, persistent memory or sub-agents. Input reading is limited to the selected files. A separate operator controls model/runtime installation. The model will run on a shared workstation; resource limits and packaging are not designed yet. These are requirements, not implemented controls. There is no payment system or private-data retrieval.
+Desired output: a proportionate design threat model. No live-system or incident work.

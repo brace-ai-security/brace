@@ -1,0 +1,3 @@
+Synthetic source-only review component. Do not execute it or install dependencies.
+External runtime/deployment claims are not measurements. This repository is the complete implementation of the specific paths described below; components explicitly assigned to the host remain outside scope.
+This local desktop extension uses manifest format 0.1. Its required user-configured API token must request the host's masked-input and secure-storage handling. The host substitutes user_config values into env at launch. The adapter and its external runtime do not implement the host's config storage. No installed extension or host storage inspection is supplied. The bridge endpoint is fixed; transport, downstream authorization, sandbox and audit implementation are external.

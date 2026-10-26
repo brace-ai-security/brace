@@ -1,0 +1,152 @@
+{
+  "verdict": "upheld",
+  "applicability": "absent",
+  "evidence": "app/main.py:118, app/ingest.py:104",
+  "quote": "app = FastAPI(lifespan=lifespan)\n@router.post(\"/ingest/mail\")",
+  "search_explanation": "Read README, main.py, ingest.py, approvals.py, mcp_client.py, tools/slack.py, tools/documents.py and networkpolicy.yaml, and grepped the tree for webhook/callback/a2a/agent card/peer/response_url/reply_to. The only inbound routes are /runs (human OIDC JWT), /ingest/mail (mail gateway service, a non-agent HMAC-signed document feed), /slack/interactions (human approver button clicks) and /healthz. The ERP MCP server is a tool server the agent calls, and the LineItemExtractor sub-agent is an in-process call. There is no A2A server, no peer-agent endpoint, no agent card, and no peer-supplied callback or webhook URL.",
+  "note": "No other agent sends messages to this agent: inbound traffic comes from humans (OIDC, Slack approvers) and a non-agent mail gateway, so E07 is not applicable. Residual caveat: the mail gateway HMAC is a single shared key with no per-sender mapping, and the ingest payload takes business_unit from the body, which would matter if the gateway were treated as a peer.",
+  "checks": [
+    {
+      "id": "E07.1",
+      "result": "holds",
+      "evidence": "app/ingest.py:104",
+      "quote": "@router.post(\"/ingest/mail\")",
+      "note": "N/A: no agent-to-agent channel exists. The only machine inbound route is the mail gateway, which is not an agent.",
+      "coverage": [
+        {
+          "subject": "inbound peer-agent endpoints",
+          "status": "not_applicable",
+          "evidence": "app/main.py:118",
+          "quote": "app = FastAPI(lifespan=lifespan)",
+          "note": "Routes are /runs, /ingest/mail, /slack/interactions and /healthz. None accepts messages from agents."
+        },
+        {
+          "subject": "/ingest/mail mail gateway",
+          "status": "not_applicable",
+          "evidence": "app/ingest.py:3",
+          "quote": "The mail gateway posts each received message to ``/ingest/mail`` signed with",
+          "note": "A service feed, not an agent."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "faked identity",
+          "input": "POST /ingest/mail with a forged sender",
+          "trace": "verify_signature rejects any request without a valid HMAC; the 'from' field is stored only as the document source label.",
+          "outcome": "not_applicable",
+          "evidence": "app/ingest.py:63",
+          "quote": "if not hmac.compare_digest(expected, signature):"
+        }
+      ]
+    },
+    {
+      "id": "E07.2",
+      "result": "holds",
+      "evidence": "app/ingest.py:30",
+      "quote": "ALLOWED_MEDIA_TYPES = {\"application/pdf\", \"text/plain\", \"message/rfc822\"}",
+      "note": "N/A for agent peers. The mail feed does validate media type and size.",
+      "coverage": [
+        {
+          "subject": "peer request type/schema/tenant allowlist",
+          "status": "not_applicable",
+          "evidence": "app/main.py:44",
+          "quote": "class RunRequest(BaseModel):",
+          "note": "No peer-agent requests exist. /runs takes its tenant from the verified OIDC bu claim."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "cross-tenant request",
+          "input": "peer message naming another business unit",
+          "trace": "No peer-agent channel exists. /runs uses tenant=principal.business_unit from the verified token.",
+          "outcome": "not_applicable",
+          "evidence": "app/main.py:150",
+          "quote": "tenant=principal.business_unit,"
+        }
+      ]
+    },
+    {
+      "id": "E07.3",
+      "result": "holds",
+      "evidence": "app/ingest.py:60",
+      "quote": "if abs(time.time() - ts) > MAX_SKEW_SECONDS:",
+      "note": "N/A for agent peers: no peer action requests exist. Documents are stored, not executed.",
+      "coverage": [
+        {
+          "subject": "peer action requests replay protection",
+          "status": "not_applicable",
+          "evidence": "app/ingest.py:104",
+          "quote": "@router.post(\"/ingest/mail\")",
+          "note": "The ingest endpoint triggers no actions. It only stores documents."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "replayed request",
+          "input": "replay a signed ingest POST inside the 300s window",
+          "trace": "A duplicate document row is created, with no side effects beyond storage.",
+          "outcome": "not_applicable",
+          "evidence": "app/ingest.py:127",
+          "quote": "doc_id = f\"doc-{uuid.uuid4().hex[:20]}\""
+        }
+      ]
+    },
+    {
+      "id": "E07.4",
+      "result": "holds",
+      "evidence": "app/tools/documents.py:9",
+      "quote": "UNTRUSTED_WRAPPER = (",
+      "note": "N/A for agent peers. External document content is returned as tool-result content wrapped as untrusted, not placed in the system prompt.",
+      "coverage": [
+        {
+          "subject": "external content to prompt",
+          "status": "not_applicable",
+          "evidence": "app/tools/documents.py:31",
+          "quote": "return UNTRUSTED_WRAPPER.format(",
+          "note": "Returned as a tool result."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "compromised peer instruction passthrough",
+          "input": "document text containing instructions",
+          "trace": "read_document returns the text inside an untrusted_document wrapper as a tool result.",
+          "outcome": "not_applicable",
+          "evidence": "app/tools/documents.py:31",
+          "quote": "return UNTRUSTED_WRAPPER.format("
+        }
+      ]
+    },
+    {
+      "id": "E07.5",
+      "result": "holds",
+      "evidence": "app/main.py:163",
+      "quote": "@app.post(\"/slack/interactions\")",
+      "note": "N/A: no peer-supplied callback or webhook URL is fetched. Outbound calls go to fixed configured URLs.",
+      "coverage": [
+        {
+          "subject": "peer-supplied callback/webhook URLs",
+          "status": "not_applicable",
+          "evidence": "app/tools/slack.py:36",
+          "quote": "resp = await client.post(",
+          "note": "The URL is the fixed configured f\"{self.api_url}/chat.postMessage\". The Slack interaction payload's response_url is never used."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "SSRF via callback URL",
+          "input": "peer-supplied URL pointing at 169.254.169.254",
+          "trace": "No code path accepts a URL from a message. Outbound clients use settings URLs only.",
+          "outcome": "not_applicable",
+          "evidence": "app/mcp_client.py:74",
+          "quote": "self.url,"
+        }
+      ]
+    }
+  ]
+}
