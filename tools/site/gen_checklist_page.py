@@ -52,6 +52,37 @@ def rewrite_link(target: str) -> str | None:
     return None
 
 
+
+@__import__("functools").lru_cache(None)
+def control_names() -> dict[str, str]:
+    """Control and observability names from the home page cards, e.g. C4 -> Harness."""
+    page = (ROOT / "index.html").read_text()
+    names = dict(re.findall(r'<span class="n">((?:C|Obs-T)\d+)</span><h3>([^<]+)</h3>', page))
+    if len(names) < 12:
+        sys.exit("Could not read the control names (C1-C9, Obs-T1-T3) from index.html")
+    return {k: html.unescape(v) for k, v in names.items()}
+
+
+def ref_links(refs: str) -> str:
+    """Each control as a link to its card on the home page."""
+    return "; ".join(f'<a href="/#{c.lower()}">{html.escape(label)}</a>' for c, label in ref_labels(refs, control_names()))
+
+
+def ref_labels(refs: str, names: dict[str, str]) -> list[tuple[str, str]]:
+    """'C1–C3/Obs-T1' -> ['Control 1 – Architecture', ..., 'Observability requirement 1 – ...']."""
+    codes = []
+    for part in refs.split("/"):
+        part = part.strip()
+        m = re.fullmatch(r"C(\d+)[–-]C(\d+)", part)
+        codes += [f"C{n}" for n in range(int(m[1]), int(m[2]) + 1)] if m else [part]
+    labels = []
+    for code in codes:
+        if code not in names:
+            sys.exit(f"Unknown control code {code!r} in CHECKLIST.md")
+        kind, num = ("Control", code[1:]) if code.startswith("C") else ("Observability requirement", code[5:])
+        labels.append((code, f"{kind} {num} – {names[code]}"))
+    return labels
+
 def inline(text: str) -> str:
     out = []
     pos = 0
@@ -250,7 +281,7 @@ def render_item(it: dict) -> str:
 <details>
 <summary><span class="iid">{iid}</span><span class="ttl">{inline(it['title'])}</span>{top}<span class="gate {it['gate'].lower()}" title="{gate_title}">{it['gate']}</span></summary>
 <div class="body">
-<p class="refs">Controls and requirements: {inline(it['refs'])}</p>
+<p class="refs">Controls and requirements: {ref_links(it['refs'])}</p>
 <p class="req">{inline(it['body'])}</p>{extra}{notes}
 </div>
 </details>
@@ -587,6 +618,10 @@ TEMPLATE = r"""<!DOCTYPE html>
 """
 
 
+REF_NOTE = "<strong>Obs-T1</strong> is identity fields"
+OBS_NOTES = {f"<strong>Obs-T{n}</strong> is": f'<a href="/#obs-t{n}"><strong>Obs-T{n}</strong></a> is' for n in (1, 2, 3)}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="exit 1 if checklist/index.html is out of date")
@@ -594,6 +629,10 @@ def main() -> int:
     try:
         doc = parse(SOURCE.read_text(encoding="utf-8"))
         page = render(doc)
+        if REF_NOTE not in page:
+            sys.exit("The control reference note in CHECKLIST.md changed; update REF_NOTE")
+        for old, new in OBS_NOTES.items():
+            page = page.replace(old, new, 1)
     except ChecklistError as e:
         print(f"gen_checklist_page: {e}", file=sys.stderr)
         return 2
