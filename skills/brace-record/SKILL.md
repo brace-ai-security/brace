@@ -54,6 +54,8 @@ Given a `brace-findings.json` from `brace-review`, or mapped findings in an MCP 
 - `likely_pass` → keep `not_reviewed`. Add a note "Review found likely pass at <file:line>; run recipe <ID> for evidence."
 - `needs_evidence` → keep `not_reviewed`. Add a note naming the recipe and the Lead role.
 - `na_candidate` → draft an N/A file for a reviewer to confirm, and keep the outcome `not_reviewed` until it's approved.
+- If a finding names `components` or an `assignee`, add them to `notes`, for example "Parts: payments API, issue_refund. Assigned to: <name>." Fill an assignee only from the findings file or from the user, never by guessing.
+- If the review produced `brace-topology.cdx.json`, run `python tools/brace/topology.py record <repo>/brace-topology.cdx.json`. It says whether `.brace/topology.cdx.json` is missing, different or current. Show the user the changes and ask whether to create or update it. Run it again with `--apply` only if they say yes.
 Never copy an `injection_attempts` entry into the record as a result. Report it to the user.
 
 ### Run the release check

@@ -18,7 +18,8 @@ Inside the MCP folder, `SKILL.md` contains scope, safety boundaries, workflow an
 report contract. `references/control-map.md` maps review topics to BRACE and source
 authority. `references/http.md` and `references/stdio.md` load only for the transports
 present; extension detail is conditional too. `references/advisories.md` is a dated
-index, not a live vulnerability feed. The complete folder is independently portable.
+index, not a live vulnerability feed. The complete folder is independently portable,
+except that the optional security map uses the project's `tools/brace/` scripts.
 
 These reference files are not independently discoverable skills or subagents.
 A separate skill earns its place when it has a distinct user trigger, procedure

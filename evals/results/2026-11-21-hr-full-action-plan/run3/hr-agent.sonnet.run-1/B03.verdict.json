@@ -1,0 +1,220 @@
+{
+  "verdict": "failed",
+  "applicability": "present",
+  "evidence": "src/credentials.py:41",
+  "quote": "    async def token(self, *, audience: str, scope: str, subject_token: str, subject: str) -> str:",
+  "search_explanation": "Read all of src/credentials.py, gateway_client.py, gateway.py token paths, k8s/deployment.yaml, audit-maintenance.yaml, Dockerfile, .mcp.json, config/*.yaml, prompts/system.md, release/manifest.yaml; grepped the whole tree for token/secret/key/password/ttl/expir/mtls/dpop/spiffe/cert/environ. The agent calls API tools with credentials, so the requirement applies.",
+  "note": "Tool calls use short-lived, audience-scoped, mTLS-bound STS tokens, but the Anthropic API key and DB URLs are static Secret-injected credentials with no recorded lifetime, rotation or revocation gap.",
+  "violates": [
+    "static API keys",
+    "record the lifetime and revocation gap",
+    "Show expiry and rotation"
+  ],
+  "checks": [
+    {
+      "id": "B03.1",
+      "result": "fails",
+      "evidence": "k8s/deployment.yaml:54",
+      "quote": "              valueFrom: {secretKeyRef: {name: hr-agent-anthropic, key: api_key}}",
+      "note": "Tool/MCP calls fetch STS tokens at run time (credentials.py:47 token exchange with projected SA token), but the model API uses a fixed ANTHROPIC_API_KEY from a Secret. A vault/Secret does not make it expiring; nothing documents that only static keys are supported or isolates it. DATABASE_URL/GATEWAY_DATABASE_URL are also static Secret-held credentials.",
+      "coverage": [
+        {
+          "subject": "MCP/gateway tool-call tokens (agent->gateway, gateway->MCP)",
+          "status": "enforced",
+          "evidence": "src/credentials.py:47",
+          "quote": "            resp = await self._client.post(",
+          "note": "RFC8693 exchange at run time using projected SA token re-read each call (credentials.py:38); gateway does same at gateway.py:119."
+        },
+        {
+          "subject": "ANTHROPIC_API_KEY",
+          "status": "missing",
+          "evidence": "k8s/deployment.yaml:54",
+          "quote": "              valueFrom: {secretKeyRef: {name: hr-agent-anthropic, key: api_key}}",
+          "note": "Static API key from Secret; no short-lived/federated alternative or recorded exception."
+        },
+        {
+          "subject": "DATABASE_URL / GATEWAY_DATABASE_URL / audit pgservice",
+          "status": "missing",
+          "evidence": "k8s/deployment.yaml:52",
+          "quote": "              valueFrom: {secretKeyRef: {name: hr-agent-db, key: url}}",
+          "note": "Static DB credentials in Secrets; no dynamic/IAM credential shown."
+        },
+        {
+          "subject": "direct_route fallback",
+          "status": "enforced",
+          "evidence": "src/gateway_client.py:55",
+          "quote": "            token = await self._creds.token(",
+          "note": "Fallback still mints an STS token, no static key fallback."
+        }
+      ],
+      "deviations": [
+        "ANTHROPIC_API_KEY and DB URLs are static secrets with no documented reason, isolation, or lifetime/revocation gap"
+      ],
+      "attempts": [
+        {
+          "category": "static fallback",
+          "input": "gateway unavailable for escalate_to_human",
+          "trace": "gateway_client.call catches GatewayUnavailable, mints new STS token for direct_route audience",
+          "outcome": "blocked",
+          "evidence": "src/gateway_client.py:55",
+          "quote": "            token = await self._creds.token("
+        },
+        {
+          "category": "static key",
+          "input": "model API call",
+          "trace": "Deployment injects ANTHROPIC_API_KEY from Secret env",
+          "outcome": "accepted",
+          "evidence": "k8s/deployment.yaml:53",
+          "quote": "            - name: ANTHROPIC_API_KEY"
+        }
+      ]
+    },
+    {
+      "id": "B03.2",
+      "result": "fails",
+      "evidence": "k8s/deployment.yaml:54",
+      "quote": "              valueFrom: {secretKeyRef: {name: hr-agent-anthropic, key: api_key}}",
+      "note": "STS tokens (300 s, credentials.py:20; projected token 600 s, deployment.yaml:74) and approvals are bounded, but the Anthropic API key and DB URL secrets have no expiry, rotation job or policy in the repo, and no lifetime rationale.",
+      "coverage": [
+        {
+          "subject": "STS access tokens",
+          "status": "enforced",
+          "evidence": "src/credentials.py:20",
+          "quote": "TOKEN_TTL_SECONDS = 300",
+          "note": "Bounded, capped client-side at credentials.py:64; rationale in docstring."
+        },
+        {
+          "subject": "projected SA actor token",
+          "status": "enforced",
+          "evidence": "k8s/deployment.yaml:74",
+          "quote": "              - serviceAccountToken: {path: sts-token, audience: sts.acme.example, expirationSeconds: 600}",
+          "note": "Bounded 600 s."
+        },
+        {
+          "subject": "gateway downstream token",
+          "status": "unclear",
+          "evidence": "src/gateway.py:126",
+          "quote": "    return resp.json()[\"access_token\"]",
+          "note": "No requested_ttl sent and expires_in not checked; lifetime left to STS (outside repo)."
+        },
+        {
+          "subject": "ANTHROPIC_API_KEY",
+          "status": "missing",
+          "evidence": "k8s/deployment.yaml:54",
+          "quote": "              valueFrom: {secretKeyRef: {name: hr-agent-anthropic, key: api_key}}",
+          "note": "No expiry/rotation configured."
+        },
+        {
+          "subject": "DB credentials",
+          "status": "missing",
+          "evidence": "k8s/deployment.yaml:52",
+          "quote": "              valueFrom: {secretKeyRef: {name: hr-agent-db, key: url}}",
+          "note": "No rotation configured."
+        }
+      ],
+      "deviations": [
+        "No expiry/rotation or overlap defined for ANTHROPIC_API_KEY and database secrets"
+      ],
+      "attempts": [
+        {
+          "category": "unbounded credential",
+          "input": "search repo for rotation/expiry of the Anthropic key",
+          "trace": "grep for rotat|ttl|expir finds only STS, approval, retrieval settings",
+          "outcome": "accepted",
+          "evidence": "k8s/deployment.yaml:54",
+          "quote": "              valueFrom: {secretKeyRef: {name: hr-agent-anthropic, key: api_key}}"
+        }
+      ]
+    },
+    {
+      "id": "B03.3",
+      "result": "holds",
+      "evidence": ".mcp.json:7",
+      "quote": "        \"Authorization\": \"Bearer ${HR_GATEWAY_TOKEN}\"",
+      "note": "No secret literals found in prompt, Dockerfile, config, or .mcp.json; secrets come by env placeholder / secretKeyRef and are not inserted into the prompt. Dockerfile has no ENV/ARG secrets.",
+      "coverage": [
+        {
+          "subject": ".mcp.json",
+          "status": "enforced",
+          "evidence": ".mcp.json:7",
+          "quote": "        \"Authorization\": \"Bearer ${HR_GATEWAY_TOKEN}\"",
+          "note": "Placeholder only."
+        },
+        {
+          "subject": "Dockerfile",
+          "status": "enforced",
+          "evidence": "Dockerfile:9",
+          "quote": "ENV PYTHONPATH=/deps:/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1",
+          "note": "No secrets; no COPY .env."
+        },
+        {
+          "subject": "prompts/system.md and config/*.yaml",
+          "status": "enforced",
+          "evidence": "prompts/system.md:1",
+          "quote": "You are the Acme HR helpdesk assistant. You help one employee at a time with questions",
+          "note": "No credentials."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "checked-in literal",
+          "input": "grep sk-/AKIA/password/token across tree",
+          "trace": "only code references, redaction regexes and placeholders match",
+          "outcome": "blocked",
+          "evidence": "src/redact.py:10",
+          "quote": "    (re.compile(r\"(?i)\\bbearer\\s+[a-z0-9._~+/=-]{12,}\"), \"Bearer [token]\"),"
+        }
+      ]
+    },
+    {
+      "id": "B03.4",
+      "result": "unclear",
+      "evidence": "src/gateway.py:89",
+      "quote": "    if cert_hash is None or claims[\"cnf\"].get(\"x5t#S256\") != cert_hash:",
+      "note": "Agent->gateway tokens are mTLS cert-bound and verified. Gateway->MCP downstream tokens and the direct_route token are sent as Bearer with no visible cnf request or verification here; MCP server support is outside repo. Anthropic API key is plain bearer.",
+      "coverage": [
+        {
+          "subject": "agent->gateway token",
+          "status": "enforced",
+          "evidence": "src/gateway.py:89",
+          "quote": "    if cert_hash is None or claims[\"cnf\"].get(\"x5t#S256\") != cert_hash:",
+          "note": "cnf x5t#S256 compared to mesh-verified client cert."
+        },
+        {
+          "subject": "gateway->MCP downstream token",
+          "status": "unclear",
+          "evidence": "src/gateway.py:177",
+          "quote": "        headers = {\"Authorization\": f\"Bearer {await _downstream_token(spec, claims)}\", \"Mcp-Method\": \"tools/call\",",
+          "note": "Binding depends on STS/MCP servers outside repo."
+        },
+        {
+          "subject": "agent direct_route token",
+          "status": "unclear",
+          "evidence": "src/gateway_client.py:65",
+          "quote": "            \"Authorization\": f\"Bearer {token}\",",
+          "note": "Same STS path; binding by MCP not verified in repo."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "token replay",
+          "input": "stolen agent->gateway token from another pod",
+          "trace": "cert hash from XFCC must equal cnf x5t#S256",
+          "outcome": "blocked",
+          "evidence": "src/gateway.py:89",
+          "quote": "    if cert_hash is None or claims[\"cnf\"].get(\"x5t#S256\") != cert_hash:"
+        },
+        {
+          "category": "token replay",
+          "input": "stolen downstream token to MCP server",
+          "trace": "bound status not verifiable in repo",
+          "outcome": "unclear",
+          "evidence": "src/gateway.py:177",
+          "quote": "        headers = {\"Authorization\": f\"Bearer {await _downstream_token(spec, claims)}\", \"Mcp-Method\": \"tools/call\","
+        }
+      ]
+    }
+  ]
+}

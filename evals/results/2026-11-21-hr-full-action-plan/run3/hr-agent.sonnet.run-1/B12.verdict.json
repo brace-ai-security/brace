@@ -1,0 +1,174 @@
+{
+  "verdict": "unclear",
+  "applicability": "present",
+  "evidence": "src/agent.py:28",
+  "quote": "SYSTEM_PROMPT = (pathlib.Path(__file__).resolve().parent.parent / \"prompts\" / \"system.md\").read_text()",
+  "search_explanation": "Listed all files under agent/, read CODEOWNERS, release workflow, manifest, Dockerfile, k8s manifests, config, .mcp.json, and grepped src/ for prompt/rules loading, env, http, yaml, and any branch-protection/ruleset/force-push terms. The agent has a system prompt, harness code and config, so the N/A condition (never) does not apply.",
+  "note": "B12.1-B12.3 hold from the code, but no branch protection or ruleset IaC exists in the repo, so B12.4 (force-push/history-rewrite blocking) cannot be verified and is unclear.",
+  "checks": [
+    {
+      "id": "B12.1",
+      "result": "holds",
+      "evidence": "src/agent.py:28, Dockerfile:14",
+      "quote": "SYSTEM_PROMPT = (pathlib.Path(__file__).resolve().parent.parent / \"prompts\" / \"system.md\").read_text()\nCOPY --chown=0:0 prompts/ prompts/",
+      "note": "Prompt is read from a file baked into the image at build; config loaded from config/ via tools.py:14. No rules files (manifest rules_files: []). Type-id over src/, prompts/, config/ verified at startup (main.py:46). No DB/URL/flag override of prompt found.",
+      "coverage": [
+        {
+          "subject": "system prompt prompts/system.md",
+          "status": "enforced",
+          "evidence": "src/agent.py:28",
+          "quote": "SYSTEM_PROMPT = (pathlib.Path(__file__).resolve().parent.parent / \"prompts\" / \"system.md\").read_text()",
+          "note": "file read at import"
+        },
+        {
+          "subject": "config/agent.yaml and config/tools.yaml",
+          "status": "enforced",
+          "evidence": "src/tools.py:14",
+          "quote": "with open(CONFIG_DIR / name, encoding=\"utf-8\") as fh:",
+          "note": "local files copied into image"
+        },
+        {
+          "subject": "harness src/ in build and integrity check",
+          "status": "enforced",
+          "evidence": "src/main.py:46",
+          "quote": "AGENT_TYPE_ID = type_id.verify_or_exit(os.environ[\"AGENT_TYPE_ID\"], os.environ[\"IMAGE_DIGEST\"], type_id.model_record(CFG))",
+          "note": "pod exits if content hash differs"
+        },
+        {
+          "subject": "rules files (CLAUDE.md/AGENTS.md)",
+          "status": "not_applicable",
+          "evidence": "release/manifest.yaml:35",
+          "quote": "rules_files: []",
+          "note": "none exist"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "runtime remote override",
+          "input": "DB/URL/flag supplying prompt",
+          "trace": "grep for prompt/getenv/select in src; only SELECTs are stop flags, retrieval, approvals; env vars are DB URLs, keys, type id",
+          "outcome": "blocked",
+          "evidence": "src/agent.py:28",
+          "quote": "SYSTEM_PROMPT = (pathlib.Path(__file__).resolve().parent.parent / \"prompts\" / \"system.md\").read_text()"
+        }
+      ]
+    },
+    {
+      "id": "B12.2",
+      "result": "holds",
+      "evidence": "CODEOWNERS:2",
+      "quote": "/prompts/                 @acme/people-platform @acme/hr-policy-reviewers",
+      "note": "Prompts, config, src (via * and gateway/approvals specific), release, k8s, workflows and CODEOWNERS all matched. Enforcement of code-owner review itself is a repo setting not visible, but the CODEOWNERS coverage requirement is met.",
+      "coverage": [
+        {
+          "subject": "prompts/",
+          "status": "enforced",
+          "evidence": "CODEOWNERS:2",
+          "quote": "/prompts/                 @acme/people-platform @acme/hr-policy-reviewers",
+          "note": ""
+        },
+        {
+          "subject": "config/",
+          "status": "enforced",
+          "evidence": "CODEOWNERS:3",
+          "quote": "/config/                  @acme/people-platform @acme/security-engineering",
+          "note": ""
+        },
+        {
+          "subject": "src/ harness",
+          "status": "enforced",
+          "evidence": "CODEOWNERS:1",
+          "quote": "*                         @acme/people-platform",
+          "note": "catch-all covers src/; gateway.py and approvals.py have extra owners"
+        },
+        {
+          "subject": ".github workflows and CODEOWNERS",
+          "status": "enforced",
+          "evidence": "CODEOWNERS:9",
+          "quote": "/.github/                 @acme/platform-security",
+          "note": ""
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "glob miss",
+          "input": "change to src/agent.py or prompts/system.md",
+          "trace": "src/agent.py matched by * ; prompts matched by /prompts/",
+          "outcome": "blocked",
+          "evidence": "CODEOWNERS:1",
+          "quote": "*                         @acme/people-platform"
+        }
+      ]
+    },
+    {
+      "id": "B12.3",
+      "result": "holds",
+      "evidence": ".github/workflows/release.yml:5",
+      "quote": "    branches: [main]",
+      "note": "Only trigger is push to main, no workflow_dispatch; image tagged by sha, digest and git_sha stamped into manifest, deployed by digest; Kyverno admits only images signed by this workflow from main. No manual deploy scripts found.",
+      "coverage": [
+        {
+          "subject": "workflow trigger",
+          "status": "enforced",
+          "evidence": ".github/workflows/release.yml:5",
+          "quote": "    branches: [main]",
+          "note": "no workflow_dispatch"
+        },
+        {
+          "subject": "recorded version",
+          "status": "enforced",
+          "evidence": ".github/workflows/release.yml:54",
+          "quote": "                 .release.git_sha = \"${{ github.sha }}\"' release/manifest.yaml",
+          "note": "digest and type id also stamped"
+        },
+        {
+          "subject": "admission of non-CI images",
+          "status": "enforced",
+          "evidence": "k8s/admission.yaml:68",
+          "quote": "                      value: \"refs/heads/main\"",
+          "note": "provenance ref must be main"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "manual deploy",
+          "input": "laptop push or workflow_dispatch from another branch",
+          "trace": "no dispatch trigger; Kyverno requires signature/provenance from release.yml@refs/heads/main",
+          "outcome": "blocked",
+          "evidence": "k8s/admission.yaml:48",
+          "quote": "subject: \"https://github.com/acme/hr-helpdesk-agent/.github/workflows/release.yml@refs/heads/main\""
+        }
+      ]
+    },
+    {
+      "id": "B12.4",
+      "result": "unclear",
+      "evidence": ".github/workflows/release.yml:5",
+      "quote": "    branches: [main]",
+      "note": "No github_branch_protection, ruleset JSON or similar IaC exists in the repo; force-push/deletion blocking on main is not visible in code and may be set only in repo settings.",
+      "coverage": [
+        {
+          "subject": "main branch force-push/deletion protection",
+          "status": "unclear",
+          "evidence": ".github/workflows/release.yml:5",
+          "quote": "    branches: [main]",
+          "note": "main is named as source branch but no protection config found"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "search for protection config",
+          "input": "grep force|branch|ruleset|protect across agent/",
+          "trace": "only matches are release.yml trigger and unrelated text",
+          "outcome": "unclear",
+          "evidence": ".github/workflows/release.yml:5",
+          "quote": "    branches: [main]"
+        }
+      ]
+    }
+  ]
+}

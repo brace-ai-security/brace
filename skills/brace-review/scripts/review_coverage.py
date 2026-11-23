@@ -24,7 +24,7 @@ KINDS = {
     'model_call': re.compile(r'(?:messages|responses|completions)\.(?:create|stream)|(?:generateText|generateObject|invoke_model)\s*\('),
     'handoff': re.compile(r'(?:spawn|handoff|delegate|run_subagent|extract_document|subagent_started|subagent_finished)\b', re.I),
     'tool_call': re.compile(r'(?:\.invoke\s*\(|execute_tool\s*\(|dispatch_tool\s*\()'),
-    'tool_registration': re.compile(r'(?:registerMcp|register_tool|registerTool|add_tool|\.add)\s*\('),
+    'tool_registration': re.compile(r'(?:registerMcp|register_tool|registerTool|add_tool|(?:\btools?|\bregistry|\bserver|\bmcp|\bthis)\.add)\s*\('),
     'audit_write': re.compile(r'(?:audit\.record|recordAudit|audit\.emit|audit\.write)\s*\('),
 }
 TARGETS = {'B07.2': ['model_call', 'tool_call'], 'B07.4': ['model_call', 'tool_call'],

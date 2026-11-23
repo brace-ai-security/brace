@@ -1,0 +1,207 @@
+{
+  "nodes": [
+    {
+      "ref": "model:anthropic",
+      "kind": "model",
+      "name": "Anthropic model API",
+      "evidence": "src/agent.py:70",
+      "quote": "resp = await self.llm.messages.create("
+    },
+    {
+      "ref": "data:hr-postgres",
+      "kind": "data_store",
+      "name": "HR Postgres (audit, approvals, quotas, stop flags, policy index)",
+      "evidence": "src/main.py:165",
+      "quote": "pool = await asyncpg.create_pool(os.environ[\"DATABASE_URL\"], min_size=2, max_size=20)"
+    },
+    {
+      "ref": "api:sts",
+      "kind": "external_api",
+      "name": "token exchange service (STS)",
+      "evidence": "src/credentials.py:18",
+      "quote": "STS_URL = \"https://sts.identity.svc.cluster.local/oauth2/token\""
+    },
+    {
+      "ref": "api:sso",
+      "kind": "external_api",
+      "name": "company SSO",
+      "evidence": "src/main.py:36",
+      "quote": "SSO_ISSUER = \"https://sso.acme.example\""
+    },
+    {
+      "ref": "mcp:hris",
+      "kind": "mcp_server",
+      "name": "HRIS MCP server",
+      "evidence": "config/tools.yaml:5",
+      "quote": "endpoint: https://hris-mcp.hris.svc.cluster.local:8443/mcp"
+    },
+    {
+      "ref": "mcp:helpdesk",
+      "kind": "mcp_server",
+      "name": "helpdesk MCP server",
+      "evidence": "config/tools.yaml:10",
+      "quote": "endpoint: https://helpdesk-mcp.helpdesk.svc.cluster.local:8443/mcp"
+    },
+    {
+      "ref": "tool:file_leave_request",
+      "kind": "tool",
+      "name": "file_leave_request",
+      "evidence": "config/tools.yaml:55",
+      "quote": "file_leave_request:"
+    },
+    {
+      "ref": "tool:escalate_to_human",
+      "kind": "tool",
+      "name": "escalate_to_human",
+      "evidence": "config/tools.yaml:82",
+      "quote": "escalate_to_human:"
+    }
+  ],
+  "edges": [
+    {
+      "from": "agent",
+      "to": "model:anthropic",
+      "label": "sends conversation and tool results to the model",
+      "risks": [
+        "personal_data",
+        "untrusted_input",
+        "crosses_boundary"
+      ],
+      "evidence": "src/agent.py:70",
+      "quote": "resp = await self.llm.messages.create("
+    },
+    {
+      "from": "agent",
+      "to": "data:hr-postgres",
+      "label": "reads policy index; writes approvals, quotas, audit",
+      "risks": [
+        "writes",
+        "credential"
+      ],
+      "evidence": "src/main.py:165",
+      "quote": "pool = await asyncpg.create_pool(os.environ[\"DATABASE_URL\"], min_size=2, max_size=20)"
+    },
+    {
+      "from": "agent",
+      "to": "api:sts",
+      "label": "exchanges tokens for per-tool credentials",
+      "risks": [
+        "credential"
+      ],
+      "evidence": "src/credentials.py:47",
+      "quote": "resp = await self._client.post("
+    },
+    {
+      "from": "agent",
+      "to": "api:sso",
+      "label": "verifies employee SSO token",
+      "risks": [
+        "credential"
+      ],
+      "evidence": "src/main.py:36",
+      "quote": "SSO_ISSUER = \"https://sso.acme.example\""
+    },
+    {
+      "from": "mcp:hr-tool-gateway",
+      "to": "mcp:hris",
+      "label": "forwards HR leave tool calls",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway.py:180",
+      "quote": "upstream = await _upstream.post(registry.servers[spec.server][\"endpoint\"], headers=headers, timeout=8.0,"
+    },
+    {
+      "from": "mcp:hr-tool-gateway",
+      "to": "mcp:helpdesk",
+      "label": "forwards ticket creation",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway.py:180",
+      "quote": "upstream = await _upstream.post(registry.servers[spec.server][\"endpoint\"], headers=headers, timeout=8.0,"
+    },
+    {
+      "from": "mcp:hr-tool-gateway",
+      "to": "api:sts",
+      "label": "exchanges tokens for downstream credentials",
+      "risks": [
+        "credential"
+      ],
+      "evidence": "src/gateway.py:119",
+      "quote": "resp = await _upstream.post(f\"{STS_BASE}/oauth2/token\", timeout=3.0, data={"
+    },
+    {
+      "from": "mcp:hr-tool-gateway",
+      "to": "data:hr-postgres",
+      "label": "reads stop flags; writes gateway decisions",
+      "risks": [
+        "writes"
+      ],
+      "evidence": "src/gateway.py:203",
+      "quote": "_pool = await asyncpg.create_pool(os.environ[\"GATEWAY_DATABASE_URL\"], min_size=1, max_size=10)"
+    },
+    {
+      "from": "tool:escalate_to_human",
+      "to": "mcp:helpdesk",
+      "label": "direct fallback around the gateway when it is unavailable",
+      "risks": [
+        "writes",
+        "personal_data",
+        "crosses_boundary"
+      ],
+      "evidence": "src/gateway_client.py:59",
+      "quote": "return await self._post(spec.direct_route[\"endpoint\"], token, spec, args, ctx, operation_id)"
+    },
+    {
+      "from": "tool:escalate_to_human",
+      "to": "mcp:hr-tool-gateway",
+      "label": "normal path for ticket creation",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway_client.py:50",
+      "quote": "return await self._post(GATEWAY_URL, token, spec, args, ctx, operation_id)"
+    },
+    {
+      "from": "tool:file_leave_request",
+      "to": "mcp:hr-tool-gateway",
+      "label": "files leave request via gateway",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway_client.py:50",
+      "quote": "return await self._post(GATEWAY_URL, token, spec, args, ctx, operation_id)"
+    }
+  ],
+  "zones": [
+    {
+      "ref": "mcp:hr-tool-gateway",
+      "zone": "internal",
+      "evidence": "src/gateway_client.py:17",
+      "quote": "GATEWAY_URL = \"https://hr-tool-gateway.hr-agent.svc.cluster.local:8443/mcp\""
+    },
+    {
+      "ref": "mcp:hris",
+      "zone": "internal",
+      "evidence": "config/tools.yaml:5",
+      "quote": "endpoint: https://hris-mcp.hris.svc.cluster.local:8443/mcp"
+    },
+    {
+      "ref": "mcp:helpdesk",
+      "zone": "internal",
+      "evidence": "config/tools.yaml:10",
+      "quote": "endpoint: https://helpdesk-mcp.helpdesk.svc.cluster.local:8443/mcp"
+    },
+    {
+      "ref": "api:sts",
+      "zone": "internal",
+      "evidence": "src/credentials.py:18",
+      "quote": "STS_URL = \"https://sts.identity.svc.cluster.local/oauth2/token\""
+    }
+  ]
+}

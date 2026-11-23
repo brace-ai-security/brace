@@ -1,0 +1,821 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-11-21T12:00:45Z",
+  "scope": "TODO: what was reviewed and what wasn't.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "A01",
+      "gate": "G1",
+      "title": "Distinct agent identity",
+      "requirement": "Give the agent its own verifiable non-human identity, separate from the user who launched it and from unrelated agents. Preserve any explicitly delegated user/system subject separately and bound the authority used. Show that operators can revoke the agent's access independently of that subject, even when a user starts the run.",
+      "not_covered": [
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        },
+        {
+          "problem": "Instance or tenant labels taken from what the model supplies",
+          "owner": "A04"
+        },
+        {
+          "problem": "A credential scoped to more operations, resources, or tenants than needed",
+          "owner": "B02"
+        },
+        {
+          "problem": "Revocation delay from cached or self-contained tokens not measured",
+          "owner": "B04"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/credentials.py",
+          "line": 50,
+          "note": "RFC 8693 exchange with the pod SA token as actor, 300 s cap, audience per target."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A01.1",
+          "check": "The agent runs under its own workload principal (service account, IAM role, SPIFFE ID, or agent ID) that no other service or unrelated agent uses.",
+          "verify": "1) Find the agent's identity: pod `serviceAccountName`, IAM role, SPIFFE ID, or agent ID in IaC or deploy config. 2) Search other deployments, services, and agents in the repo for the same name or role. 3) Answer no if it is shared, `default`, the main backend's identity, or only a string label with no credential. Answer unknown if identity is assigned outside this repo.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:31",
+          "quote": "serviceAccountName: hr-helpdesk-agent",
+          "counter_search": "Read every pod spec: gateway uses hr-tool-gateway (deployment.yaml:92) and the cron job uses hr-audit-maint (audit-maintenance.yaml:17); searched for default or shared SAs and found none.",
+          "note": "Agent pod has a dedicated ServiceAccount and SPIFFE ID; no other workload uses it.",
+          "coverage": [
+            {
+              "subject": "agent pod",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:31",
+              "quote": "serviceAccountName: hr-helpdesk-agent",
+              "note": "Dedicated SA for the agent. on this path in the reviewed code"
+            },
+            {
+              "subject": "gateway pod",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:92",
+              "quote": "serviceAccountName: hr-tool-gateway",
+              "note": "Gateway has its own SA, not the agent's."
+            },
+            {
+              "subject": "audit maintenance cron",
+              "status": "enforced",
+              "evidence": "k8s/audit-maintenance.yaml:17",
+              "quote": "serviceAccountName: hr-audit-maint",
+              "note": "Separate SA. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A01.2",
+          "check": "Tool and API clients use short-lived credentials with a verified acting-agent identity and any separately bounded user/system delegation; they do not copy a login session or reuse a gateway token at a different backend audience.",
+          "verify": "1) Trace every client credential to its issuer, audience, acting principal and delegated subject. 2) Accept authorized OAuth delegation and supported exchange when agent identity and bounded grants survive. 3) Reject copied sessions, shared static keys, or cross-audience token reuse. 4) Mark issuer/downstream guarantees unknown if only external evidence can show them.",
+          "met": "yes",
+          "evidence": "src/credentials.py:50",
+          "quote": "\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\",",
+          "counter_search": "Searched for forwarded user tokens, static keys and audience reuse in src/: gateway.py:119-124 re-exchanges for the downstream audience; .mcp.json static token is not copied into the image (Dockerfile:12-15).",
+          "note": "RFC 8693 exchange with the pod SA token as actor, 300 s cap, audience per target.",
+          "coverage": [
+            {
+              "subject": "agent->gateway token",
+              "status": "enforced",
+              "evidence": "src/credentials.py:50",
+              "quote": "\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\",",
+              "note": "Actor token is the pod SA token, subject token is the employee token; ttl capped at 300 s (credentials.py:64)."
+            },
+            {
+              "subject": "agent->direct route token",
+              "status": "enforced",
+              "evidence": "src/gateway_client.py:56",
+              "quote": "audience=spec.direct_route[\"audience\"], scope=spec.scope,",
+              "note": "Separate exchange for the helpdesk audience, not reuse of the gateway token."
+            },
+            {
+              "subject": "gateway->MCP token",
+              "status": "enforced",
+              "evidence": "src/gateway.py:121",
+              "quote": "\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\",",
+              "note": "Gateway exchanges for downstream_audience with its own actor token."
+            },
+            {
+              "subject": ".mcp.json bearer env token",
+              "status": "not_applicable",
+              "evidence": ".mcp.json:7",
+              "quote": "\"Authorization\": \"Bearer ${HR_GATEWAY_TOKEN}\"",
+              "note": "Developer MCP client config; no source reads it and the Dockerfile does not copy it."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A01.3",
+          "check": "For user-initiated runs, the original user is a verified delegated subject while the acting agent retains its own principal.",
+          "verify": "1) Trace user-started runs and credential issuance, including OAuth delegation and token exchange where supported. 2) Check original subject, acting agent and granted task/tenant/resource limits independently. 3) Reject a user label from model-controlled input or replacement of agent identity with a human session. 4) For machine-only operation, cite the configuration showing there is no delegated user; do not invent one.",
+          "met": "yes",
+          "evidence": "src/main.py:73",
+          "quote": "return claims[\"employee_id\"], token",
+          "counter_search": "Searched for subject labels from model input: ctx.subject comes only from the verified SSO claim (main.py:80); tool schemas have no user fields.",
+          "note": "Employee token is verified, then exchanged as subject token while the pod keeps its own actor token.",
+          "coverage": [
+            {
+              "subject": "chat run",
+              "status": "enforced",
+              "evidence": "src/main.py:73",
+              "quote": "return claims[\"employee_id\"], token",
+              "note": "Verified employee id and token. on this path in the reviewed code"
+            },
+            {
+              "subject": "approval confirm run",
+              "status": "enforced",
+              "evidence": "src/main.py:138",
+              "quote": "employee_id, token = _employee(request)",
+              "note": "Same verification on confirm; subject must match the run (main.py:143)."
+            },
+            {
+              "subject": "credential issuance",
+              "status": "enforced",
+              "evidence": "src/credentials.py:52",
+              "quote": "\"subject_token\": subject_token,",
+              "note": "Subject and actor sent separately. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A01.4",
+          "check": "Permissions are bound to the agent principal in IaC or RBAC, so revoking that principal alone removes the agent's access without disabling the user.",
+          "verify": "1) Find IAM policies, RoleBindings, or grants in Terraform, Helm, or Kubernetes YAML. 2) Check they bind to the agent principal, not to a user, group, or shared role. 3) Check that removing that binding alone would cut the agent's access. 4) Answer no if revoking the agent cannot remove its access independently, or authority uses a shared credential. User grants may legitimately bound an explicitly delegated flow. Answer unknown if permissions are not defined in this repo.",
+          "met": "unknown",
+          "evidence": "migrations/001_init.sql:81",
+          "quote": "GRANT INSERT ON audit.events TO hr_agent;",
+          "counter_search": "",
+          "note": "No RoleBindings, STS policy or IAM grants for the agent principal are in this repo; DB role hr_agent is created by the platform team. Cannot show revoking the agent alone removes access.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "The code gives the agent its own SA and token-exchange identity, but agent-only revocation is defined outside the repo.",
+      "next_step": "Get the STS/IAM/DB-role policy and revoke-the-agent-only drill evidence from the platform team.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "A02",
+      "gate": "G1",
+      "title": "All six identity fields",
+      "requirement": "Check that every action records the accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context. Look at successful, denied, failed, and background actions, not just the main request path.",
+      "not_covered": [
+        {
+          "problem": "Identity labels taken from what the model supplies",
+          "owner": "A04"
+        },
+        {
+          "problem": "Agent-type-id not computed as a hash of its identity inputs",
+          "owner": "A03"
+        },
+        {
+          "problem": "Agent able to erase or rewrite its own audit history",
+          "owner": "E10"
+        },
+        {
+          "problem": "Sub-agent record missing its parent link or parent prompt",
+          "owner": "A06"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/main.py",
+          "line": 114,
+          "note": "Failed auth on /v1/chat and /v1/runs/.../confirm (main.py:114, 140, 144) returns with no audit record. In the gateway, denials before authentication log tenant/accountable_party/operational_owner as \"unknown\" (gateway.py:132) and type/instance/trace as \"missing\" (gateway.py:137-139). If the gateway deny-log write fails, the record is silently dropped (gateway.py:196-197)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A02.1",
+          "check": "The audit record schema has all six fields: accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context.",
+          "verify": "1) Find the audit record schema or the function that writes audit entries. 2) Check for each of the six: accountable party, operational owner, tenant, `agent.type.id`, `agent.instance.id`, trace context (`traceparent` or trace and span IDs). 3) Answer no if any one is missing from the schema or never set.",
+          "met": "yes",
+          "evidence": "src/audit.py:90",
+          "quote": "ctx.accountable_party, ctx.operational_owner, ctx.tenant, ctx.agent_type_id, ctx.agent_instance_id,",
+          "counter_search": "Checked both audit tables for all six fields; both have them (the gateway's type/instance are caller-supplied hints, see A04).",
+          "note": "audit.events has all six NOT NULL; gateway_decisions has all six columns.",
+          "coverage": [
+            {
+              "subject": "audit.events",
+              "status": "enforced",
+              "evidence": "src/audit.py:90",
+              "quote": "ctx.accountable_party, ctx.operational_owner, ctx.tenant, ctx.agent_type_id, ctx.agent_instance_id,",
+              "note": "Five identity fields; trace on next line."
+            },
+            {
+              "subject": "audit.events trace",
+              "status": "enforced",
+              "evidence": "src/audit.py:91",
+              "quote": "trace_id, span_id, traceparent,",
+              "note": "Trace context. on this path in the reviewed code"
+            },
+            {
+              "subject": "audit.gateway_decisions",
+              "status": "enforced",
+              "evidence": "src/gateway.py:137",
+              "quote": "request.headers.get(\"traceparent\") or \"missing\", owner[\"tenant\"], owner[\"accountable_party\"],",
+              "note": "Gateway record has all six columns."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A02.2",
+          "check": "All six fields are written on denied, failed, async, and background actions too, not only on the successful main request path.",
+          "verify": "1) List every path that writes an audit record, or should: success, policy deny, `except`/`catch` blocks, retries, queue workers, cron jobs, webhooks, other endpoints such as approvals, and refusals before the run starts (quota, rate limit, auth) that return an error without logging. 2) For each, check all six fields are set, ideally by one shared wrapper. 3) Answer no if any deny, error, async, or background path writes records without them, or writes no record at all.",
+          "met": "no",
+          "evidence": "src/main.py:114",
+          "quote": "return JSONResponse({\"error\": \"unauthenticated\"}, status_code=401)",
+          "counter_search": "",
+          "note": "Failed auth on /v1/chat and /v1/runs/.../confirm (main.py:114, 140, 144) returns with no audit record. In the gateway, denials before authentication log tenant/accountable_party/operational_owner as \"unknown\" (gateway.py:132) and type/instance/trace as \"missing\" (gateway.py:137-139). If the gateway deny-log write fails, the record is silently dropped (gateway.py:196-197).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A02.3",
+          "check": "Trace context (trace and span IDs) is stored in the audit record itself, not only in separate tracing spans.",
+          "verify": "1) Open the audit record writer. 2) Check it stores trace and span IDs (or `traceparent`) as fields in the record itself. 3) Answer no if trace context exists only in OpenTelemetry spans, or the record's trace field is never filled.",
+          "met": "yes",
+          "evidence": "src/audit.py:91",
+          "quote": "trace_id, span_id, traceparent,",
+          "counter_search": "Searched for trace context only in spans: the writer stores trace_id, span_id and traceparent as columns; a missing span raises AuditUnavailable (audit.py:80-81).",
+          "note": "audit.events stores trace_id, span_id, traceparent; gateway_decisions stores traceparent.",
+          "coverage": [
+            {
+              "subject": "audit.events writer",
+              "status": "enforced",
+              "evidence": "src/audit.py:91",
+              "quote": "trace_id, span_id, traceparent,",
+              "note": "Written into the record. on this path in the reviewed code"
+            },
+            {
+              "subject": "audit.gateway_decisions",
+              "status": "enforced",
+              "evidence": "src/gateway.py:137",
+              "quote": "request.headers.get(\"traceparent\") or \"missing\", owner[\"tenant\"], owner[\"accountable_party\"],",
+              "note": "Column is filled from the inbound header; placeholder when absent is covered under A02.2."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A02.4",
+          "check": "Tenant and owner values come from the trusted layer, not from baggage, tracestate, or other unprotected headers.",
+          "verify": "1) Find where tenant and owner values for audit records are read. 2) Trace each back to its source: token claims, verified session, IAM tags, or SPIFFE path, versus OTel baggage, `tracestate`, headers like `X-Tenant-Id`, request body, or tool arguments. 3) Answer no if any path takes them from an unprotected source.",
+          "met": "yes",
+          "evidence": "src/main.py:79",
+          "quote": "run_id=run_id, agent_instance_id=f\"{POD_ID}/{run_id}\", agent_type_id=AGENT_TYPE_ID, tenant=a[\"tenant\"],",
+          "counter_search": "Searched for baggage, tracestate, X-Tenant headers and tenant tool arguments: none read; gateway reads owner/tenant only from ACTORS keyed by verified act.sub.",
+          "note": "Tenant and owner come from config plus verified org claim (agent) and the ACTORS table keyed by a verified actor (gateway).",
+          "coverage": [
+            {
+              "subject": "agent audit.events",
+              "status": "enforced",
+              "evidence": "src/main.py:79",
+              "quote": "run_id=run_id, agent_instance_id=f\"{POD_ID}/{run_id}\", agent_type_id=AGENT_TYPE_ID, tenant=a[\"tenant\"],",
+              "note": "Tenant from config after org claim check (main.py:71)."
+            },
+            {
+              "subject": "agent owner fields",
+              "status": "enforced",
+              "evidence": "src/main.py:80",
+              "quote": "subject=employee_id, accountable_party=a[\"accountable_party\"], operational_owner=a[\"operational_owner\"],",
+              "note": "From config. on this path in the reviewed code"
+            },
+            {
+              "subject": "gateway records",
+              "status": "enforced",
+              "evidence": "src/gateway.py:132",
+              "quote": "owner = ACTORS.get(actor, {\"tenant\": \"unknown\", \"accountable_party\": \"unknown\", \"operational_owner\": \"unknown\"})",
+              "note": "Looked up by verified actor; otherwise unknown."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/gateway.py:132 Denied requests with no verified actor are recorded with tenant, accountable party and owner set to \"unknown\"."
+      ],
+      "violates": [
+        "every action records the accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context"
+      ],
+      "also_affects": [],
+      "summary": "Failed-auth requests to the agent are not audited at all, and unauthenticated gateway denials are logged with unknown/missing identity fields.",
+      "next_step": "Write a minimal audit row for pre-auth refusals in main.py and the gateway with all six fields (or an explicit untrusted-caller record), and fail loudly if the deny log cannot be written.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "A03",
+      "gate": "G1",
+      "title": "Content-derived type identity",
+      "requirement": "Compute the agent-type-id as a hash of the container digest, harness, system prompt, model ID and version, and configuration. The model part includes checkpoint and fine-tune or adapter references where they apply. Keep the list of inputs (the manifest) and the hashing steps. Check that changing any input changes the ID, and that the same manifest gives the same ID.",
+      "not_covered": [
+        {
+          "problem": "Changed running config still reporting the old approved ID",
+          "owner": "C03"
+        },
+        {
+          "problem": "Hosted model changing behind a fixed name",
+          "owner": "C05"
+        },
+        {
+          "problem": "Release manifest missing training job, dataset, or model provider records",
+          "owner": "C01"
+        },
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        }
+      ],
+      "rating": "likely_pass",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/type_id.py",
+          "line": 42,
+          "note": "Manifest has image digest, model record, and hashes of src, prompts, config, requirements, Dockerfile."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A03.1",
+          "check": "The agent-type-id is a hash over a manifest that includes the container digest, harness, system prompt, model ID and version, and configuration.",
+          "verify": "1) Find the code or CI step that computes `agent.type.id` (search `sha256`, `hashlib`, `createHash`, `type_id`). 2) List its inputs. 3) Check each is there: container digest, harness, system prompt, model ID and version, configuration. 4) Answer no if the ID is a label, version string, or git tag, or any input is missing.",
+          "met": "yes",
+          "evidence": "src/type_id.py:42",
+          "quote": "manifest = {\"scheme\": HASH_SCHEME, \"image_digest\": image_digest, \"model\": model, \"files\": _file_hashes()}",
+          "counter_search": "Searched for labels or version strings used as the ID: ID is sha256 of the canonical manifest (type_id.py:43-44), checked at start and stamped in CI (release.yml:48).",
+          "note": "Manifest has image digest, model record, and hashes of src, prompts, config, requirements, Dockerfile.",
+          "coverage": [
+            {
+              "subject": "container digest",
+              "status": "enforced",
+              "evidence": "src/type_id.py:42",
+              "quote": "manifest = {\"scheme\": HASH_SCHEME, \"image_digest\": image_digest, \"model\": model, \"files\": _file_hashes()}",
+              "note": "image_digest in manifest. on this path in the reviewed code"
+            },
+            {
+              "subject": "harness src/",
+              "status": "enforced",
+              "evidence": "src/type_id.py:20",
+              "quote": "INPUT_DIRS = (\"src\", \"prompts\", \"config\")",
+              "note": "src hashed. on this path in the reviewed code"
+            },
+            {
+              "subject": "system prompt",
+              "status": "enforced",
+              "evidence": "src/type_id.py:20",
+              "quote": "INPUT_DIRS = (\"src\", \"prompts\", \"config\")",
+              "note": "prompts/system.md hashed. on this path in the reviewed code"
+            },
+            {
+              "subject": "configuration",
+              "status": "enforced",
+              "evidence": "src/type_id.py:20",
+              "quote": "INPUT_DIRS = (\"src\", \"prompts\", \"config\")",
+              "note": "config/ hashed. on this path in the reviewed code"
+            },
+            {
+              "subject": "model ID and version",
+              "status": "enforced",
+              "evidence": "src/type_id.py:49",
+              "quote": "return {\"provider\": m[\"provider\"], \"id\": m[\"id\"], \"pinning\": m[\"pinning\"], \"adapter\": m[\"adapter\"]}",
+              "note": "Model record in manifest. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A03.2",
+          "check": "The hash covers every file that defines the prompt, tools, and configuration, with no file or directory skipped or excluded.",
+          "verify": "1) Open the function that lists files to hash. 2) Write down every filter it applies: hidden files, names starting with '_' or '__', extensions, ignore lists, glob patterns. 3) For each filter, check whether a file that defines tools, prompts, or config would be skipped (for example `__init__.py`, `index.ts`, `.env`, `config/*.local.*`). 4) Answer no if any such file is skipped.",
+          "met": "yes",
+          "evidence": "src/type_id.py:28",
+          "quote": "for p in sorted((ROOT / d).rglob(\"*\")):",
+          "counter_search": "Looked for filters (hidden, underscore, extension, ignore lists) in _file_hashes: none; rglob(\"*\") with is_file(). Files outside the hashed paths are not copied into the image (Dockerfile:12-15).",
+          "note": "No filters; every file under src, prompts, config plus requirements.txt and Dockerfile.",
+          "coverage": [
+            {
+              "subject": "src/ prompts/ config/ files",
+              "status": "enforced",
+              "evidence": "src/type_id.py:28",
+              "quote": "for p in sorted((ROOT / d).rglob(\"*\")):",
+              "note": "No name or extension filter, so __init__.py, dotfiles and *.local.* are included."
+            },
+            {
+              "subject": "requirements.txt, Dockerfile",
+              "status": "enforced",
+              "evidence": "src/type_id.py:21",
+              "quote": "INPUT_FILES = (\"requirements.txt\", \"Dockerfile\")",
+              "note": "Hashed explicitly. on this path in the reviewed code"
+            },
+            {
+              "subject": ".mcp.json, k8s/, migrations/, release/",
+              "status": "not_applicable",
+              "evidence": "Dockerfile:15",
+              "quote": "COPY --chown=0:0 config/ config/",
+              "note": "The image copies only src, prompts, config, requirements.txt and Dockerfile, so these are not part of the running artifact. Pod-spec env drift is C03."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A03.3",
+          "check": "The model input is a pinned version or snapshot (plus checkpoint and adapter references where used), not an alias and not the app's release number.",
+          "verify": "1) Find the model ID that goes into the manifest or hash. 2) Follow env vars and config to the final value, including defaults such as `getenv('MODEL', ...)`. 3) Answer no if it is an alias (`-latest`, no date or version), falls back to one when unset, or is the app release number. Also no if adapters or checkpoints are used but left out.",
+          "met": "yes",
+          "evidence": "config/agent.yaml:10",
+          "quote": "id: claude-sonnet-4-5-20250929",
+          "counter_search": "Searched src for getenv/environ model overrides: only DB URL, type id, image digest, pod uid are read from env; model comes from config/agent.yaml (agent.py:71).",
+          "note": "Dated snapshot ID, adapter none, no env fallback.",
+          "coverage": [
+            {
+              "subject": "model id",
+              "status": "enforced",
+              "evidence": "config/agent.yaml:10",
+              "quote": "id: claude-sonnet-4-5-20250929",
+              "note": "Dated snapshot. on this path in the reviewed code"
+            },
+            {
+              "subject": "adapter/checkpoint",
+              "status": "enforced",
+              "evidence": "config/agent.yaml:12",
+              "quote": "adapter: none",
+              "note": "No adapter or checkpoint used. on this path in the reviewed code"
+            },
+            {
+              "subject": "env override",
+              "status": "not_applicable",
+              "evidence": "src/main.py:46",
+              "quote": "AGENT_TYPE_ID = type_id.verify_or_exit(os.environ[\"AGENT_TYPE_ID\"], os.environ[\"IMAGE_DIGEST\"], type_id.model_record(CFG))",
+              "note": "Model record is taken from CFG, not from env."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A03.4",
+          "check": "The manifest is put in a fixed, documented order before hashing, so the same manifest always gives the same ID.",
+          "verify": "1) Open the serialization step before hashing. 2) Check for a fixed order: sorted keys (`sort_keys=True`), sorted file lists, fixed encoding and line endings. 3) Check file lists are not taken straight from directory listing or map iteration order. 4) Answer no if any unsorted dict, map, or filesystem order reaches the hash.",
+          "met": "yes",
+          "evidence": "src/type_id.py:43",
+          "quote": "canonical = json.dumps(manifest, sort_keys=True, separators=(\",\", \":\")).encode()",
+          "counter_search": "Looked for unsorted dict, directory order or text-mode reads reaching the hash: files sorted (type_id.py:28), keys sorted, bytes read raw (type_id.py:30). Order documented in module docstring lines 7-9.",
+          "note": "Sorted keys and sorted file list, raw bytes.",
+          "coverage": [
+            {
+              "subject": "serialization",
+              "status": "enforced",
+              "evidence": "src/type_id.py:43",
+              "quote": "canonical = json.dumps(manifest, sort_keys=True, separators=(\",\", \":\")).encode()",
+              "note": "Fixed key order and separators. on this path in the reviewed code"
+            },
+            {
+              "subject": "file listing",
+              "status": "enforced",
+              "evidence": "src/type_id.py:28",
+              "quote": "for p in sorted((ROOT / d).rglob(\"*\")):",
+              "note": "Sorted listing, and dict keys are re-sorted by json."
+            },
+            {
+              "subject": "file bytes",
+              "status": "enforced",
+              "evidence": "src/type_id.py:30",
+              "quote": "out[p.relative_to(ROOT).as_posix()] = hashlib.sha256(p.read_bytes()).hexdigest()",
+              "note": "Raw bytes, POSIX relative paths. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A03.5",
+          "check": "Secret values are not placed in the hashed manifest in a form that exposes them.",
+          "verify": "1) List every value fed into the manifest or hash. 2) Check whether any are secrets: API keys, tokens, passwords, private keys, `.env` contents. 3) Answer no if a secret value is written in plain text to the stored manifest, or the whole environment is dumped into it.",
+          "met": "yes",
+          "evidence": "src/type_id.py:30",
+          "quote": "out[p.relative_to(ROOT).as_posix()] = hashlib.sha256(p.read_bytes()).hexdigest()",
+          "counter_search": "Searched for env dumps or secret values in the manifest: it holds file SHA-256s, image digest and the model record; no environ access in type_id.py; CI writes the manifest to type-id.json (release.yml:48).",
+          "note": "Only hashes and public model labels.",
+          "coverage": [
+            {
+              "subject": "file entries",
+              "status": "enforced",
+              "evidence": "src/type_id.py:30",
+              "quote": "out[p.relative_to(ROOT).as_posix()] = hashlib.sha256(p.read_bytes()).hexdigest()",
+              "note": "Digests, not contents. on this path in the reviewed code"
+            },
+            {
+              "subject": "model record",
+              "status": "enforced",
+              "evidence": "src/type_id.py:49",
+              "quote": "return {\"provider\": m[\"provider\"], \"id\": m[\"id\"], \"pinning\": m[\"pinning\"], \"adapter\": m[\"adapter\"]}",
+              "note": "Four public labels. on this path in the reviewed code"
+            },
+            {
+              "subject": "image digest",
+              "status": "enforced",
+              "evidence": "src/type_id.py:37",
+              "quote": "if not image_digest.startswith(\"sha256:\") or len(image_digest) != 71:",
+              "note": "Public digest. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "The type ID is a canonical SHA-256 over the image digest, model record and every file in src, prompts and config plus requirements and Dockerfile.",
+      "next_step": "Run the A03 recipe: hash a frozen manifest twice, then change each input one at a time.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "A04",
+      "gate": "G1",
+      "title": "Trustworthy attribution",
+      "requirement": "Assign instance and tenant identity in the trusted execution layer. Don't accept labels the model supplies. Record the delegated subject \u2014 the user or system whose authority is being used \u2014 separately from the agent's identity. Test that the agent can't pose as another instance or tenant in requests or audit records. Test that trace context survives handoffs between async jobs. Treat trace IDs and caller-supplied labels only as a way to link records. They never prove identity or permission.",
+      "not_covered": [
+        {
+          "problem": "Agent sharing the launching user's identity",
+          "owner": "A01"
+        },
+        {
+          "problem": "Prompt a parent gave a sub-agent not recorded",
+          "owner": "A06"
+        },
+        {
+          "problem": "Sub-agent authorized using an earlier actor's authority",
+          "owner": "E08"
+        },
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/gateway.py",
+          "line": 170,
+          "note": "Agent builds tenant and instance from verified context (main.py:79), and tool schemas have no tenant/instance fields. But the gateway takes the instance for its stop-flag and rate-limit decisions from a caller header, not from token claims."
+        }
+      ],
+      "checks": [
+        {
+          "id": "A04.1",
+          "check": "Tenant and instance identity are set by the harness or platform from verified context, never from model-produced text or tool arguments.",
+          "verify": "1) Find every place tenant and instance IDs are set for tool calls and records. 2) Check each comes from verified context (token claims, session bound at launch). 3) Check tool JSON schemas the model fills for `tenant_id`, `user_id`, `instance_id`. 4) Answer no if any function uses the model's value, even if another function uses verified context.",
+          "met": "no",
+          "evidence": "src/gateway.py:170",
+          "quote": "instance = request.headers.get(\"x-agent-instance\", \"\")",
+          "counter_search": "",
+          "note": "Agent builds tenant and instance from verified context (main.py:79), and tool schemas have no tenant/instance fields. But the gateway takes the instance for its stop-flag and rate-limit decisions from a caller header, not from token claims.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A04.2",
+          "check": "Tenant or instance labels in tool arguments or agent-controlled headers are rejected or overwritten with the verified values before they are used or logged.",
+          "verify": "1) Find tool handlers and middleware that receive tool arguments and headers. 2) Check that tenant or instance fields in arguments, or headers like `X-Tenant-Id`, are rejected or overwritten with the verified value before use or logging. 3) Answer no if any handler uses or logs the supplied value, or detects a mismatch and continues.",
+          "met": "no",
+          "evidence": "src/gateway.py:170",
+          "quote": "instance = request.headers.get(\"x-agent-instance\", \"\")",
+          "counter_search": "",
+          "note": "The gateway uses the supplied instance header unchanged (gateway.py:171, 173) and never compares or overwrites it with a verified value.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A04.3",
+          "check": "The delegated subject is recorded separately from the agent identity.",
+          "verify": "1) Open the audit record schema and writer. 2) Look for a delegated-subject field (the user or system whose authority is used) separate from the agent principal field. 3) Answer no if only one identity is stored, the user overwrites the agent identity, or the field is never filled.",
+          "met": "yes",
+          "evidence": "src/audit.py:92",
+          "quote": "ctx.subject, ctx.agent_principal,",
+          "counter_search": "Searched for a single combined identity field: audit.events has delegated_subject and agent_principal (001_init.sql:11); gateway has subject and actor columns.",
+          "note": "Delegated subject and agent principal are written to separate columns.",
+          "coverage": [
+            {
+              "subject": "audit.events",
+              "status": "enforced",
+              "evidence": "src/audit.py:92",
+              "quote": "ctx.subject, ctx.agent_principal,",
+              "note": "delegated_subject and agent_principal separate. on this path in the reviewed code"
+            },
+            {
+              "subject": "audit.gateway_decisions",
+              "status": "enforced",
+              "evidence": "src/gateway.py:139",
+              "quote": "request.headers.get(\"x-agent-instance\") or \"missing\", c.get(\"sub\"), actor, tool, decision, redact(reason),",
+              "note": "subject and actor separate. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A04.4",
+          "check": "When work is handed to an async job or queue, the trusted layer attaches the verified attribution and trace context, and the job uses them.",
+          "verify": "1) Find queue producers and enqueue calls (Celery, SQS, Pub/Sub, Kafka, cron). 2) Check the trusted layer adds verified identity and trace context to the job. 3) Check the worker uses those values, not ones the agent wrote. 4) Answer no if workers start new traces without parent context or take tenant from agent-written job data.",
+          "met": "no",
+          "evidence": "src/main.py:147",
+          "quote": "with tracer.start_as_current_span(\"approval.confirm\"):",
+          "counter_search": "",
+          "note": "No queue exists, but the approval resume is the one deferred handoff: it starts a new root span, and approvals.grants stores no trace context (001_init.sql:54-60), so the resumed run's records are not linked to the original trace.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "A04.5",
+          "check": "Authorization never treats trace IDs or caller-supplied labels as proof of identity or permission.",
+          "verify": "1) Find authorization and permission-lookup code. 2) Check what each decision is keyed on. 3) Answer no if any check uses a trace ID, span ID, correlation ID, request label, or caller-supplied header as identity or to look up permissions.",
+          "met": "no",
+          "evidence": "src/gateway.py:171",
+          "quote": "if why := await _stop_reason(claims, instance):",
+          "counter_search": "",
+          "note": "Stop-flag lookup for agent_instance scope and the instance rate bucket (gateway.py:173) are keyed on the caller-supplied x-agent-instance header. A caller can send a different or empty value to avoid an instance-scoped stop.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/gateway.py:170 Gateway reads the instance from a caller header and uses it for stop-flag matching and rate limiting without any verified value to compare it to."
+      ],
+      "violates": [
+        "Assign instance and tenant identity in the trusted execution layer."
+      ],
+      "also_affects": [],
+      "summary": "The gateway keys instance-scoped stop flags and rate limits on an unverified caller header, and the approval resume starts a new trace.",
+      "next_step": "Bind the instance to a verified claim (or drop instance-scoped decisions in the gateway), and store and restore traceparent with each approval grant.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "R14",
+      "gate": "G2",
+      "title": "Recovery integrity",
+      "requirement": "If logs or checkpoints drive recovery, make them tamper-evident. Before using them, verify them against a separately protected trust anchor or signing key. Test that verification rejects changed checkpoints. It must also catch truncation, rollback to an older valid checkpoint, and replacement of a whole hash chain. For automatic recovery, confirm the destination supports idempotency: sending the same request twice has the effect of sending it once. Replay only within the destination's documented scope and time window. Confirm that actions you can't undo don't happen twice. Where support is missing or the result is unclear, check that replay pauses for reconciliation instead of sending again.",
+      "not_covered": [
+        {
+          "problem": "What happens to in-flight writes and queued actions at stop",
+          "owner": "R12"
+        },
+        {
+          "problem": "Rollback to an approved earlier release not tested",
+          "owner": "C07"
+        },
+        {
+          "problem": "Agent able to delete or rewrite its own audit history",
+          "owner": "E10"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "migrations/001_init.sql",
+          "line": 54,
+          "note": "approvals.grants rows drive resume of a paused run (approvals.py:89-97). They are plain rows: no hash chain or signature. audit.events (001_init.sql:5) is also plain rows. args_sha256 sits in the same row as args, so editing both passes consume()."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R14.1",
+          "check": "Checkpoints and audit records used for recovery are hash-chained or signed.",
+          "verify": "1) Find checkpoint and audit storage used for recovery. 2) Check for hash chaining or signatures. 3) Answer no if records are plain rows or files with no chain or signature.",
+          "met": "no",
+          "evidence": "migrations/001_init.sql:54",
+          "quote": "CREATE TABLE approvals.grants (",
+          "counter_search": "",
+          "note": "approvals.grants rows drive resume of a paused run (approvals.py:89-97). They are plain rows: no hash chain or signature. audit.events (001_init.sql:5) is also plain rows. args_sha256 sits in the same row as args, so editing both passes consume().",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R14.2",
+          "check": "Recovery verifies them against a key or trust anchor stored separately from the records, and refuses any that fail.",
+          "verify": "1) Find recovery code that loads checkpoints. 2) Check it verifies against a key stored separately and refuses failures. 3) Answer no if the key sits in the same store, verification is skipped, or failure is logged and recovery continues.",
+          "met": "no",
+          "evidence": "src/approvals.py:90",
+          "quote": "SELECT run_id, operation, target, args, tool_use_id FROM approvals.grants WHERE approval_id = $1",
+          "counter_search": "",
+          "note": "pending() loads the stored grant and its args with no signature or trust-anchor check before resume_with_approval uses it.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R14.3",
+          "check": "Verification catches truncation, rollback to an older valid checkpoint, and replacement of the whole chain, for example with a signed head or sequence number held outside the store.",
+          "verify": "1) Check verification uses a signed head or sequence number held outside the store. 2) Answer no if truncation, rollback to an older valid checkpoint, or replacing the whole chain would still pass.",
+          "met": "no",
+          "evidence": "src/approvals.py:90",
+          "quote": "SELECT run_id, operation, target, args, tool_use_id FROM approvals.grants WHERE approval_id = $1",
+          "counter_search": "",
+          "note": "No signed head or sequence number outside the store, so truncation, rollback or whole-table replacement would not be detected.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R14.4",
+          "check": "Automatic replay sends idempotency keys that the destination enforces, and only for integrations that support them.",
+          "verify": "1) Find replay code. 2) Check it sends idempotency keys (`Idempotency-Key`, `client_token`) only to integrations that enforce them. 3) Answer no if replay sends without keys, uses a local dedupe table as the only guard, or replays to integrations without support.",
+          "met": "unknown",
+          "evidence": "src/gateway_client.py:69",
+          "quote": "\"Idempotency-Key\": operation_id,",
+          "counter_search": "",
+          "note": "A key is sent on every call, including the direct-route resend, but whether helpdesk-mcp enforces it lives outside this repo. No enforcement evidence or documented scope/window here.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R14.5",
+          "check": "When idempotency is missing or the result is unclear, replay pauses for reconciliation instead of resending.",
+          "verify": "1) Find replay handling for unclear results or missing idempotency. 2) Answer no if replay resends instead of pausing for reconciliation, or retry is the default on timeout.",
+          "met": "no",
+          "evidence": "src/gateway_client.py:86",
+          "quote": "if resp.status_code == 503:",
+          "counter_search": "",
+          "note": "A 503 from the gateway is treated as GatewayUnavailable and the call is resent to the direct route (gateway_client.py:51-59). The gateway returns 503 for any internal exception, including after the upstream call may have succeeded (gateway.py:190-198). The outcome is unclear, yet the client resends instead of pausing for reconciliation.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/gateway_client.py:59 After a gateway 503 (which can follow a successful upstream write), escalate_to_human is resent via direct_route with no reconciliation pause."
+      ],
+      "violates": [
+        "Where support is missing or the result is unclear, check that replay pauses for reconciliation instead of sending again."
+      ],
+      "also_affects": [],
+      "summary": "Resume state (approval grants) and audit rows are plain unsigned rows, and an unclear gateway 503 triggers an automatic resend of create_ticket via the direct route.",
+      "next_step": "Sign or hash-chain recovery records and verify against an external anchor; on 503 or unclear results, pause for reconciliation instead of using direct_route.",
+      "lead_role": "agent_team"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {
+    "H009": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "Stored in agent_type_id_hint column, documented caller-supplied join key (001_init.sql:23); no decision reads it; verified actor and subject recorded separately."
+    },
+    "H010": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "Stored in agent_instance_hint column as a join key only; no decision reads the logged value. The decision use is the separate header read at gateway.py:170 (H011)."
+    },
+    "H011": {
+      "verdict": "confirmed",
+      "item": "A04",
+      "reason": "x-agent-instance is read from the request and used for stop-flag matching and rate limiting with no verified value to check it against."
+    },
+    "H012": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "Sending side: header is built from RunContext, set by the harness from pod UID and run id, not from model output. The receiver-side weakness is H011."
+    },
+    "H013": {
+      "verdict": "dismissed",
+      "item": null,
+      "reason": "Sending side: agent_type_id is the verified hash from type_id.verify_or_exit (main.py:46), not model-supplied. The receiver-side weakness is H011."
+    }
+  }
+}

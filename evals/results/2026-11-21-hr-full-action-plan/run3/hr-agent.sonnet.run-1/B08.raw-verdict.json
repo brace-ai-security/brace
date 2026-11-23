@@ -1,0 +1,184 @@
+{
+  "verdict": "upheld",
+  "checks": [
+    {
+      "id": "B08.1",
+      "result": "holds",
+      "evidence": "agent/k8s/networkpolicy.yaml:4",
+      "quote": "name: default-deny-all",
+      "note": "Default deny plus named peers only",
+      "coverage": [
+        {
+          "subject": "agent namespace default deny",
+          "status": "enforced",
+          "evidence": "agent/k8s/networkpolicy.yaml:4",
+          "quote": "name: default-deny-all",
+          "note": "podSelector {} with Ingress+Egress in hr-agent"
+        },
+        {
+          "subject": "agent egress peers",
+          "status": "enforced",
+          "evidence": "agent/k8s/networkpolicy.yaml:22",
+          "quote": "  egress:",
+          "note": "Only DNS (FQDN-filtered), api.anthropic.com/sso.acme.example:443, gateway:8443, sts:443, hr-postgres:5432, otel:4317, helpdesk-mcp:8443; all named, no CIDR allow"
+        },
+        {
+          "subject": "agent ingress",
+          "status": "enforced",
+          "evidence": "agent/k8s/networkpolicy.yaml:20",
+          "quote": "- matchLabels: {\"k8s:io.kubernetes.pod.namespace\": web-frontends, app: hr-portal-bff}",
+          "note": "Only the portal BFF on 8080"
+        },
+        {
+          "subject": "gateway egress peers",
+          "status": "enforced",
+          "evidence": "agent/k8s/networkpolicy.yaml:76",
+          "quote": "- matchLabels: {\"k8s:io.kubernetes.pod.namespace\": hris, app: hris-mcp}",
+          "note": "Gateway reaches only hris-mcp, helpdesk-mcp, sts, hr-postgres, DNS (*.svc.cluster.local)"
+        },
+        {
+          "subject": "audit-maintenance CronJob",
+          "status": "enforced",
+          "evidence": "agent/k8s/audit-maintenance.yaml:15",
+          "quote": "labels: {app: audit-maintenance}",
+          "note": "Not the agent runtime; covered by namespace default-deny (no allow rule), so no egress beyond default deny"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "egress to arbitrary host",
+          "input": "model induces call to https://evil.example",
+          "trace": "No tool takes a URL; default-deny allows only named FQDNs/endpoints",
+          "outcome": "blocked",
+          "evidence": "agent/k8s/networkpolicy.yaml:4",
+          "quote": "name: default-deny-all"
+        }
+      ]
+    },
+    {
+      "id": "B08.2",
+      "result": "holds",
+      "evidence": "agent/k8s/networkpolicy.yaml:52",
+      "quote": "- toCIDR: [169.254.169.254/32, 169.254.170.2/32, 100.100.100.200/32]",
+      "note": "No broad egress; metadata denied; no host mounts",
+      "coverage": [
+        {
+          "subject": "cloud metadata",
+          "status": "enforced",
+          "evidence": "agent/k8s/networkpolicy.yaml:52",
+          "quote": "- toCIDR: [169.254.169.254/32, 169.254.170.2/32, 100.100.100.200/32]",
+          "note": "egressDeny for agent and gateway; also IPv6 fd00:ec2::254/128"
+        },
+        {
+          "subject": "broad egress 0.0.0.0/0",
+          "status": "enforced",
+          "evidence": "agent/k8s/networkpolicy.yaml:32",
+          "quote": "- toFQDNs:",
+          "note": "Only two FQDNs on 443; no 0.0.0.0/0 anywhere (grep found none)"
+        },
+        {
+          "subject": "host mounts/docker.sock/hostNetwork",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:33",
+          "quote": "hostUsers: false",
+          "note": "No hostNetwork, hostPath or docker.sock; volumes are emptyDir, projected token, SPIFFE CSI; automountServiceAccountToken false"
+        },
+        {
+          "subject": "credentials",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:51",
+          "quote": "- name: DATABASE_URL",
+          "note": "Secrets: agent DB, Anthropic key; gateway has separate DB secret; tokens are per-tool, per-employee, 300s STS tokens with audience binding"
+        },
+        {
+          "subject": "direct_route fallback to helpdesk-mcp",
+          "status": "enforced",
+          "evidence": "agent/config/tools.yaml:92",
+          "quote": "endpoint: https://helpdesk-mcp.helpdesk.svc.cluster.local:8443/mcp",
+          "note": "Same approved server as the gateway route, allowed by network policy at :48-50; STS token audience helpdesk-mcp; output still schema-validated by validate_tool_output. Residual: bypasses gateway policy but not an unapproved destination"
+        },
+        {
+          "subject": "tenant isolation",
+          "status": "enforced",
+          "evidence": "agent/config/agent.yaml:5",
+          "quote": "tenant: acme",
+          "note": "Single tenant; no cross-namespace peers beyond named ones"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "metadata access",
+          "input": "request to 169.254.169.254",
+          "trace": "egressDeny CIDR rule",
+          "outcome": "blocked",
+          "evidence": "agent/k8s/networkpolicy.yaml:52",
+          "quote": "- toCIDR: [169.254.169.254/32, 169.254.170.2/32, 100.100.100.200/32]"
+        },
+        {
+          "category": "gateway bypass",
+          "input": "gateway 503 triggers direct_route",
+          "trace": "Goes to helpdesk-mcp, an approved peer, with scoped token and output validation",
+          "outcome": "blocked",
+          "evidence": "agent/src/gateway_client.py:52",
+          "quote": "if not spec.direct_route:"
+        }
+      ]
+    },
+    {
+      "id": "B08.3",
+      "result": "holds",
+      "evidence": "agent/k8s/networkpolicy.yaml:8",
+      "quote": "policyTypes: [Ingress, Egress]",
+      "note": "Infra-enforced",
+      "coverage": [
+        {
+          "subject": "isolation location",
+          "status": "enforced",
+          "evidence": "agent/k8s/networkpolicy.yaml:8",
+          "quote": "policyTypes: [Ingress, Egress]",
+          "note": "Cilium/K8s NetworkPolicy, Kyverno admission, PSA restricted in infra"
+        },
+        {
+          "subject": "PSA/namespace",
+          "status": "enforced",
+          "evidence": "agent/k8s/admission.yaml:6",
+          "quote": "pod-security.kubernetes.io/enforce: restricted",
+          "note": "Infra-level enforcement"
+        },
+        {
+          "subject": "code-level endpoint selection",
+          "status": "enforced",
+          "evidence": "agent/src/gateway_client.py:17",
+          "quote": "GATEWAY_URL = \"https://hr-tool-gateway.hr-agent.svc.cluster.local:8443/mcp\"",
+          "note": "Endpoints are constants / tools.yaml config; model supplies only validated args, not URLs, with network policy behind them"
+        },
+        {
+          "subject": "R01-R02 on allowed connections",
+          "status": "enforced",
+          "evidence": "agent/src/gateway.py:187",
+          "quote": "if structured is None or list(Draft202012Validator(spec.output_schema).iter_errors(structured))",
+          "note": "Gateway and agent (agent.py:178 validate_tool_output) validate upstream responses with schemas"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "prompt steering",
+          "input": "prompt asks agent to reach other host",
+          "trace": "Isolation is NetworkPolicy, not prompt",
+          "outcome": "blocked",
+          "evidence": "agent/k8s/networkpolicy.yaml:8",
+          "quote": "policyTypes: [Ingress, Egress]"
+        }
+      ]
+    }
+  ],
+  "applicability": "present",
+  "evidence": "agent/k8s/networkpolicy.yaml:4",
+  "quote": "name: default-deny-all",
+  "note": "Agent runtime has network egress and data stores, so the control applies; all checks hold.",
+  "search": "Searched k8s manifests, .mcp.json, tools.yaml, Dockerfile, src for URLs/endpoints, grepped for 0.0.0.0/0, hostNetwork, docker.sock; found none of the bad patterns.",
+  "search_explanation": "Searched k8s manifests, .mcp.json, tools.yaml, Dockerfile, src for URLs/endpoints, grepped for 0.0.0.0/0, hostNetwork, docker.sock; found none of the bad patterns."
+}

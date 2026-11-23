@@ -13,6 +13,7 @@ The split is deliberate. **The AI drafts. People approve.** An AI reading a repo
 | `brace-mcp-review` skill | Focused static MCP server/client/gateway review, mapped to BRACE items and primary research. Reports evidence, gaps and unknowns; never launches servers or approves deployment. | [skills/brace-mcp-review/](skills/brace-mcp-review/SKILL.md) |
 | `brace-tests` skill | Turns the [verification recipes](CHECKLIST-VERIFICATION.md) into tests and drill scripts that produce dated evidence files. | [skills/brace-tests/](skills/brace-tests/SKILL.md) |
 | `brace-record` skill | Sets up `.brace/`, records outcomes with evidence, and drafts exceptions and N/A decisions for people to approve. | [skills/brace-record/](skills/brace-record/SKILL.md) |
+| `brace-checklist` skill | Quick, read-only pre-launch check of every [checklist](CHECKLIST.md) item with file and line evidence and plain-language fixes. No dependencies: no Python, scripts or packages. Use when `brace-review` is too heavy or Python is unavailable. | [skills/brace-checklist/](skills/brace-checklist/SKILL.md) |
 | `brace.py` | Checks the `.brace/` record against the gates, verifies approvals on GitHub, recomputes the agent-type-id, and reports FINDINGS for high-risk deployments or GO/NO-GO record conditions for lower-risk deployments. | [tools/brace/](tools/brace/README.md) |
 | Evals | Sample agent repos with planted gaps, used to measure how well `brace-review` works. | [evals/](evals/README.md) |
 
@@ -23,7 +24,7 @@ needed. Its output supplies scope and verification questions for the workflow
 below; proposed controls are not evidence that the controls exist.
 
 1. **Set up.** Copy `tools/brace/` into the agent's repo and run `python tools/brace/brace.py init`. Fill in `.brace/deployment.yaml`: the task, tenants, data, worst damage, the people in each [role](ROLES.md), and who may approve. Governance fills in the stakes and autonomy rating.
-2. **Review.** Run the `brace-review` skill. It writes `brace-findings.json` and a readable report. Fix the gaps it finds, starting with G1.
+2. **Review.** Run the `brace-review` skill. It writes `brace-findings.json`, a readable report, and `brace-action-plan.md`: a map of what the agent connects to, the risky connections, and an action list with a lead, a blank "assigned to" and plain fix steps for each item (also as `brace-actions.csv` for a tracker, a web page with diagrams, JSON for CI and SARIF for code scanning). The [BRACE GitHub Action](tools/brace/README.md#run-it-as-a-github-action) produces these in CI and fails the build on open G1 gaps. Fix the gaps it finds, starting with G1.
 3. **Test.** Run the `brace-tests` skill on items rated `needs_evidence` or `likely_pass`. Run the tests and drills in a test environment. Each one writes a dated evidence file.
 4. **Record.** Use the `brace-record` skill, or edit by hand, to mark each item in `.brace/record.yaml`. A Pass needs an evidence link and date. For a gap you choose to accept, the skill drafts an exception file.
 5. **Approve.** Open a pull request. Governance approves exceptions and N/A decisions by approving that pull request. `CODEOWNERS` makes their review required.

@@ -1,0 +1,261 @@
+{
+  "verdict": "unclear",
+  "checks": [
+    {
+      "id": "A01.1",
+      "result": "holds",
+      "evidence": "agent/k8s/deployment.yaml:31",
+      "quote": "serviceAccountName: hr-helpdesk-agent",
+      "note": "Agent pod has dedicated SA and SPIFFE ID; gateway (hr-tool-gateway) and audit-maint (hr-audit-maint) use different SAs; no other workload references hr-helpdesk-agent. SPIFFE registration itself is external, but the SA token and SVID are mounted into the pod.",
+      "coverage": [
+        {
+          "subject": "agent pod serviceAccount",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:31",
+          "quote": "serviceAccountName: hr-helpdesk-agent",
+          "note": "Dedicated, not default."
+        },
+        {
+          "subject": "agent SPIFFE ID",
+          "status": "enforced",
+          "evidence": "agent/config/agent.yaml:6",
+          "quote": "workload_identity: spiffe://acme.example/ns/hr-agent/sa/hr-helpdesk-agent",
+          "note": "Unique ID; gateway ACTORS allowlists only this."
+        },
+        {
+          "subject": "gateway identity separation",
+          "status": "enforced",
+          "evidence": "agent/k8s/deployment.yaml:92",
+          "quote": "serviceAccountName: hr-tool-gateway",
+          "note": "Gateway not sharing agent identity."
+        },
+        {
+          "subject": "audit maintenance identity",
+          "status": "enforced",
+          "evidence": "agent/k8s/audit-maintenance.yaml:17",
+          "quote": "serviceAccountName: hr-audit-maint",
+          "note": "Separate SA and DB role."
+        },
+        {
+          "subject": "DB roles",
+          "status": "enforced",
+          "evidence": "agent/migrations/001_init.sql:80",
+          "quote": "GRANT USAGE ON SCHEMA audit, control, approvals, quota, retrieval TO hr_agent;",
+          "note": "Agent DB role separate from hr_gateway/hr_agent_operator."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "shared identity",
+          "input": "search other workloads for hr-helpdesk-agent SA or SPIFFE ID",
+          "trace": "Only the agent Deployment and ACTORS entry reference it; gateway uses its own SA",
+          "outcome": "blocked",
+          "evidence": "agent/k8s/deployment.yaml:92",
+          "quote": "serviceAccountName: hr-tool-gateway"
+        }
+      ]
+    },
+    {
+      "id": "A01.2",
+      "result": "holds",
+      "evidence": "agent/src/credentials.py:49",
+      "quote": "\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\",",
+      "note": "Tool tokens come from RFC 8693 exchange with the pod's projected SA token as actor, 300s TTL, per-audience and per-scope, bound to the mTLS cert; gateway verifies aud, act, cnf. Direct-route fallback mints a separate token for the helpdesk-mcp audience, so no cross-audience reuse. Static Anthropic API key and DB URL are provider/datastore credentials, not tool delegation; .mcp.json static bearer is not wired into the deployment and the gateway would reject it without act/cnf.",
+      "coverage": [
+        {
+          "subject": "agent->gateway token",
+          "status": "enforced",
+          "evidence": "agent/src/credentials.py:50",
+          "quote": "\"actor_token\": self._actor_token(),",
+          "note": "Actor token is the pod's own projected token."
+        },
+        {
+          "subject": "token lifetime",
+          "status": "enforced",
+          "evidence": "agent/src/credentials.py:20",
+          "quote": "TOKEN_TTL_SECONDS = 300",
+          "note": "Short-lived; cache capped."
+        },
+        {
+          "subject": "audience binding",
+          "status": "enforced",
+          "evidence": "agent/src/gateway.py:83",
+          "quote": "token, JWKS.get_signing_key_from_jwt(token).key, algorithms=[\"ES256\"], audience=AUDIENCE, issuer=ISSUER,",
+          "note": "Gateway checks audience and issuer."
+        },
+        {
+          "subject": "sender constraint",
+          "status": "enforced",
+          "evidence": "agent/src/gateway.py:89",
+          "quote": "if cert_hash is None or claims[\"cnf\"].get(\"x5t#S256\") != cert_hash:",
+          "note": "Token bound to caller cert."
+        },
+        {
+          "subject": "direct route fallback",
+          "status": "enforced",
+          "evidence": "agent/src/gateway_client.py:56",
+          "quote": "audience=spec.direct_route[\"audience\"], scope=spec.scope,",
+          "note": "Fresh exchange for downstream audience rather than reusing gateway token."
+        },
+        {
+          "subject": "gateway->downstream",
+          "status": "enforced",
+          "evidence": "agent/src/gateway.py:123",
+          "quote": "\"audience\": registry.servers[spec.server][\"downstream_audience\"], \"scope\": spec.scope,",
+          "note": "Re-exchange per downstream audience."
+        },
+        {
+          "subject": ".mcp.json static bearer",
+          "status": "unclear",
+          "evidence": "agent/.mcp.json:7",
+          "quote": "\"Authorization\": \"Bearer ${HR_GATEWAY_TOKEN}\"",
+          "note": "Not referenced by src or deployment env; would be rejected by gateway lacking act/cnf."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "cross-audience reuse",
+          "input": "gateway-audience token sent to helpdesk-mcp",
+          "trace": "Fallback re-requests token with audience helpdesk-mcp; cache key includes audience",
+          "outcome": "blocked",
+          "evidence": "agent/src/credentials.py:42",
+          "quote": "key = (audience, scope, subject)"
+        },
+        {
+          "category": "copied token replay",
+          "input": "stolen gateway token used from another pod",
+          "trace": "cnf x5t#S256 must equal mesh-verified client cert hash",
+          "outcome": "blocked",
+          "evidence": "agent/src/gateway.py:89",
+          "quote": "if cert_hash is None or claims[\"cnf\"].get(\"x5t#S256\") != cert_hash:"
+        },
+        {
+          "category": "static token",
+          "input": "use HR_GATEWAY_TOKEN from .mcp.json",
+          "trace": "Gateway requires act and cnf claims",
+          "outcome": "blocked",
+          "evidence": "agent/src/gateway.py:84",
+          "quote": "options={\"require\": [\"exp\", \"iat\", \"sub\", \"scope\", \"act\", \"cnf\"]}, leeway=5,"
+        }
+      ]
+    },
+    {
+      "id": "A01.3",
+      "result": "holds",
+      "evidence": "agent/src/main.py:69",
+      "quote": "claims = jwt.decode(token, SSO_JWKS.get_signing_key_from_jwt(token).key, algorithms=[\"RS256\"],",
+      "note": "Subject is the employee from a verified SSO JWT (issuer, audience, exp, org), never from body or model; it goes in as subject_token while the pod token is actor_token, so sub=employee and act.sub=agent; one scope per token. Audit records keep delegated_subject and agent_principal separately.",
+      "coverage": [
+        {
+          "subject": "subject verification",
+          "status": "enforced",
+          "evidence": "agent/src/main.py:70",
+          "quote": "audience=SSO_AUDIENCE, issuer=SSO_ISSUER, options={\"require\": [\"exp\", \"sub\", \"employee_id\"]})",
+          "note": "Signature, issuer, audience verified."
+        },
+        {
+          "subject": "subject not model controlled",
+          "status": "enforced",
+          "evidence": "agent/src/main.py:117",
+          "quote": "ctx = _context(run_id, employee_id)",
+          "note": "Context built from verified claims."
+        },
+        {
+          "subject": "agent retained as actor",
+          "status": "enforced",
+          "evidence": "agent/src/credentials.py:3",
+          "quote": "The pod's projected service-account token (audience sts.acme.example, 10 min) is the",
+          "note": "Actor token separate from subject token."
+        },
+        {
+          "subject": "grant limits",
+          "status": "enforced",
+          "evidence": "agent/src/credentials.py:56",
+          "quote": "\"scope\": scope,",
+          "note": "Scope is exactly one tool scope; target is employee:{subject}."
+        },
+        {
+          "subject": "approval confirm path",
+          "status": "enforced",
+          "evidence": "agent/src/main.py:143",
+          "quote": "if entry is None or entry[0].subject != employee_id:",
+          "note": "Confirming user must match run subject."
+        },
+        {
+          "subject": "audit separation",
+          "status": "enforced",
+          "evidence": "agent/src/audit.py:41",
+          "quote": "delegated_subject, agent_principal,",
+          "note": "Both recorded separately."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "model-controlled subject",
+          "input": "prompt/body supplies another employee id",
+          "trace": "subject derives only from verified JWT claim employee_id; tool schemas have additionalProperties false and no subject field",
+          "outcome": "blocked",
+          "evidence": "agent/src/main.py:64",
+          "quote": "\"\"\"Verified employee id and raw token. Tenant and subject never come from the request body or model.\"\"\""
+        }
+      ]
+    },
+    {
+      "id": "A01.4",
+      "result": "unclear",
+      "evidence": "agent/k8s/deployment.yaml:6",
+      "quote": "automountServiceAccountToken: false",
+      "note": "Repo has no Role/RoleBinding, IAM policy or STS/downstream grants for the agent principal; downstream authority is decided at the external STS and MCP servers. Operator revocation exists via control.stop_flags scope agent_principal (checked by agent and gateway) and the gateway ACTORS allowlist (code, needs redeploy), but the stop flag does not cover the direct-route path and neither is a grant binding in IaC. Cannot confirm from repo that revoking the principal alone removes access.",
+      "coverage": [
+        {
+          "subject": "RBAC/IAM bindings in repo",
+          "status": "unclear",
+          "evidence": "agent/k8s/deployment.yaml:6",
+          "quote": "automountServiceAccountToken: false",
+          "note": "No Role/RoleBinding or IAM/STS policy defined here."
+        },
+        {
+          "subject": "operator revocation flag",
+          "status": "enforced",
+          "evidence": "agent/src/gateway.py:101",
+          "quote": "OR (scope = 'agent_instance' AND value = $1) OR (scope = 'subject' AND value = $2)",
+          "note": "Operator stop flag with agent_principal scope independent of subject."
+        },
+        {
+          "subject": "actor allowlist",
+          "status": "enforced",
+          "evidence": "agent/src/gateway.py:91",
+          "quote": "if claims[\"act\"].get(\"sub\") not in ACTORS:",
+          "note": "Removal of entry cuts gateway access but is a code change."
+        },
+        {
+          "subject": "direct route bypass",
+          "status": "unclear",
+          "evidence": "agent/config/tools.yaml:91",
+          "quote": "direct_route:",
+          "note": "Helpdesk calls can bypass gateway stop/actor checks; token valid up to 300s."
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "revoke principal only",
+          "input": "remove agent SA/SPIFFE grant in repo",
+          "trace": "No such binding found in repo; relies on external STS policy",
+          "outcome": "unclear",
+          "evidence": "agent/src/credentials.py:18",
+          "quote": "STS_URL = \"https://sts.identity.svc.cluster.local/oauth2/token\""
+        }
+      ]
+    }
+  ],
+  "applicability": "present",
+  "evidence": "agent/src/credentials.py:49",
+  "quote": "\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\",",
+  "search_explanation": "Searched agent/ k8s manifests, src (main, credentials, gateway, gateway_client, killswitch), config, .mcp.json, migrations and README for service accounts, SPIFFE IDs, token exchange, subject/actor claims, RBAC/IAM bindings and revocation. The agent calls tools and APIs under its own identity, so A01 applies.",
+  "violates": [],
+  "note": "Identity, token exchange and delegated subject are sound, but permission bindings and independent revocation of the agent principal are not defined in this repo."
+}

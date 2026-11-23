@@ -130,6 +130,81 @@ Input names must be unique.
 The workflow runs `brace.py check --approvals github --strict` on pull requests,
 on reviews, and on pushes to `main`.
 
+## Security map and action plan
+
+Two more scripts turn a review into something people can act on. `brace-review`
+runs them; you can also run them yourself.
+
+`topology.py` builds a map of what the agent connects to: models, tools, MCP
+servers, databases and outside APIs. It is saved as a [CycloneDX 1.7](https://cyclonedx.org/)
+file (`schemas/cyclonedx-1.7/`, Apache-2.0).
+
+    python tools/brace/topology.py build . -o brace-topology.cdx.json --agent-config config/agent.yaml
+    python tools/brace/topology.py add-edge . --from tool:issue_refund --to api:payments \
+        --label "sends refunds" --risk writes,money --evidence src/tools/payments.py:56 --quote "r = httpx.post("
+    python tools/brace/topology.py validate brace-topology.cdx.json
+    python tools/brace/topology.py mermaid brace-topology.cdx.json
+    python tools/brace/topology.py record brace-topology.cdx.json            # create/update .brace/topology.cdx.json?
+    python tools/brace/topology.py record brace-topology.cdx.json --apply    # only after a person says yes
+
+`build` reads `.mcp.json`, the review inventory and the agent config. Parts that
+only the code reveals are added with `add-node`, `add-edge` and `set-zone`. Each
+needs a `path:line` and the exact code on that line, or it is refused. They are
+kept in `brace-topology.overlay.json` and re-checked on every build; an entry
+whose code changed is left off the map and listed as stale. `record` compares
+the new map with `.brace/topology.cdx.json`, proposes creating or updating it, and
+writes only with `--apply` (exit 3 means "a change is proposed").
+
+`action_plan.py` joins the map with `brace-findings.json`:
+
+    python tools/brace/action_plan.py brace-findings.json brace-topology.cdx.json \
+        -o brace-action-plan.md --csv brace-actions.csv --strict
+
+The report has the map coloured by what needs fixing, the risky connections in
+plain words, an action list with a priority, a lead role and a blank "assigned
+to", and numbered fix steps. `--strict` fails if a finding names a part that is
+not on the map, if a gap has no fix steps, or if a step reads above grade 12
+(Flesch-Kincaid, with code names counted as short words). The CSV loads into
+most issue trackers.
+
+More outputs from the same data:
+
+    python tools/brace/action_plan.py brace-findings.json brace-topology.cdx.json -o brace-action-plan.md \
+        --html brace-action-plan.html --json brace-action-plan.json --sarif brace.sarif --fail-on g1
+
+| Option | What you get |
+|---|---|
+| `--html` | One web page that walks through the plan: summary, map, risky connections, action list, and a card per action with its own small diagram, steps, test code and "done when". Diagrams load Mermaid from a pinned CDN version; without it the diagram text still shows. |
+| `--json` | The plan for CI and other tools, schema `brace-action-plan/1` ([`schemas/action-plan.schema.json`](schemas/action-plan.schema.json)). |
+| `--sarif` | SARIF 2.1.0, so each action shows up in GitHub code scanning and other SARIF tools. G1/G2 gaps are errors, G3 gaps warnings, items that need proof notes. |
+| `--fail-on` | Exit 3 when an action matches: `g1` (a G1 gap), `gap` (any gap), `any`, or `none` (default). |
+
+Exit codes: 0 written, 1 input notes with `--strict`, 2 bad input, 3 `--fail-on` matched.
+
+See [examples/billing-agent/](examples/billing-agent/) for a full example, including the web page.
+
+## Run it as a GitHub Action
+
+[`action/action.yml`](action/action.yml) is a composite GitHub Action. It builds the
+map (optional), writes the plan in every format, puts it in the job summary (the
+map renders there), uploads the report folder and the SARIF, compares the map with
+`.brace/topology.cdx.json`, and fails on your threshold. It runs no model and needs
+no secrets. Copy [`templates/brace-action-plan.yml`](templates/brace-action-plan.yml)
+to `.github/workflows/`; it uses the vendored copy with `uses: ./tools/brace/action`.
+
+| Input | Default | Meaning |
+|---|---|---|
+| `findings` | `brace-findings.json` | The review's findings. |
+| `topology` | `brace-topology.cdx.json` | The map; rebuilt first when `build-topology` is `true`. |
+| `build-topology`, `agent-config`, `tools-config` | `false`, empty | Rebuild the map from `.mcp.json`, config and the reviewer's overlay. |
+| `fail-on` | `g1` | `g1`, `gap`, `any` or `none`. |
+| `strict` | `true` | Fail on input notes. |
+| `record`, `record-drift` | `.brace/topology.cdx.json`, `warn` | Compare the map with the record: `warn`, `fail` or `off`. The Action never writes the record; a person runs `topology.py record --apply`. |
+| `upload-sarif`, `upload-artifact` | `true`, `true` | SARIF upload needs `permissions: security-events: write`; it is skipped with a warning if code scanning is not available. |
+
+Outputs: `actions`, `gaps`, `g1-gaps`, `record-status`, `report-dir`.
+The review itself (the `brace-review` skill) runs before this, outside the Action.
+
 ## Other commands
 
     python tools/brace/brace.py items          # the 53 items, gates, and lead roles

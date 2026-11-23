@@ -1,0 +1,485 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-11-21T12:10:04Z",
+  "scope": "Batch review of C08, E01, E02, E03, E04 only, by reading code and config in the agent repo; nothing was run. Inventory: agent loop src/agent.py (one model call site), tool registry src/tools.py, gateway src/gateway.py and client src/gateway_client.py, audit src/audit.py, type id src/type_id.py, config/, k8s/, release/manifest.yaml, .github/workflows/release.yml, migrations/001_init.sql. Not found: a service inventory, dependency approval records, a vulnerability scan, a stored manifest keyed by type id, sub-agent spawn code. Other items, topology and challenges are not covered here. No pre-scan hits applied to these items.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "C08",
+      "gate": "G2",
+      "title": "Connect configuration to execution",
+      "requirement": "From a trace, look up the release manifest, the context sizes at each decision, and any prompts a parent passed to a sub-agent. Keep these links for the full audit retention period. Control access to sensitive artifacts.",
+      "not_covered": [
+        {
+          "problem": "Context size not measured or logged for each action decision",
+          "owner": "R07"
+        },
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        },
+        {
+          "problem": "Manifest missing components that define the release",
+          "owner": "C01"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/gateway.py",
+          "line": 138,
+          "note": "Gateway decision rows store only a caller-supplied type-id hint, or 'missing'. The CI manifest is uploaded as an artifact named by git sha (release.yml:57), not keyed by agent-type-id, so no stored manifest resolves from the id."
+        }
+      ],
+      "checks": [
+        {
+          "id": "C08.1",
+          "check": "Each trace or audit record carries the agent-type-id or manifest reference that resolves to the stored release manifest.",
+          "verify": "1) Open the trace or audit record writer. 2) Check every record carries `agent.type.id` or a manifest reference. 3) Check that value is the key of a stored manifest. 4) Answer no if the field is missing on some paths (errors, background jobs) or holds a value that resolves to no stored manifest.",
+          "met": "no",
+          "evidence": "src/gateway.py:138",
+          "quote": "request.headers.get(\"x-agent-type-id\") or \"missing\"",
+          "counter_search": "",
+          "note": "Gateway decision rows store only a caller-supplied type-id hint, or 'missing'. The CI manifest is uploaded as an artifact named by git sha (release.yml:57), not keyed by agent-type-id, so no stored manifest resolves from the id.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C08.2",
+          "check": "The context size at each model decision is recorded in the trace.",
+          "verify": "1) Find model call sites and their spans. 2) Look for the context size recorded per call (for example `gen_ai.usage.input_tokens` or a context-length attribute). 3) Answer no if it is missing on any model call path, including retries and sub-agents.",
+          "met": "unknown",
+          "evidence": "src/agent.py:79",
+          "quote": "context_tokens=ctx_tokens",
+          "counter_search": "",
+          "note": "Successful model_call is audited with measured context tokens (agent.py:76-81). Client uses max_retries=1 (main.py:172); a retried or failed attempt gets no record of its own. Not enough to give a clean yes; no sub-agents exist.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C08.3",
+          "check": "Prompts passed from a parent to a sub-agent are stored and linked from the trace.",
+          "verify": "1) Find sub-agent spawn code. 2) Check the parent's prompt is stored and the trace holds a link to it (ID, hash, or URI). 3) Answer no if the prompt is not stored, prompt capture is off, or the trace has no link.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Looked in src/ and config/agent.yaml: no sub-agent spawn code (budgets.py check_subagent is never called; max_subagents: 0). No parent-to-sub-agent prompt exists to store, so this cannot be shown either way from code.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "C08.4",
+          "check": "Storage config keeps manifests, traces, and these links for at least the audit retention period, and limits access to sensitive artifacts by role.",
+          "verify": "1) Find storage config for manifests, traces, and prompt links: bucket lifecycle rules, log retention, TTLs. 2) Check retention covers the audit period for all of them. 3) Check IAM limits sensitive artifacts by role. 4) Answer no if any has a shorter TTL, no retention, or broad read access. Answer unknown if storage is configured outside this repo.",
+          "met": "no",
+          "evidence": "k8s/audit-maintenance.yaml:35",
+          "quote": "value: \"6\"",
+          "counter_search": "",
+          "note": "KEEP_PARTITIONS=6 with weekly partitions keeps about 6 weeks of audit.events and gateway_decisions; README says six months. The release artifact (release.yml:55-58) sets no retention-days, so the platform default applies.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "k8s/audit-maintenance.yaml:35 Audit partitions are kept 6 weeks (KEEP_PARTITIONS 6, weekly), not the six-month audit retention the README states."
+      ],
+      "violates": [
+        "look up the release manifest",
+        "Keep these links for the full audit retention period"
+      ],
+      "also_affects": [],
+      "summary": "Traces cannot be tied to a stored release manifest, and audit rows are kept about 6 weeks instead of six months.",
+      "next_step": "Key a stored manifest by agent-type-id, make the gateway log a verified id, and set audit retention to the full audit period.",
+      "lead_role": "operations"
+    },
+    {
+      "item": "E01",
+      "gate": "G2",
+      "title": "Map shared responsibilities",
+      "requirement": "List the outside tools, MCP servers, peer agents, sub-agents, registries, identity services, gateways, stop channels, and audit services. For each control that applies, name the owner on the agent team and the owner on the shared platform or vendor side. Keep evidence for both halves. Using an upstream service doesn't make its controls N/A.",
+      "not_covered": [
+        {
+          "problem": "A tool call that skips the MCP gateway or reaches a tool server directly",
+          "owner": "E06"
+        },
+        {
+          "problem": "A vendor service dropping agent or tenant identity from its records",
+          "owner": "E10"
+        },
+        {
+          "problem": "Tool or MCP server approved without vetting or pinning",
+          "owner": "E02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "release/manifest.yaml",
+          "line": 53,
+          "note": "Manifest lists only the two MCP servers and the model. No inventory entry for the gateway, STS/identity service, JWKS, registry, Postgres audit/stop channel, OTLP exporter or Kyverno."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E01.1",
+          "check": "An inventory file lists the outside tools, MCP servers, peer agents, sub-agents, registries, identity services, gateways, stop channels, and audit services.",
+          "verify": "1) Find the inventory file. 2) Check each category the agent uses is listed: outside tools, MCP servers, peer agents, sub-agents, registries, identity services, gateways, stop channels, audit services. 3) Answer no if no inventory exists or a category the agent uses is missing.",
+          "met": "no",
+          "evidence": "release/manifest.yaml:53",
+          "quote": "mcp_servers:",
+          "counter_search": "",
+          "note": "Manifest lists only the two MCP servers and the model. No inventory entry for the gateway, STS/identity service, JWKS, registry, Postgres audit/stop channel, OTLP exporter or Kyverno.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E01.2",
+          "check": "Each inventory entry names both an agent-team owner and a platform or vendor owner.",
+          "verify": "1) Open each inventory entry. 2) Check it names an agent-team owner and a platform or vendor owner. 3) Answer no if any entry is missing either owner.",
+          "met": "no",
+          "evidence": "release/manifest.yaml:54",
+          "quote": "owner: hris-platform",
+          "counter_search": "",
+          "note": "Each entry has one owner field only (the vendor/platform side). No agent-team owner per control or per service.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E01.3",
+          "check": "Every outside service the code or config calls appears in the inventory.",
+          "verify": "1) Search code and config for outside calls: HTTP clients and base URLs, SDK clients, `*.mcp.json` servers, queue and webhook endpoints, identity providers, telemetry exporters. 2) Compare each with the inventory. 3) Answer no if any called service is not listed.",
+          "met": "no",
+          "evidence": "src/gateway.py:34",
+          "quote": "STS_BASE = \"https://sts.identity.svc.cluster.local\"",
+          "counter_search": "",
+          "note": "Gateway calls STS and JWKS, and the agent uses a registry and OTLP exporter; none appear in any inventory.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "name the owner on the agent team and the owner on the shared platform or vendor side",
+        "List the outside tools, MCP servers"
+      ],
+      "also_affects": [],
+      "summary": "No inventory covers the gateway, STS, registry, audit and stop services, and entries name only one owner.",
+      "next_step": "Create an inventory of every outside service with an agent-team owner and a platform or vendor owner.",
+      "lead_role": "governance"
+    },
+    {
+      "item": "E02",
+      "gate": "G2",
+      "title": "Vet and pin dependencies",
+      "requirement": "Before approving a tool or server, review its source code or available provenance, publisher, permissions, update path, and known vulnerabilities. Include model files, adapters, and datasets. Pin versions or digests, and verify signatures where they exist. A registry's namespace check shows who controls a publisher account, not that the code is safe. Record the limits of remote services and unsigned artifacts, and the extra checks you use instead.",
+      "not_covered": [
+        {
+          "problem": "A tool's description or schema changing after it was approved",
+          "owner": "E03"
+        },
+        {
+          "problem": "Hidden instructions inside a tool's metadata",
+          "owner": "E04"
+        },
+        {
+          "problem": "Lookalike or duplicate tool names across servers",
+          "owner": "E05"
+        },
+        {
+          "problem": "Container image not pinned by digest or signature-checked",
+          "owner": "B10"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": ".github/workflows/release.yml",
+          "line": 28,
+          "note": "No pip-audit, osv-scanner, trivy or grype step anywhere in the workflow or Dockerfile; the pinned list is never scanned and nothing gates release on vulnerabilities."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E02.1",
+          "check": "Each tool, MCP server, package, model file, adapter, and dataset is pinned by exact version or digest, with no floating tags, ranges, or 'latest'.",
+          "verify": "1) Open lockfiles, `*.mcp.json`, Dockerfiles, and model or dataset download code. 2) Check each tool, MCP server, package, model file, adapter, and dataset uses an exact version or digest. 3) Answer no if any uses a range, `latest`, a branch, `npx` or `uvx` without a version, or an unpinned download URL.",
+          "met": "unknown",
+          "evidence": "requirements.txt:2",
+          "quote": "anthropic==0.69.0 --hash=sha256:195b8cacfef3d1c6a675b88ef39969ce8973f93c8ced6423dfe0d12ef8307cce",
+          "counter_search": "",
+          "note": "Packages are hash-pinned, base images and Actions are digest/SHA pinned, model is a snapshot. Remote MCP servers (config/tools.yaml:4-13) carry no version or digest, and their implementation is not visible here. CI also uses unpinned yq/jq/pytest from the runner.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E02.2",
+          "check": "Signature checks run in the build or load path where the publisher provides signatures, and a failed check stops the install or load.",
+          "verify": "1) Find install and load steps in CI and code. 2) Check signature checks (`cosign verify`, `npm audit signatures`, sigstore, GPG) run where the publisher signs. 3) Answer no if a check is missing, its failure is ignored (`|| true`, `continue-on-error`, `try/except` that continues), or a second install path skips it.",
+          "met": "unknown",
+          "evidence": "k8s/admission.yaml:19",
+          "quote": "validationFailureAction: Enforce",
+          "counter_search": "",
+          "note": "Kyverno enforces cosign/SLSA verification of the agent and platform images at admission (fail closed). No signature or attestation check is visible for Python packages or MCP servers; whether publishers sign them is not known.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E02.3",
+          "check": "A vulnerability scan of the pinned dependency list runs in CI and gates on the team's release policy.",
+          "verify": "1) Open CI workflows. 2) Find a vulnerability scan (`pip-audit`, `npm audit`, `osv-scanner`, `trivy`, `grype`) of the pinned dependency list. 3) Check it fails the build per the release policy. 4) Answer no if no scan exists, it is set not to fail (`--exit-zero`, `|| true`, `continue-on-error`), or it scans a different file than the lockfile actually used.",
+          "met": "no",
+          "evidence": ".github/workflows/release.yml:28",
+          "quote": "- run: pip install --require-hashes -r requirements.txt",
+          "counter_search": "",
+          "note": "No pip-audit, osv-scanner, trivy or grype step anywhere in the workflow or Dockerfile; the pinned list is never scanned and nothing gates release on vulnerabilities.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E02.4",
+          "check": "Each approved dependency's record names its publisher, permissions, and update source, and remote services or unsigned artifacts have a recorded exception.",
+          "verify": "1) Find the dependency approval records. 2) Check each names publisher, permissions, and update source. 3) Check each remote service and unsigned artifact has a recorded exception. 4) Answer no if any approved dependency lacks these fields or the needed exception.",
+          "met": "no",
+          "evidence": "config/tools.yaml:13",
+          "quote": "owner: it-service-desk",
+          "counter_search": "",
+          "note": "No dependency approval records. MCP server entries have owner and identity only: no publisher, permissions, update source, or recorded exception for remote services or unsigned artifacts.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "known vulnerabilities",
+        "Record the limits of remote services and unsigned artifacts"
+      ],
+      "also_affects": [],
+      "summary": "No vulnerability scan runs in CI and no dependency approval records exist.",
+      "next_step": "Add a failing pip-audit step on requirements.txt and record publisher, permissions and update source per dependency.",
+      "lead_role": "security"
+    },
+    {
+      "item": "E03",
+      "gate": "G2",
+      "title": "Re-check tools on load",
+      "requirement": "Keep a tool publication lifecycle: discovery, review, approval, enablement, re-check, quarantine, and rollback. New servers and tools start disabled; their owner approves descriptions, schemas, permissions, and implementation references before use. Take a fingerprint of each approved tool's description and schema. Compare it whenever the tool loads, its cache refreshes, or its tool list changes. Block unexpected changes until reviewed, including when re-checking fails; don't serve a cached definition as a fallback. Record the policy/config version used at execution, bound propagation delay, and test rollback without restoring revoked access. A metadata hash cannot detect hidden changes to remote code. Pin or attest implementations where visible, record remote visibility limits and review dates, and track affected deployments when vulnerabilities are reported.",
+      "not_covered": [
+        {
+          "problem": "Hidden instructions in a tool's metadata when first approved",
+          "owner": "E04"
+        },
+        {
+          "problem": "Tool approved without reviewing its publisher and permissions",
+          "owner": "E02"
+        },
+        {
+          "problem": "A new server quietly swapping its tool in for an approved one",
+          "owner": "E05"
+        },
+        {
+          "problem": "Cached tool list shared across authorization contexts",
+          "owner": "E06"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "config/tools.yaml",
+          "line": 8,
+          "note": "MCP tools start disabled (gateway.py:47) and have stored fingerprints, with config under CODEOWNERS. But the approved record has no implementation reference (version, digest or attestation) for any server and no approval record per version."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E03.1",
+          "check": "New tools start disabled, an owner approves versioned definitions and grants before enablement, and approved descriptions/schemas have stored fingerprints.",
+          "verify": "1) Trace discovery, approval and enablement on startup and dynamic registration. 2) Check the owner-approved version includes permissions and implementation references and has a stored description/schema hash. 3) Reject auto-enable on discovery, self-approval from untrusted metadata, or fingerprints covering only names. 4) Use unknown for approval service behavior not visible in this repo.",
+          "met": "no",
+          "evidence": "config/tools.yaml:8",
+          "quote": "owner: hris-platform",
+          "counter_search": "",
+          "note": "MCP tools start disabled (gateway.py:47) and have stored fingerprints, with config under CODEOWNERS. But the approved record has no implementation reference (version, digest or attestation) for any server and no approval record per version.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E03.2",
+          "check": "The fingerprint is re-checked on every tool load, cache refresh, and list-changed notice from the server.",
+          "verify": "1) List every path that loads tool definitions: startup, cache refresh, reconnect, and the `notifications/tools/list_changed` handler. 2) Check each recomputes the fingerprint and compares it with the stored one. 3) Answer no if any path skips the compare, or both sides of the compare are computed from the new definition.",
+          "met": "no",
+          "evidence": "src/gateway.py:213",
+          "quote": "await asyncio.sleep(300)",
+          "counter_search": "",
+          "note": "Fingerprints are re-checked only at startup and every 300s. The gateway rejects every method except tools/call (gateway.py:154), so notifications/tools/list_changed is never handled. A changed tool stays enabled up to 300s; the per-call path checks only the _disabled set.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E03.3",
+          "check": "When the re-check fails, the tool is blocked and the cached definition is not used.",
+          "verify": "1) Open the fingerprint mismatch branch. 2) Check it blocks the tool and does not fall back to the cached definition. 3) Answer no if it only logs, uses the cached or new definition anyway, or an error during the check lets the tool load.",
+          "met": "no",
+          "evidence": "src/gateway_client.py:52",
+          "quote": "if not spec.direct_route:",
+          "counter_search": "",
+          "note": "A mismatch disables the tool in the gateway (gateway.py:73), but escalate_to_human has a direct_route. Any gateway 503, including the handler's policy_unavailable on an internal error (gateway.py:198), makes the client call the MCP server directly (gateway_client.py:59), skipping the fingerprint/disabled check.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E03.4",
+          "check": "The implementation version is pinned or attested where it can be seen, and recorded separately from the metadata fingerprint.",
+          "verify": "1) Check how each tool server implementation is referenced: package version, image digest, or attestation. 2) Check that version is recorded in its own field, apart from the metadata fingerprint. 3) Answer no if a visible implementation is unpinned, or only the metadata hash is recorded.",
+          "met": "unknown",
+          "evidence": "config/tools.yaml:5",
+          "quote": "endpoint: https://hris-mcp.hris.svc.cluster.local:8443/mcp",
+          "counter_search": "",
+          "note": "Only the metadata fingerprint is recorded; no field records server implementation version, digest or attestation. The servers are owned by other teams, so whether an implementation reference is visible is not known from this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E03.6",
+          "check": "Tool quarantine, bounded config propagation, recorded execution config versions, and rollback preserve revocations.",
+          "verify": "1) Trace control-plane config to all executors, caches and reload paths. 2) Check a propagation bound and version in execution records. 3) Verify quarantine blocks calls and rollback cannot resurrect revoked grants. 4) Answer no for stale permissions surviving the bound or unsafe rollback; use unknown for runtime guarantees lacking evidence.",
+          "met": "no",
+          "evidence": "src/gateway_client.py:59",
+          "quote": "return await self._post(spec.direct_route[\"endpoint\"], token, spec, args, ctx, operation_id)",
+          "counter_search": "",
+          "note": "Quarantine (the _disabled set, in gateway memory) is bypassed by the direct route. Policy version is recorded in audit rows, but the repo shows no propagation bound or rollback guard that keeps revoked grants revoked.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/gateway_client.py:52 Gateway 503 (including its fail-closed policy_unavailable) sends escalate_to_human straight to the MCP server, skipping the fingerprint block."
+      ],
+      "violates": [
+        "Compare it whenever the tool loads, its cache refreshes, or its tool list changes",
+        "Block unexpected changes until reviewed, including when re-checking fails"
+      ],
+      "also_affects": [],
+      "summary": "Fingerprints are re-checked only every 300s, list_changed is ignored, and a gateway 503 bypasses the block through the direct route.",
+      "next_step": "Remove direct_route fallback, re-check on list_changed and each load, and record an implementation reference per server.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E04",
+      "gate": "G2",
+      "title": "Inspect tool metadata",
+      "requirement": "Before the model sees them, scan server instructions, tool names, titles, descriptions, input and output schemas, annotations, and prompt and resource templates. Look for hidden instructions, references to other servers' tools, invisible or control characters, role overrides, encoded payloads, and places data could be sent. Limit lengths, and clean or reject anything suspicious. Check that a scanner error doesn't quietly let unchecked metadata through.",
+      "not_covered": [
+        {
+          "problem": "A tool's description or schema changing after it was approved",
+          "owner": "E03"
+        },
+        {
+          "problem": "Hidden instructions in tool call results",
+          "owner": "R01"
+        },
+        {
+          "problem": "Lookalike or duplicate tool names across servers",
+          "owner": "E05"
+        },
+        {
+          "problem": "Allow decisions based on server hints such as read-only",
+          "owner": "B01"
+        }
+      ],
+      "rating": "na_candidate",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/tools.py",
+          "line": 78,
+          "note": "Model sees only name, in-house reason and in-house input_schema from config/tools.yaml; server metadata is only fingerprinted (gateway.py:62-70)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E04.1",
+          "check": "A scanner runs on server instructions, tool names, titles, descriptions, input and output schemas, annotations, and prompt and resource templates before the model sees them.",
+          "verify": "1) Inventory every model-visible metadata field and loading path. 2) Build a field-by-rule matrix: names, titles, descriptions, schemas, annotations, instructions, prompts and resource templates. 3) For each field, trace the actual scanner rules applied before serialization to the model. A syntax regex alone is not proof that payload/instruction rules ran. 4) Try the same suspicious string in different fields; answer no for an unscanned required surface.",
+          "met": "unknown",
+          "evidence": "src/tools.py:78",
+          "quote": "{\"name\": s.name, \"description\": s.reason, \"input_schema\": s.input_schema}",
+          "counter_search": "",
+          "note": "Model-visible tool metadata comes only from config/tools.yaml (name, reason, input_schema). Server tools/list metadata is read by the gateway only to compute a fingerprint (gateway.py:62-70) and never sent to the model. No scanner exists or is needed on this path. Server instructions, prompts and resources are not loaded.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E04.2",
+          "check": "The scanner checks for hidden instructions, references to other servers' tools, invisible or control characters, role overrides, encoded payloads, and data-sending targets, and enforces length limits.",
+          "verify": "1) Trace rule application, not just rule declarations. 2) Attempt encoded strings and multi-line role overrides; record input, exact code path and outcome. 3) Verify hidden instructions, cross-tool references, control/invisible characters, role overrides, encoded payloads, data-sending targets and length limits. 4) Answer no when a required rule is absent or a demonstrated suspicious input bypasses it.",
+          "met": "unknown",
+          "evidence": "src/tools.py:78",
+          "quote": "{\"name\": s.name, \"description\": s.reason, \"input_schema\": s.input_schema}",
+          "counter_search": "",
+          "note": "Model-visible tool metadata comes only from config/tools.yaml (name, reason, input_schema). Server tools/list metadata is read by the gateway only to compute a fingerprint (gateway.py:62-70) and never sent to the model. No scanner exists or is needed on this path. Server instructions, prompts and resources are not loaded.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E04.3",
+          "check": "Metadata the scanner flags is cleaned or rejected, not just logged.",
+          "verify": "1) Open the scanner's result handling. 2) Check flagged metadata is cleaned, or the tool rejected, before the model sees it. 3) Answer no if flagged items are only logged or warned about and passed through.",
+          "met": "unknown",
+          "evidence": "src/tools.py:78",
+          "quote": "{\"name\": s.name, \"description\": s.reason, \"input_schema\": s.input_schema}",
+          "counter_search": "",
+          "note": "Model-visible tool metadata comes only from config/tools.yaml (name, reason, input_schema). Server tools/list metadata is read by the gateway only to compute a fingerprint (gateway.py:62-70) and never sent to the model. No scanner exists or is needed on this path. Server instructions, prompts and resources are not loaded.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E04.4",
+          "check": "A scanner error or outage blocks the metadata instead of letting it through unchecked.",
+          "verify": "1) Read every `try/except`, `catch`, and timeout around the scanner call. 2) Check an error blocks the metadata. 3) Answer no if any error branch passes metadata through, returns clean, or skips the scan, or a config flag disables scanning by default.",
+          "met": "unknown",
+          "evidence": "src/tools.py:78",
+          "quote": "{\"name\": s.name, \"description\": s.reason, \"input_schema\": s.input_schema}",
+          "counter_search": "",
+          "note": "Model-visible tool metadata comes only from config/tools.yaml (name, reason, input_schema). Server tools/list metadata is read by the gateway only to compute a fingerprint (gateway.py:62-70) and never sent to the model. No scanner exists or is needed on this path. Server instructions, prompts and resources are not loaded.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Model-visible tool metadata is written in-house in config/tools.yaml; server metadata is only fingerprinted and never shown to the model.",
+      "next_step": "Governance to confirm N/A, noting the agent does call external MCP servers; independent challenge needed.",
+      "lead_role": "security"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

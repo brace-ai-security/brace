@@ -1,0 +1,957 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-11-21T11:52:39Z",
+  "scope": "Batch review of B11, B12, R01, R02, R03 only (HR helpdesk agent, Python/Starlette + k8s). Read: src/*.py, config/, prompts/system.md, Dockerfile, k8s/*.yaml, CODEOWNERS, .github/workflows/release.yml, release/manifest.yaml, .mcp.json. Not found in repo: tests/ directory, branch-protection IaC, display client code, psql image source. Not reviewed: other items, topology map, challenges, falsification attempts. Inventory run; no code or tools executed.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "B11",
+      "gate": "G2",
+      "title": "Minimal, isolated runtime",
+      "requirement": "Remove shells, downloaders, package managers, mounts, and privileges the agent doesn't need. As a container baseline, meet the Kubernetes Pod Security Standards \"restricted\" profile or the same controls elsewhere. That means non-root, no privilege escalation, all capabilities dropped, and a seccomp profile set. Where supported, also use a read-only root filesystem and user namespaces; the restricted profile doesn't require those two. For running untrusted code, use a sandbox that fits the threat, such as a microVM or a user-space kernel. Ordinary containers share the host's kernel. For managed runtimes, record the provider's isolation evidence and what you can't see. Test that host access is blocked. A blocked probe does not prove the sandbox resists every escape.",
+      "not_covered": [
+        {
+          "problem": "Container image not pinned by digest or signature-checked",
+          "owner": "B10"
+        },
+        {
+          "problem": "Outbound traffic to unapproved internet destinations",
+          "owner": "B09"
+        },
+        {
+          "problem": "Network path to admin systems or other tenants' resources",
+          "owner": "B08"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 40,
+          "note": "All three workloads set non-root, no escalation, drop ALL, RuntimeDefault seccomp; namespace enforces restricted."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B11.1",
+          "check": "Container settings set non-root, no privilege escalation, all capabilities dropped, and a seccomp profile, matching Pod Security 'restricted' or the same controls.",
+          "verify": "1) Find pod `securityContext` and container `securityContext`, plus namespace labels. 2) Check `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`. 3) Answer no if any is missing on any container (including init and sidecars), set the wrong way, or overridden per container, or the Dockerfile runs as root with no override.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:40",
+          "quote": "seccompProfile: {type: RuntimeDefault}",
+          "counter_search": "Searched k8s/*.yaml for containers/initContainers lacking securityContext fields or overriding with runAsUser 0 or privileged; none found (three pod specs, one container each).",
+          "note": "All three workloads set non-root, no escalation, drop ALL, RuntimeDefault seccomp; namespace enforces restricted.",
+          "coverage": [
+            {
+              "subject": "namespace hr-agent PSS",
+              "status": "enforced",
+              "evidence": "k8s/admission.yaml:6",
+              "quote": "pod-security.kubernetes.io/enforce: restricted",
+              "note": "Namespace enforces the restricted profile. on this path in the reviewed code"
+            },
+            {
+              "subject": "agent pod securityContext runAsNonRoot",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:36",
+              "quote": "runAsNonRoot: true",
+              "note": "Pod-level non-root for agent container. on this path in the reviewed code"
+            },
+            {
+              "subject": "agent pod seccomp",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:40",
+              "quote": "seccompProfile: {type: RuntimeDefault}",
+              "note": "RuntimeDefault seccomp at pod level. on this path in the reviewed code"
+            },
+            {
+              "subject": "agent container privilege escalation",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:57",
+              "quote": "allowPrivilegeEscalation: false",
+              "note": "No escalation on agent container. on this path in the reviewed code"
+            },
+            {
+              "subject": "agent container capabilities",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:60",
+              "quote": "capabilities: {drop: [ALL]}",
+              "note": "All capabilities dropped. on this path in the reviewed code"
+            },
+            {
+              "subject": "gateway pod runAsNonRoot",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:36",
+              "quote": "runAsNonRoot: true",
+              "note": "Gateway pod is non-root (second occurrence checked at line 97)."
+            },
+            {
+              "subject": "gateway container hardening",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:60",
+              "quote": "capabilities: {drop: [ALL]}",
+              "note": "Gateway container drops ALL and sets allowPrivilegeEscalation false at lines 110-113."
+            },
+            {
+              "subject": "audit cronjob pod securityContext",
+              "status": "enforced",
+              "evidence": "k8s/audit-maintenance.yaml:21",
+              "quote": "runAsNonRoot: true",
+              "note": "Cron pod is non-root with RuntimeDefault seccomp (line 23)."
+            },
+            {
+              "subject": "audit cronjob container",
+              "status": "enforced",
+              "evidence": "k8s/audit-maintenance.yaml:44",
+              "quote": "capabilities: {drop: [ALL]}",
+              "note": "Cron container drops ALL, no escalation (line 42). No init containers or sidecars exist in any manifest."
+            },
+            {
+              "subject": "Dockerfile user",
+              "status": "enforced",
+              "evidence": "Dockerfile:16",
+              "quote": "USER 65532:65532",
+              "note": "Image runs as non-root. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B11.2",
+          "check": "The final image has no shell, downloader, or package manager the agent does not need.",
+          "verify": "1) Read the final stage of each Dockerfile (after the last `FROM`). 2) Check base image and installs for `bash`, `sh`, `curl`, `wget`, `apt`, `apk`, `pip`, `npm`. 3) Answer no if the final image has any the agent does not need, or the final stage is a full OS image (ubuntu, debian, python) not distroless or scratch.",
+          "met": "unknown",
+          "evidence": "Dockerfile:8",
+          "quote": "FROM gcr.io/distroless/python3-debian12",
+          "counter_search": "",
+          "note": "Agent/gateway image final stage is distroless (no shell/package manager). The audit-maintenance CronJob uses registry.acme.example/platform/psql@sha256 (k8s/audit-maintenance.yaml:26), built outside this repo, and a psql client image may include a shell; its contents are not visible here.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B11.3",
+          "check": "There is no privileged mode, hostPath or Docker socket mount, or host network or PID namespace.",
+          "verify": "1) Search manifests and compose for `privileged`, `hostPath`, `docker.sock`, `hostNetwork`, `hostPID`, `hostIPC`, `network_mode: host`, `pid: host`. 2) Answer no if any appears on the agent's workloads, including sidecars and init containers.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:59",
+          "quote": "privileged: false",
+          "counter_search": "Searched k8s/ for privileged: true, hostPath, docker.sock, hostNetwork, hostPID, hostIPC; only 'privileged: false' found.",
+          "note": "No privileged, host mounts, or host namespaces on any workload.",
+          "coverage": [
+            {
+              "subject": "agent container privileged",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:59",
+              "quote": "privileged: false",
+              "note": "Explicitly not privileged. on this path in the reviewed code"
+            },
+            {
+              "subject": "gateway container privileged",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:33",
+              "quote": "hostUsers: false",
+              "note": "hostUsers false (user namespace) on both pods; no hostNetwork/hostPID."
+            },
+            {
+              "subject": "agent volumes",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:70",
+              "quote": "emptyDir: {medium: Memory, sizeLimit: 32Mi}",
+              "note": "Only emptyDir, projected token and CSI SVID volumes; no hostPath or docker.sock."
+            },
+            {
+              "subject": "cronjob volumes",
+              "status": "enforced",
+              "evidence": "k8s/audit-maintenance.yaml:49",
+              "quote": "secret: {secretName: hr-audit-maint-pgservice}",
+              "note": "Only a secret volume; no host mounts or privileged flag."
+            },
+            {
+              "subject": "namespace PSS",
+              "status": "enforced",
+              "evidence": "k8s/admission.yaml:6",
+              "quote": "pod-security.kubernetes.io/enforce: restricted",
+              "note": "Restricted profile also forbids these at admission."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B11.4",
+          "check": "If the agent runs untrusted or model-written code, that code runs in a separate sandbox such as gVisor, Kata, or a microVM, not in the agent's own container.",
+          "verify": "1) Find code execution tools (`subprocess`, `exec`, `eval`, `child_process`, `os/exec`, code interpreter). 2) Check where that code runs (`runtimeClassName: gvisor`, Kata, Firecracker, remote sandbox API). 3) Answer no if model-written or untrusted code runs in the agent's own process or container, or the sandbox call falls back to local execution on error. Answer yes if no such code runs.",
+          "met": "yes",
+          "evidence": "src/tools.py:68",
+          "quote": "return self._tools.get(name)",
+          "counter_search": "Searched src/ for subprocess, eval, exec, os.system, code interpreter; none. tools.yaml has no code-execution tool.",
+          "note": "Agent runs no model-written or untrusted code.",
+          "coverage": [
+            {
+              "subject": "code execution tools",
+              "status": "enforced",
+              "evidence": "src/tools.py:68",
+              "quote": "return self._tools.get(name)",
+              "note": "Model can only call tools in config/tools.yaml: local search_policies and MCP tools."
+            },
+            {
+              "subject": "local tool",
+              "status": "enforced",
+              "evidence": "src/agent.py:167",
+              "quote": "raw = await self.index.search(args[\"query\"], ctx.subject)",
+              "note": "Local tool runs a parameterized SQL search, not code."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Manifests meet the restricted profile; the audit CronJob's psql image contents are not visible in the repo.",
+      "next_step": "Get the platform team's image manifest for registry.acme.example/platform/psql to confirm it has no shell, downloader or package manager.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B12",
+      "gate": "G1",
+      "title": "Reviewed harness and instructions",
+      "requirement": "Version and review the harness, system prompt, and rules files before release. Allow production changes only through a release process that records who made them. Protect source branches from history rewrites, so the reviewed diff stays available. Link the deployed versions to the approved review. Complete the full configuration checks in section C.",
+      "not_covered": [
+        {
+          "problem": "Running config drifting from the approved baseline",
+          "owner": "C04"
+        },
+        {
+          "problem": "Model or dependency change promoted without review and re-testing",
+          "owner": "C05"
+        },
+        {
+          "problem": "A tool server changing its description or schema after approval",
+          "owner": "E03"
+        },
+        {
+          "problem": "Release candidate not re-tested against attack cases",
+          "owner": "C06"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 28,
+          "note": "System prompt and config load from files baked into the reviewed image."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B12.1",
+          "check": "The harness, system prompt, and rules files are in version control and loaded from the reviewed build, not fetched at run time from a database, URL, or feature flag.",
+          "verify": "1) Find where the system prompt and rules are loaded (`system_prompt`, `CLAUDE.md`, `AGENTS.md`, `prompts/`). 2) Check they come from files in the repo or build. 3) Answer no if any part is fetched at run time from a database, URL, feature flag, or env var with no recorded version, or a remote source overrides the file when available.",
+          "met": "yes",
+          "evidence": "src/agent.py:28",
+          "quote": "SYSTEM_PROMPT = (pathlib.Path(__file__)",
+          "counter_search": "Searched src/ for fetching prompt/rules from URL, DB, env or feature flag (requests/httpx for prompts, os.environ); env vars only carry IDs and secrets.",
+          "note": "System prompt and config load from files baked into the reviewed image.",
+          "coverage": [
+            {
+              "subject": "system prompt",
+              "status": "enforced",
+              "evidence": "src/agent.py:28",
+              "quote": "SYSTEM_PROMPT = (pathlib.Path(__file__)",
+              "note": "Prompt read from prompts/system.md in the image at import."
+            },
+            {
+              "subject": "tool/config files",
+              "status": "enforced",
+              "evidence": "src/tools.py:14",
+              "quote": "with open(CONFIG_DIR / name",
+              "note": "Config read from the image's config/ directory."
+            },
+            {
+              "subject": "image contents",
+              "status": "enforced",
+              "evidence": "Dockerfile:14",
+              "quote": "COPY --chown=0:0 prompts/ prompts/",
+              "note": "Prompts and config copied into the build."
+            },
+            {
+              "subject": "rules files",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:35",
+              "quote": "rules_files: []",
+              "note": "No rules files exist. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B12.2",
+          "check": "CODEOWNERS or required-review rules cover the prompt, rules, and harness files.",
+          "verify": "1) Read `CODEOWNERS` and review rules (`.github/`, rulesets, branch protection IaC). 2) Check patterns match prompt, rules, and harness paths. 3) Answer no if those paths are uncovered, the pattern misses them (wrong glob, case), or no CODEOWNERS exists. Answer unknown if required reviews are set only in repo settings outside the code.",
+          "met": "yes",
+          "evidence": "CODEOWNERS:2",
+          "quote": "/prompts/",
+          "counter_search": "Searched CODEOWNERS for gaps/wrong globs: all harness and prompt paths match. Whether code-owner review is required is a repo setting outside the code (see B12.4).",
+          "note": "CODEOWNERS covers prompt, config and harness paths.",
+          "coverage": [
+            {
+              "subject": "default owner covers src/ harness, Dockerfile",
+              "status": "enforced",
+              "evidence": "CODEOWNERS:1",
+              "quote": "*                         @acme/people-platform",
+              "note": "Catch-all covers src/agent.py, src/main.py and Dockerfile. on this path in the reviewed code"
+            },
+            {
+              "subject": "prompts",
+              "status": "enforced",
+              "evidence": "CODEOWNERS:2",
+              "quote": "/prompts/",
+              "note": "Prompts need people-platform and hr-policy-reviewers. on this path in the reviewed code"
+            },
+            {
+              "subject": "config",
+              "status": "enforced",
+              "evidence": "CODEOWNERS:3",
+              "quote": "/config/",
+              "note": "Config covered. on this path in the reviewed code"
+            },
+            {
+              "subject": "gateway harness",
+              "status": "enforced",
+              "evidence": "CODEOWNERS:4",
+              "quote": "/src/gateway.py",
+              "note": "Gateway covered by two teams. on this path in the reviewed code"
+            },
+            {
+              "subject": "workflows",
+              "status": "enforced",
+              "evidence": "CODEOWNERS:9",
+              "quote": "/.github/",
+              "note": "CI covered. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B12.3",
+          "check": "Production deploys run only from CI on the reviewed branch and record the commit, tag, or digest deployed.",
+          "verify": "1) Read deploy workflows and scripts. 2) Check deploy triggers only on the reviewed branch and records commit, tag, or digest. 3) Answer no if `workflow_dispatch` or a script deploys any branch or local build, deploy scripts accept manual laptop pushes, or no version is recorded. Answer unknown if deploy is outside this repo.",
+          "met": "yes",
+          "evidence": ".github/workflows/release.yml:5",
+          "quote": "branches: [main]",
+          "counter_search": "Searched .github and repo for workflow_dispatch, other deploy scripts, laptop deploy; only release.yml exists.",
+          "note": "Deploys come only from CI on main and record the digest and commit.",
+          "coverage": [
+            {
+              "subject": "deploy trigger",
+              "status": "enforced",
+              "evidence": ".github/workflows/release.yml:5",
+              "quote": "branches: [main]",
+              "note": "Only pushes to main run the workflow; no workflow_dispatch."
+            },
+            {
+              "subject": "approval gate",
+              "status": "enforced",
+              "evidence": ".github/workflows/release.yml:13",
+              "quote": "environment: production   # requires approval",
+              "note": "Production environment with approval. on this path in the reviewed code"
+            },
+            {
+              "subject": "digest recorded",
+              "status": "enforced",
+              "evidence": ".github/workflows/release.yml:53",
+              "quote": ".release.image.digest = ",
+              "note": "Digest, git_sha stamped into release/manifest.yaml. on this path in the reviewed code"
+            },
+            {
+              "subject": "deploy from manifest",
+              "status": "enforced",
+              "evidence": ".github/workflows/release.yml:71",
+              "quote": "export IMAGE_DIGEST=$(yq",
+              "note": "Deploy applies the built digest. on this path in the reviewed code"
+            },
+            {
+              "subject": "admission",
+              "status": "enforced",
+              "evidence": "k8s/admission.yaml:48",
+              "quote": "refs/heads/main",
+              "note": "Kyverno only admits images signed by the main-branch workflow."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B12.4",
+          "check": "Branch protection config blocks force-pushes and history rewrites on the source branch.",
+          "verify": "1) Search for branch protection IaC (`github_branch_protection`, rulesets JSON). 2) Check force-push and deletion are blocked on the source branch. 3) Answer no if `allow_force_pushes: true` or bypass is open to the agent's identity. Answer unknown if protection is set only in repo settings and not in code.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No branch-protection IaC or ruleset files in the repo (searched .github/ and repo root); force-push protection would be a repo setting outside the code.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Prompt, CODEOWNERS and CI deploy controls look sound, but branch-protection settings are not in code.",
+      "next_step": "Export the main-branch ruleset or protection settings to show force-pushes and deletion are blocked.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R01",
+      "gate": "G2",
+      "title": "Validate every input boundary, including API responses",
+      "requirement": "List every input the agent receives. That includes API responses (errors and streamed content too), tool and connector output, incoming webhooks and callbacks, messages from other agents, user input, fetched pages, files, and retrieved chunks. Authenticate each sender (prove who sent it), and verify signatures where they exist. Treat content as untrusted even when it comes from an authenticated service or an internal one. Before content reaches the model or runs anywhere, check its type, schema, and size. Also check its content for attack payloads and hidden prompt-injection instructions. Reject or hold aside bad payloads. If a required check fails to run, don't let unchecked content through. Test broken, oversized, faked, and hostile responses from each integration.",
+      "not_covered": [
+        {
+          "problem": "Injected instructions in valid content reaching forbidden tools unblocked",
+          "owner": "R02"
+        },
+        {
+          "problem": "Hidden instructions in tool names, descriptions, or schemas",
+          "owner": "E04"
+        },
+        {
+          "problem": "Replayed peer-agent requests with no freshness or nonce check",
+          "owner": "E07"
+        },
+        {
+          "problem": "Secrets leaking into outputs or normal logs",
+          "owner": "R03"
+        },
+        {
+          "problem": "Unapproved sources able to add documents to the retrieval corpus",
+          "owner": "R04"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 188,
+          "note": "On ToolError the upstream/gateway error body (exc.detail, up to 2000 chars from gateway.py:184 or resp.text in gateway_client.py:91) goes into the model context with no validate_tool_output, size cap, scan, redaction or trust label. Success path (agent.py:178) and chunks (agent.py:172) are validated."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R01.1",
+          "check": "Every input path passes through validation code: API and tool responses (including errors and streams), webhooks and callbacks, agent messages, user input, fetched pages, files, and retrieved chunks.",
+          "verify": "1) List every input: tool and API responses (errors, streams), webhooks, agent messages, user input, fetched pages, files, retrieved chunks. 2) Trace each to where it enters the model context. 3) Answer no if any path, including error bodies, stream chunks, or a second handler, reaches the model without passing validation code.",
+          "met": "no",
+          "evidence": "src/agent.py:188",
+          "quote": "return _tool_result(tool_use_id, f\"{spec.name} failed: {exc.detail}\", error=True)",
+          "counter_search": "",
+          "note": "On ToolError the upstream/gateway error body (exc.detail, up to 2000 chars from gateway.py:184 or resp.text in gateway_client.py:91) goes into the model context with no validate_tool_output, size cap, scan, redaction or trust label. Success path (agent.py:178) and chunks (agent.py:172) are validated.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R01.2",
+          "check": "Type, schema, and size checks run before content, including streamed chunks, is added to the model context or executed.",
+          "verify": "1) Find validation code (`pydantic`, `zod`, `jsonschema`, size limits, `max_bytes`, content-type checks). 2) Check it runs before content is added to the context or executed, including per stream chunk. 3) Answer no if validation runs after use, only on success responses, streams skip it, or there is no size limit.",
+          "met": "no",
+          "evidence": "src/agent.py:188",
+          "quote": "return _tool_result(tool_use_id, f\"{spec.name} failed: {exc.detail}\", error=True)",
+          "counter_search": "",
+          "note": "Schema/size/content checks run only on success responses; error bodies reach the model unvalidated.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R01.3",
+          "check": "Senders are authenticated, and signatures are verified where the integration provides them, including for internal and authenticated services.",
+          "verify": "1) Find webhook, callback, and inbound handlers. 2) Check sender authentication and signature verification (`hmac.compare_digest`, `verify_signature`, mTLS). 3) Answer no if any handler skips it, internal services are trusted without auth, the signature is compared with `==`, or a verify failure is caught and processing continues.",
+          "met": "unknown",
+          "evidence": "src/gateway.py:89",
+          "quote": "if cert_hash is None or claims[\"cnf\"].get(\"x5t#S256\") != cert_hash:",
+          "counter_search": "",
+          "note": "Gateway verifies JWT (ES256, audience, issuer, cnf) and cert binding, and agent verifies SSO JWT (main.py:69). Binding relies on the mesh setting X-Forwarded-Client-Cert and stripping client copies (gateway.py:86), a platform control not visible in this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R01.4",
+          "check": "Content is also screened for attack payloads or injection instructions, not only for structure.",
+          "verify": "1) Find content screening (injection detector, pattern rules, classifier, encoded-payload checks). 2) Check it runs on content, not just schema. 3) Answer no if only type or schema checks exist, or screening covers some inputs (for example user input) but not tool output, fetched pages, or retrieved chunks.",
+          "met": "no",
+          "evidence": "src/agent.py:188",
+          "quote": "return _tool_result(tool_use_id, f\"{spec.name} failed: {exc.detail}\", error=True)",
+          "counter_search": "",
+          "note": "Injection-marker/Unicode screening (validation.py:36) covers tool output and chunks but is skipped for error text; markers are also a fixed regex list.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R01.5",
+          "check": "Bad payloads are rejected or held aside, and if a check errors, times out, or is skipped, the content is blocked.",
+          "verify": "1) Find what happens when validation fails or errors. 2) Read `try`/`except`, `catch`, timeout, and default branches. 3) Answer no if failures log and continue, an error or timeout passes content through, a feature flag can skip checks, or bad content is truncated and still used.",
+          "met": "no",
+          "evidence": "src/agent.py:188",
+          "quote": "return _tool_result(tool_use_id, f\"{spec.name} failed: {exc.detail}\", error=True)",
+          "counter_search": "",
+          "note": "Validation failures hold content (agent.py:174,190), but the error path never runs the checks, so unvalidated content is used instead of blocked.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/agent.py:188 Tool/gateway error text (exc.detail) goes to the model with no schema, size, content check or redaction."
+      ],
+      "violates": [
+        "Before content reaches the model or runs anywhere, check its type, schema, and size"
+      ],
+      "also_affects": [
+        "R02",
+        "R03"
+      ],
+      "summary": "Tool and gateway error bodies reach the model with no validation, size limit, screening or redaction.",
+      "next_step": "Validate or replace error text with a fixed message before returning it from _execute.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R02",
+      "gate": "G2",
+      "title": "Separate data from instructions and test injection containment",
+      "requirement": "Keep API responses, connector messages, and other outside content out of trusted system and policy channels. Label where each piece came from and how much it is trusted. Test prompt injection in responses that pass schema checks. Include free-text fields, error messages, documents, and tool output. Checks and channel separation can't guarantee that prompt injection is prevented. So show that credential limits, tool permissions, and destructive-action gates still block harm if the model follows an injected instruction. Repeat each attack and include adaptive versions. One failed attempt makes a defense look stronger than it is. B05 covers agents that combine untrusted input, sensitive access, and outside actions.",
+      "not_covered": [
+        {
+          "problem": "Missing type, schema, or size checks on API responses",
+          "owner": "R01"
+        },
+        {
+          "problem": "Hidden instructions in tool names, descriptions, or schemas",
+          "owner": "E04"
+        },
+        {
+          "problem": "One run planting instructions in another run's memory",
+          "owner": "R05"
+        },
+        {
+          "problem": "Generated output run as SQL or shell without parameterizing",
+          "owner": "R03"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 71,
+          "note": "Outside content never enters the system prompt."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R02.1",
+          "check": "Outside content (API responses, tool output, documents, connector messages) goes into user or tool message roles, never into the system or policy prompt.",
+          "verify": "1) Find where model requests are built (`system=`, `messages`, `role: system`, prompt templates). 2) Trace outside content (tool output, documents, API responses) into the request. 3) Answer no if any outside content is concatenated into the system or policy prompt, including retrieved context or tool descriptions from servers.",
+          "met": "yes",
+          "evidence": "src/agent.py:71",
+          "quote": "model=model[\"id\"], system=SYSTEM_PROMPT,",
+          "counter_search": "Searched for other system= arguments, role system, string concatenation into the prompt; retrieved chunks arrive only via tool results.",
+          "note": "Outside content never enters the system prompt.",
+          "coverage": [
+            {
+              "subject": "system prompt",
+              "status": "enforced",
+              "evidence": "src/agent.py:71",
+              "quote": "model=model[\"id\"], system=SYSTEM_PROMPT,",
+              "note": "system= is the static file-loaded prompt only (H020 dismissed)."
+            },
+            {
+              "subject": "tool results",
+              "status": "enforced",
+              "evidence": "src/agent.py:95",
+              "quote": "state.messages.append({\"role\": \"user\", \"content\": results})",
+              "note": "Tool output goes in a user-role message."
+            },
+            {
+              "subject": "resumed tool result",
+              "status": "enforced",
+              "evidence": "src/agent.py:145",
+              "quote": "state.messages.append({\"role\": \"user\", \"content\": [result]})",
+              "note": "Same after approval. on this path in the reviewed code"
+            },
+            {
+              "subject": "user text",
+              "status": "enforced",
+              "evidence": "src/agent.py:52",
+              "quote": "messages=[{\"role\": \"user\", \"content\": user_text}]",
+              "note": "Employee text is a user turn. on this path in the reviewed code"
+            },
+            {
+              "subject": "tool descriptions",
+              "status": "enforced",
+              "evidence": "src/tools.py:78",
+              "quote": "{\"name\": s.name, \"description\": s.reason, \"input_schema\": s.input_schema}",
+              "note": "Descriptions come from reviewed config, not servers."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R02.2",
+          "check": "Each piece of outside content carries a source and trust label in the model request.",
+          "verify": "1) Find where outside content is wrapped before the model request. 2) Check each piece carries a source and trust label. 3) Answer no if some sources (for example tool output or retrieved chunks) have no label, or labels are set by the content itself.",
+          "met": "no",
+          "evidence": "src/agent.py:188",
+          "quote": "return _tool_result(tool_use_id, f\"{spec.name} failed: {exc.detail}\", error=True)",
+          "counter_search": "",
+          "note": "Successful results carry source and trust (agent.py:195) and chunks carry source/trust from the DB, but error text from servers has no source or trust label.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R02.3",
+          "check": "Credential limits, tool permissions, and B05 action gates block the actions an injected instruction could cause, enforced in code the model cannot change.",
+          "verify": "1) List actions an injected instruction could cause: sends, writes, deletes, fetches. 2) Check each is blocked by credential scope, tool allowlist, or B05 gate in harness code. 3) Answer no if any harmful action is stopped only by the model declining, or the limit can be changed by tool arguments or model output.",
+          "met": "yes",
+          "evidence": "src/agent.py:113",
+          "quote": "if spec.approval == \"subject\":",
+          "counter_search": "Searched for write/send paths outside _handle_tool and for model-controlled target/scope; the target comes from config template and ctx.subject. escalate_to_human direct_route (config/tools.yaml:91) skips gateway stop/rate checks but still needs approval.",
+          "note": "Injected-instruction actions are blocked by allowlist, approval, scope in code.",
+          "coverage": [
+            {
+              "subject": "tool allowlist",
+              "status": "enforced",
+              "evidence": "src/agent.py:103",
+              "quote": "decision=\"deny\", reason=\"tool not in allowlist\"",
+              "note": "Unknown tool names denied. on this path in the reviewed code"
+            },
+            {
+              "subject": "write approval gate",
+              "status": "enforced",
+              "evidence": "src/agent.py:113",
+              "quote": "if spec.approval == \"subject\":",
+              "note": "Writes pause for employee approval. on this path in the reviewed code"
+            },
+            {
+              "subject": "approval binding",
+              "status": "enforced",
+              "evidence": "src/approvals.py:80",
+              "quote": "AND args_sha256 = $6",
+              "note": "Approval bound to instance, operation, target and args hash."
+            },
+            {
+              "subject": "credential scope",
+              "status": "enforced",
+              "evidence": "src/gateway.py:168",
+              "quote": "if spec.scope not in claims[\"scope\"].split():",
+              "note": "STS-scoped token checked in gateway. on this path in the reviewed code"
+            },
+            {
+              "subject": "subject from token",
+              "status": "enforced",
+              "evidence": "src/main.py:73",
+              "quote": "return claims[\"employee_id\"], token",
+              "note": "Subject comes from verified SSO token, not model."
+            },
+            {
+              "subject": "retrieval filter",
+              "status": "enforced",
+              "evidence": "src/retrieval.py:23",
+              "quote": "AND (c.audience = 'all' OR",
+              "note": "Employee-specific chunks filtered in SQL. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R02.4",
+          "check": "Containment does not rely on prompt wording, delimiters, or an injection detector.",
+          "verify": "1) Find the defenses relied on for injection. 2) Check whether removing prompt wording, delimiters, or the detector would leave harmful actions blocked. 3) Answer no if containment depends on system-prompt rules, delimiter tags, or a detector, with no code-level block behind it.",
+          "met": "yes",
+          "evidence": "src/agent.py:113",
+          "quote": "if spec.approval == \"subject\":",
+          "counter_search": "Considered removing system-prompt rule (system.md:18), JSON envelope and marker scan: writes still need approval and scopes; reads are limited to the employee's own data.",
+          "note": "Containment holds without prompt, delimiters or detector.",
+          "coverage": [
+            {
+              "subject": "approval gate independent of prompt",
+              "status": "enforced",
+              "evidence": "src/agent.py:113",
+              "quote": "if spec.approval == \"subject\":",
+              "note": "Does not depend on prompt wording or detector."
+            },
+            {
+              "subject": "detector not relied on",
+              "status": "enforced",
+              "evidence": "src/validation.py:15",
+              "quote": "_INJECTION_MARKERS = [",
+              "note": "Marker scan is defense in depth; removing it leaves approval, scope and allowlist blocks."
+            },
+            {
+              "subject": "scope check",
+              "status": "enforced",
+              "evidence": "src/gateway.py:168",
+              "quote": "if spec.scope not in claims[\"scope\"].split():",
+              "note": "Code-level credential limit. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R02.5",
+          "check": "Injection tests repeat each fixture a set number of times, include adaptive variants and schema-valid payloads, and report success rates.",
+          "verify": "1) Find injection tests (`tests/`, eval suites, red-team fixtures). 2) Check fixtures repeat a set number of times, include adaptive variants and schema-valid payloads, and report a success rate. 3) Answer no if each test runs once, uses only malformed inputs, or reports pass/fail. Answer unknown if tests live outside this repo.",
+          "met": "unknown",
+          "evidence": ".github/workflows/release.yml:29",
+          "quote": "python -m pytest -q tests/release",
+          "counter_search": "",
+          "note": "No tests/ directory or injection fixtures exist in the repo (searched); the release workflow references tests/release, which is not present. Evidence of repeated injection tests with success rates would live elsewhere.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/agent.py:188 Error text from servers reaches the model with no source or trust label."
+      ],
+      "violates": [
+        "Label where each piece came from and how much it is trusted"
+      ],
+      "also_affects": [
+        "R01",
+        "R03"
+      ],
+      "summary": "Error text from tools reaches the model with no source or trust label.",
+      "next_step": "Wrap error results in the same source/trust envelope, or return a fixed message.",
+      "lead_role": "security"
+    },
+    {
+      "item": "R03",
+      "gate": "G2",
+      "title": "Prevent output and log leakage",
+      "requirement": "Remove secrets and limit sensitive data before tool output, debug output, or responses reach the model, outside recipients, or normal logs. Some clients fetch URLs on their own when they display output, such as Markdown images and link previews. These can leak data without any tool call, so block them or allow only approved URLs. Check generated output before it goes into SQL, a shell, an HTML page, or anything else that runs it. Use parameterized queries and commands (for example, argument lists for shell calls), and the right escaping for each context. Test with fake secrets and injection payloads. Confirm that leaks and unintended execution are blocked, and that redacted audit evidence is kept.",
+      "not_covered": [
+        {
+          "problem": "A tool call sending data to an unapproved destination",
+          "owner": "B09"
+        },
+        {
+          "problem": "Long-lived secrets checked into config or baked into images",
+          "owner": "B03"
+        },
+        {
+          "problem": "Incoming hostile payloads not validated",
+          "owner": "R01"
+        },
+        {
+          "problem": "Retrieval returning another tenant's documents",
+          "owner": "R04"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 188,
+          "note": "exc.detail is sent to the model unredacted (only the log copy at agent.py:187 is redacted). Also audit reason columns (audit.py:93) store jsonschema error text unredacted, which can quote the offending value."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R03.1",
+          "check": "Secrets and sensitive fields are redacted from tool output, debug output, and error text before they reach the model, outside recipients, or normal logs.",
+          "verify": "1) Find redaction code (`redact`, `mask`, secret patterns) and where tool output, errors, and debug text go. 2) Check redaction runs before the model, outside recipients, and logs. 3) Answer no if any path skips it, such as error messages, exception traces, debug logging, or `logger.info(response)` before redaction.",
+          "met": "no",
+          "evidence": "src/agent.py:188",
+          "quote": "return _tool_result(tool_use_id, f\"{spec.name} failed: {exc.detail}\", error=True)",
+          "counter_search": "",
+          "note": "exc.detail is sent to the model unredacted (only the log copy at agent.py:187 is redacted). Also audit reason columns (audit.py:93) store jsonschema error text unredacted, which can quote the offending value.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R03.2",
+          "check": "The display client blocks auto-fetched URLs (Markdown images, link previews) or allows only approved hosts.",
+          "verify": "1) Find the display client or renderer (Markdown render, link unfurl, image tags). 2) Check auto-fetched URLs are blocked or limited to approved hosts (CSP `img-src`, URL allowlist). 3) Answer no if Markdown images or previews load any URL. Answer unknown if the display client is outside this repo.",
+          "met": "no",
+          "evidence": "src/main.py:106",
+          "quote": "body[\"approval\"] = state.pending_approval",
+          "counter_search": "",
+          "note": "sanitize_reply is applied only to reply (main.py:104). The approval description includes the model-written ticket summary (approvals.py:34) and is returned unsanitized, so a Markdown image or link there is not stripped. The client renderer is outside the repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R03.3",
+          "check": "Generated SQL uses parameterized queries, shell calls use argument lists with no string-built commands, and HTML output is escaped for its context.",
+          "verify": "1) Search for SQL, shell, and HTML built from generated output (`execute(f`, `+ query`, `shell=True`, `exec(`, `innerHTML`, `dangerouslySetInnerHTML`, `|safe`). 2) Check for parameters, argument lists, and context escaping. 3) Answer no if any query or command is string-built, uses `shell=True` or `sh -c` with model input, or HTML is unescaped.",
+          "met": "yes",
+          "evidence": "src/retrieval.py:18",
+          "quote": "websearch_to_tsquery('english', $1)",
+          "counter_search": "Searched src/ for subprocess, os.system, shell=True, execute(f, innerHTML; none.",
+          "note": "SQL parameterized, no shell, no HTML.",
+          "coverage": [
+            {
+              "subject": "retrieval SQL",
+              "status": "enforced",
+              "evidence": "src/retrieval.py:18",
+              "quote": "websearch_to_tsquery('english', $1)",
+              "note": "Query text is bound parameter $1. on this path in the reviewed code"
+            },
+            {
+              "subject": "approval SQL",
+              "status": "enforced",
+              "evidence": "src/approvals.py:50",
+              "quote": "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb,",
+              "note": "All values bound. on this path in the reviewed code"
+            },
+            {
+              "subject": "audit SQL",
+              "status": "enforced",
+              "evidence": "src/audit.py:50",
+              "quote": "$22::jsonb, $23::jsonb, $24, $25, $26, $27",
+              "note": "All bound. on this path in the reviewed code"
+            },
+            {
+              "subject": "quota SQL f-strings",
+              "status": "enforced",
+              "evidence": "src/budgets.py:75",
+              "quote": "VALUES ($1, $2, {_WINDOW}, 1, 0, 0)",
+              "note": "f-string interpolates only the constant _WINDOW. on this path in the reviewed code"
+            },
+            {
+              "subject": "gateway SQL",
+              "status": "enforced",
+              "evidence": "src/gateway.py:100",
+              "quote": "OR (scope = 'agent_instance' AND value = $1)",
+              "note": "Bound. on this path in the reviewed code"
+            },
+            {
+              "subject": "shell/HTML",
+              "status": "enforced",
+              "evidence": "src/validation.py:95",
+              "quote": "def sanitize_reply(text: str, allowed_hosts: list[str]) -> str:",
+              "note": "No shell calls exist; replies are JSON, no HTML built."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R03.4",
+          "check": "Redacted audit evidence is kept rather than discarded.",
+          "verify": "1) Find redaction code and audit logging. 2) Check redacted records are written to an audit store. 3) Answer no if redaction drops the whole record, or the evidence is discarded instead of kept.",
+          "met": "yes",
+          "evidence": "src/audit.py:94",
+          "quote": "json.dumps(redact_obj(args)), json.dumps(redact_obj(result)),",
+          "counter_search": "Searched redact paths for dropping records (return None/continue); redaction substitutes text and the row is still written.",
+          "note": "Redacted records are written to the audit store.",
+          "coverage": [
+            {
+              "subject": "audit args/result redaction",
+              "status": "enforced",
+              "evidence": "src/audit.py:94",
+              "quote": "json.dumps(redact_obj(args)), json.dumps(redact_obj(result)),",
+              "note": "Redacted copy is written to audit.events; record is kept."
+            },
+            {
+              "subject": "tool result audit",
+              "status": "enforced",
+              "evidence": "src/agent.py:193",
+              "quote": "await self.audit.record(ctx, \"tool_result\"",
+              "note": "Redacted result stored. on this path in the reviewed code"
+            },
+            {
+              "subject": "gateway decisions",
+              "status": "enforced",
+              "evidence": "src/gateway.py:139",
+              "quote": "decision, redact(reason),",
+              "note": "Redacted reason written to audit.gateway_decisions. on this path in the reviewed code"
+            },
+            {
+              "subject": "held content",
+              "status": "enforced",
+              "evidence": "src/agent.py:174",
+              "quote": "await self.audit.record(ctx, \"content_held\"",
+              "note": "Held chunks are recorded. on this path in the reviewed code"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/agent.py:188 exc.detail is sent to the model unredacted; only the log copy is redacted.",
+        "src/main.py:106 Approval description (model-written summary) returned without sanitize_reply, so images/links are not stripped."
+      ],
+      "violates": [
+        "Remove secrets and limit sensitive data before tool output, debug output, or responses reach the model"
+      ],
+      "also_affects": [
+        "R01",
+        "R02"
+      ],
+      "summary": "Error text reaches the model unredacted, and approval text skips the link and image stripper.",
+      "next_step": "Redact exc.detail before returning it and run sanitize_reply on the approval description.",
+      "lead_role": "agent_team"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {
+    "H001": {
+      "verdict": "dismissed",
+      "item": "B11",
+      "reason": "securityContext is hardened: non-root, RuntimeDefault seccomp, allowPrivilegeEscalation false, drop ALL (pod-level plus container-level; readOnlyRootFilesystem true on containers)."
+    },
+    "H002": {
+      "verdict": "dismissed",
+      "item": "B11",
+      "reason": "securityContext is hardened: non-root, RuntimeDefault seccomp, allowPrivilegeEscalation false, drop ALL (pod-level plus container-level; readOnlyRootFilesystem true on containers)."
+    },
+    "H003": {
+      "verdict": "dismissed",
+      "item": "B11",
+      "reason": "securityContext is hardened: non-root, RuntimeDefault seccomp, allowPrivilegeEscalation false, drop ALL (pod-level plus container-level; readOnlyRootFilesystem true on containers)."
+    },
+    "H004": {
+      "verdict": "dismissed",
+      "item": "B11",
+      "reason": "securityContext is hardened: non-root, RuntimeDefault seccomp, allowPrivilegeEscalation false, drop ALL (pod-level plus container-level; readOnlyRootFilesystem true on containers)."
+    },
+    "H005": {
+      "verdict": "dismissed",
+      "item": "B11",
+      "reason": "securityContext is hardened: non-root, RuntimeDefault seccomp, allowPrivilegeEscalation false, drop ALL (pod-level plus container-level; readOnlyRootFilesystem true on containers)."
+    },
+    "H006": {
+      "verdict": "dismissed",
+      "item": "B11",
+      "reason": "securityContext is hardened: non-root, RuntimeDefault seccomp, allowPrivilegeEscalation false, drop ALL (pod-level plus container-level; readOnlyRootFilesystem true on containers)."
+    },
+    "H020": {
+      "verdict": "dismissed",
+      "item": "R02",
+      "reason": "system= is the static prompts/system.md loaded at import (agent.py:28); tool output and chunks go in user-role messages (agent.py:95), not the system channel."
+    }
+  }
+}

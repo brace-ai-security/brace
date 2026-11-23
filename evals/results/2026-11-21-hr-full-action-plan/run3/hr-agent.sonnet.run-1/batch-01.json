@@ -1,0 +1,1065 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-11-21T11:43:21Z",
+  "scope": "Batch review of B01-B05 only for the hr-helpdesk agent (src/, config/, k8s/, migrations/, Dockerfile, .mcp.json, release workflow). Found: agent loop src/agent.py, gateway src/gateway.py, tool registry config/tools.yaml, credential broker, approvals, stop flags. Not found: IAM/RBAC files, STS and MCP server code, secret rotation config. Code read only; nothing run. Pre-scan had 0 hits. Topology map, challenges and falsification attempts deferred to later sessions. Other items not reviewed.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "B01",
+      "gate": "G1",
+      "title": "Minimal tool surface",
+      "requirement": "List every built-in tool, MCP server, API, program, and file permission this agent type can use. Give a task-based reason for each. Enforce a role-based allowlist, and check that an unlisted tool can't be called. Don't base allow or approval decisions on hints a server gives about its own tools, such as \"read-only.\" MCP treats those hints as untrusted unless you trust the server.",
+      "not_covered": [
+        {
+          "problem": "A tool call that skips the MCP gateway or reaches a tool server directly",
+          "owner": "E06"
+        },
+        {
+          "problem": "A token or credential with too much access",
+          "owner": "B02"
+        },
+        {
+          "problem": "Hidden instructions inside a tool's description or schema",
+          "owner": "E04"
+        },
+        {
+          "problem": "A tool's description or schema changing after it was approved",
+          "owner": "E03"
+        },
+        {
+          "problem": "Lookalike or duplicate tool names across servers",
+          "owner": "E05"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "config/tools.yaml",
+          "line": 17,
+          "note": "The only tool list is the tools block in tools.yaml, loaded by both the agent and the gateway."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B01.1",
+          "check": "Each agent role has one explicit allowlist of tool names, with no wildcard grants such as `*`, `mcp__*`, `Bash(*)`, or `bypassPermissions`.",
+          "verify": "1) Find where each agent is built and tools are passed (`allowed_tools`, `tools=[`, `allowedTools`, `.mcp.json`, `settings.json`). 2) Check each role has one fixed list of names. 3) Answer no if any list holds `*`, `mcp__*`, `Bash(*)`, a pattern or regex, `bypassPermissions`, or is built from `list_tools()`, or if a second agent role or entry point has no list.",
+          "met": "yes",
+          "evidence": "config/tools.yaml:17",
+          "quote": "tools:",
+          "counter_search": "Searched for wildcard grants, mcp__ prefixes, bypassPermissions, allowed_tools and list_tools-built lists; none exist. Both entry points (main.py, gateway.py) load the same fixed registry.",
+          "note": "The only tool list is the tools block in tools.yaml, loaded by both the agent and the gateway.",
+          "coverage": [
+            {
+              "subject": "search_policies",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:18",
+              "quote": "search_policies:",
+              "note": "Named local tool with a task reason and read scope."
+            },
+            {
+              "subject": "get_leave_balance",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:30",
+              "quote": "get_leave_balance:",
+              "note": "Named MCP tool with a task reason and read scope."
+            },
+            {
+              "subject": "file_leave_request",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:55",
+              "quote": "file_leave_request:",
+              "note": "Named MCP tool with a task reason and approval."
+            },
+            {
+              "subject": "escalate_to_human",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:82",
+              "quote": "escalate_to_human:",
+              "note": "Named MCP tool with a task reason and approval."
+            },
+            {
+              "subject": "agent entry point src.main:app",
+              "status": "enforced",
+              "evidence": "src/main.py:166",
+              "quote": "registry = ToolRegistry.from_config()",
+              "note": "The agent builds its tool list from the fixed registry file."
+            },
+            {
+              "subject": "gateway entry point src.gateway:app",
+              "status": "enforced",
+              "evidence": "src/gateway.py:45",
+              "quote": "registry = ToolRegistry.from_config()",
+              "note": "The gateway uses the same fixed registry as its allowlist."
+            },
+            {
+              "subject": "model-visible tools",
+              "status": "enforced",
+              "evidence": "src/agent.py:72",
+              "quote": "tools=self.registry.model_schemas()",
+              "note": "The model is only handed schemas from the registry."
+            },
+            {
+              "subject": ".mcp.json hr-tool-gateway",
+              "status": "not_applicable",
+              "evidence": ".mcp.json:4",
+              "quote": "\"hr-tool-gateway\": {",
+              "note": "Single gateway entry with no wildcard; agent code never reads this file."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B01.2",
+          "check": "Tools discovered from MCP servers are filtered against that allowlist before the model can see or call them.",
+          "verify": "1) Find MCP discovery (`list_tools`, `session.list_tools`, `tools/list`, MCP client setup). 2) Trace the result to where it is handed to the model. 3) Confirm a filter keeps only names on the allowlist. 4) Answer no if any discovered tool reaches the model unfiltered, the filter is a denylist or prefix match (`startswith`, `mcp__server__`), or a refresh or reconnect path skips it.",
+          "met": "yes",
+          "evidence": "src/gateway.py:68",
+          "quote": "for spec in (s for s in MCP_TOOLS if s.server == server_id):",
+          "counter_search": "Searched for list_tools or tools/list use outside the gateway refresh; the agent never discovers tools and only the gateway calls tools/list (gateway.py:62). Failure path disables everything (gateway.py:212).",
+          "note": "Discovered tools are only matched by exact name against registry specs; unmatched tools stay disabled.",
+          "coverage": [
+            {
+              "subject": "gateway tools/list discovery",
+              "status": "enforced",
+              "evidence": "src/gateway.py:62",
+              "quote": "resp = await _upstream.post(server[\"endpoint\"], json={\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\"}, timeout=5.0)",
+              "note": "Discovery result is only used inside the gateway fingerprint refresh."
+            },
+            {
+              "subject": "allowlist filter",
+              "status": "enforced",
+              "evidence": "src/gateway.py:70",
+              "quote": "if local in live and fingerprint(live[local]) == spec.fingerprint:",
+              "note": "Only registry tools whose live fingerprint matches are enabled."
+            },
+            {
+              "subject": "call-time check",
+              "status": "enforced",
+              "evidence": "src/gateway.py:166",
+              "quote": "if spec is None or spec.kind != \"mcp\" or tool in _disabled:",
+              "note": "A call to any unlisted or disabled tool is refused with 403."
+            },
+            {
+              "subject": "refresh failure path",
+              "status": "enforced",
+              "evidence": "src/gateway.py:212",
+              "quote": "_disabled.update(s.qualified for s in MCP_TOOLS)",
+              "note": "A failed refresh disables every MCP tool instead of enabling any."
+            },
+            {
+              "subject": "model hand-off",
+              "status": "enforced",
+              "evidence": "src/agent.py:72",
+              "quote": "tools=self.registry.model_schemas()",
+              "note": "The model never sees discovered tools, only registry entries."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B01.3",
+          "check": "The dispatcher rejects a call to any tool name not on the allowlist, instead of looking it up dynamically.",
+          "verify": "1) Find the dispatcher (search `tool_use`, `call_tool`, `dispatch`, `execute`, `getattr`, `registry[`). 2) Check it rejects names not on the allowlist with an error. 3) Answer no if it looks tools up with `getattr`, `globals()`, `eval`, or a registry holding more than the allowlist, falls back to calling the MCP server directly, or catches the unknown-tool error and continues.",
+          "met": "no",
+          "evidence": "src/gateway_client.py:59",
+          "quote": "return await self._post(spec.direct_route[\"endpoint\"], token, spec, args, ctx, operation_id)",
+          "counter_search": "",
+          "note": "[coverage] Direct call to the MCP server skips the gateway allowlist, disabled-tool and stop checks.",
+          "coverage": [
+            {
+              "subject": "registry lookup in agent",
+              "status": "enforced",
+              "evidence": "src/agent.py:102",
+              "quote": "if spec is None:",
+              "note": "Unknown tool names are denied with an error."
+            }
+          ],
+          "deviations": [
+            {
+              "subject": "escalate_to_human fallback",
+              "status": "missing",
+              "evidence": "src/gateway_client.py:59",
+              "quote": "return await self._post(spec.direct_route[\"endpoint\"], token, spec, args, ctx, operation_id)",
+              "note": "Direct call to the MCP server skips the gateway allowlist, disabled-tool and stop checks."
+            },
+            {
+              "subject": "direct route config",
+              "status": "missing",
+              "evidence": "config/tools.yaml:91",
+              "quote": "direct_route:",
+              "note": "Config declares a gateway bypass for this tool."
+            }
+          ],
+          "attempts": []
+        },
+        {
+          "id": "B01.4",
+          "check": "Allow and approval decisions never read server-supplied hints or descriptions such as `readOnlyHint` or 'read-only'.",
+          "verify": "1) Search for `readOnlyHint`, `destructiveHint`, `annotations`, `description`, and approval or auto-approve code. 2) Check whether any allow, skip-approval, or permission branch reads these. 3) Answer no if any allow or approval decision depends on a server hint or tool description text, including a default that auto-approves tools marked read-only.",
+          "met": "yes",
+          "evidence": "src/agent.py:113",
+          "quote": "if spec.approval == \"subject\":",
+          "counter_search": "Searched for readOnlyHint, destructiveHint and annotations; only gateway.py:54 reads annotations, to compute a pinned fingerprint that disables a tool on change, never to allow or skip approval.",
+          "note": "Approval mode comes from the static approval field in tools.yaml, never from server hints or descriptions.",
+          "coverage": [
+            {
+              "subject": "approval decision",
+              "status": "enforced",
+              "evidence": "src/tools.py:45",
+              "quote": "if t[\"approval\"] not in (\"none\", \"subject\"):",
+              "note": "Approval mode is a fixed config enum checked at load."
+            },
+            {
+              "subject": "agent approval branch",
+              "status": "enforced",
+              "evidence": "src/agent.py:113",
+              "quote": "if spec.approval == \"subject\":",
+              "note": "Approval branch reads only the configured mode."
+            },
+            {
+              "subject": "gateway allow decision",
+              "status": "enforced",
+              "evidence": "src/gateway.py:166",
+              "quote": "if spec is None or spec.kind != \"mcp\" or tool in _disabled:",
+              "note": "Allow decision uses registry membership and fingerprint state only."
+            },
+            {
+              "subject": "annotations in fingerprint",
+              "status": "enforced",
+              "evidence": "src/gateway.py:54",
+              "quote": "material = {k: tool.get(k) for k in (\"name\", \"title\", \"description\", \"inputSchema\", \"outputSchema\", \"annotations\")}",
+              "note": "Annotations are hashed for change detection only, never interpreted."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B01.5",
+          "check": "File access is limited to named directories, not the whole filesystem.",
+          "verify": "1) Find file tools and mounts (`allowed_directories`, `cwd`, `open(`, `fs.`, `os.ReadFile`, container `volumes`, `mountPath`). 2) Check paths are resolved (`realpath`, `resolve`, `filepath.Clean`) then compared to named directories. 3) Answer no if access is unrestricted, `/` or home is mounted, the check is a string `startsWith`/prefix test without resolving `..` and symlinks, or a shell tool bypasses it.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:58",
+          "quote": "readOnlyRootFilesystem: true",
+          "counter_search": "Searched for open(, fs tools, shell tools and path arguments; found only fixed-path reads in credentials.py, tools.py, gateway.py and agent.py, none with model-controlled paths.",
+          "note": "The agent has no file tool, its code opens only fixed paths, and pod mounts are named and read-only except a small tmp.",
+          "coverage": [
+            {
+              "subject": "tool surface has no file tool",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:17",
+              "quote": "tools:",
+              "note": "Four registry tools; none takes a path or reads files."
+            },
+            {
+              "subject": "actor token read",
+              "status": "enforced",
+              "evidence": "src/credentials.py:19",
+              "quote": "ACTOR_TOKEN_PATH = \"/var/run/secrets/tokens/sts-token\"",
+              "note": "Constant path, not influenced by model output."
+            },
+            {
+              "subject": "config read",
+              "status": "enforced",
+              "evidence": "src/tools.py:10",
+              "quote": "CONFIG_DIR = pathlib.Path(__file__).resolve().parent.parent / \"config\"",
+              "note": "Constant resolved config directory, not influenced by model output."
+            },
+            {
+              "subject": "gateway token read",
+              "status": "enforced",
+              "evidence": "src/gateway.py:117",
+              "quote": "with open(\"/var/run/secrets/tokens/sts-token\", encoding=\"utf-8\") as fh:",
+              "note": "Constant path in the gateway, not model controlled."
+            },
+            {
+              "subject": "agent pod mounts",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:66",
+              "quote": "- {name: sts-token, mountPath: /var/run/secrets/tokens, readOnly: true}",
+              "note": "Named read-only mounts only, no host or root mount."
+            },
+            {
+              "subject": "gateway pod mounts",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:116",
+              "quote": "- {name: sts-token, mountPath: /var/run/secrets/tokens, readOnly: true}",
+              "note": "Gateway mounts are the same named read-only paths."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "Enforce a role-based allowlist, and check that an unlisted tool can't be called",
+        "List every built-in tool, MCP server, API, program, and file permission this agent type can use. Give a task-based reason for each. Enforce a role-based allowlist, and check that an unlisted tool can't be called. Don't base allow or approval decisions on hints a server gives about its own tools, such as \"read-only.\" MCP treats those hints as untrusted unless you trust the server."
+      ],
+      "also_affects": [
+        "E06",
+        "B04"
+      ],
+      "summary": "The agent has a fixed four-tool allowlist, but escalate_to_human can fall back to calling the helpdesk MCP server directly, skipping the gateway allowlist and disabled-tool check.",
+      "next_step": "Remove direct_route from escalate_to_human in config/tools.yaml and the fallback in src/gateway_client.py so gateway outages fail closed.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "B02",
+      "gate": "G1",
+      "title": "Least-privilege access",
+      "requirement": "Limit credentials to named operations and resources, including tenant boundaries. Identify the acting agent separately from the original user or system whose authority it uses. Explicitly authorized, narrowly scoped user delegation is valid; copying a login session or inheriting a person's full permissions is not. Test that an allowed read works and an out-of-scope write, an admin action, and another tenant's data all fail. Limit each access token to its intended audience, so other services reject it. Remove wildcard grants.",
+      "not_covered": [
+        {
+          "problem": "A retrieval search or cache not filtered by the requesting tenant or user",
+          "owner": "R04"
+        },
+        {
+          "problem": "Long-lived or static secrets that never expire or rotate",
+          "owner": "B03"
+        },
+        {
+          "problem": "Revocation delay from cached or self-contained tokens",
+          "owner": "B04"
+        },
+        {
+          "problem": "A sub-agent getting powers beyond its task, or a parent escalating through a peer",
+          "owner": "E08"
+        },
+        {
+          "problem": "Memory readable across tenants or tasks",
+          "owner": "R05"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/retrieval.py",
+          "line": 42,
+          "note": "The retrieval cache key ignores the employee id, so a model-chosen query can hit another employee's cached private chunks, bypassing the SQL audience filter."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B02.1",
+          "check": "The agent's IAM policy or role names specific actions and resources, with no `*` action or resource and no owner, editor, or cluster-admin role.",
+          "verify": "1) Find IAM and RBAC files (`*.tf`, `iam*.json`, `Role`, `ClusterRoleBinding`, `RoleBinding`, CloudFormation). 2) Find the policy attached to the agent's identity. 3) Answer no if any `Action` or `Resource` is `*` or a service wildcard (`s3:*`), or it binds `roles/owner`, `roles/editor`, `cluster-admin`, or AdministratorAccess. Answer unknown if the agent's IAM is not in this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No IAM, Role or ClusterRoleBinding files are in this repo; DB grants for hr_agent are specific, but STS scope policy for the agent lives in the identity service. Looked in k8s/, migrations/001_init.sql.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B02.2",
+          "check": "Tenant scope is enforced in the credential or the data layer (token claim, row-level security, or per-tenant account), not by the prompt or by code the model's output controls.",
+          "verify": "1) Find how queries and API calls pick a tenant (search `tenant`, `org_id`, row-level security, `CREATE POLICY`, per-tenant credentials). 2) Trace where the tenant value comes from. 3) Answer no if one shared login or key reaches all tenants and the tenant ID comes from the prompt, a tool argument the model fills, or app code filtering after the query.",
+          "met": "no",
+          "evidence": "src/retrieval.py:48",
+          "quote": "if hit and hit[1] == version and time.monotonic() - hit[0] < self._ttl:",
+          "counter_search": "",
+          "note": "[coverage] Cache hit returns chunks without re-running the per-employee filter.",
+          "coverage": [
+            {
+              "subject": "retrieval cache lookup",
+              "status": "missing",
+              "evidence": "src/retrieval.py:48",
+              "quote": "if hit and hit[1] == version and time.monotonic() - hit[0] < self._ttl:",
+              "note": "Cache hit returns chunks without re-running the per-employee filter."
+            }
+          ],
+          "deviations": [
+            {
+              "subject": "retrieval cache key",
+              "status": "missing",
+              "evidence": "src/retrieval.py:42",
+              "quote": "return hashlib.sha256(f\"{self._top_k}|{normalized}\".encode()).hexdigest()",
+              "note": "Key omits employee id so cached employee-only chunks are served to others."
+            }
+          ],
+          "attempts": []
+        },
+        {
+          "id": "B02.3",
+          "check": "Tokens are issued with a set audience, and receiving services reject tokens whose audience does not match.",
+          "verify": "1) Find token requests (`audience`, `aud`, `resource`, `scope`, token client setup). 2) Find token validation in receiving services (`verify`, `jwt.decode`, middleware). 3) Answer no if tokens are requested without an audience, validation skips `aud` (`verify_aud=False`, no audience option), or accepts an unrelated audience or wildcard. Answer unknown if receiving services are outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Gateway verifies audience (gateway.py:83) but the HRIS and helpdesk MCP servers and the STS are outside this repo, so downstream audience rejection cannot be confirmed.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B02.4",
+          "check": "The acting agent is verifiably identified separately from any explicitly delegated user/system authority; it does not copy a login session or inherit a person's unrestricted permissions.",
+          "verify": "1) Trace each API credential to its issuer, acting identity, original subject, grants and destination. 2) Accept explicitly authorized user-delegation flows with a separately verified agent and bounded permissions. 3) Answer no for copied login sessions, personal/admin keys or inherited broad user access; a delegated OAuth access token is not by itself a failure. Answer unknown when external issuer/enforcement evidence is unavailable.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Token exchange sends employee token as subject and pod token as actor (credentials.py:49-56) and the gateway checks act.sub, but the STS that issues and binds these is outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "including tenant boundaries",
+        "Limit credentials to named operations and resources, including tenant boundaries. Identify the acting agent separately from the original user or system whose authority it uses. Explicitly authorized, narrowly scoped user delegation is valid; copying a login session or inheriting a person's full permissions is not. Test that an allowed read works and an out-of-scope write, an admin action, and another tenant's data all fail. Limit each access token to its intended audience, so other services reject it. Remove wildcard grants."
+      ],
+      "also_affects": [],
+      "summary": "A cache in retrieval.py keys on query text only, so one employee's employee-only handbook chunks can be served to another employee's search.",
+      "next_step": "Add the employee id to the cache key in src/retrieval.py _key(), or drop caching for employee-audience chunks; then collect IAM and STS evidence for B02.1, B02.3 and B02.4.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B03",
+      "gate": "G2",
+      "title": "Credential lifetime and handling",
+      "requirement": "Issue short-lived credentials from a trusted issuer or managed identity service. For API calls, use expiring access tokens with a specific destination audience, identifying the agent and any explicitly delegated user or system authority, rather than static API keys or personal access tokens. A secrets vault stores backing secrets; it does not itself make a static key into an expiring access token. Keep long-lived secrets out of prompts, images, and checked-in config. Where supported, bind tokens to their holder (mTLS, DPoP, or workload proof tokens). Don't use fixed API keys when short-lived or federated credentials are available. If only static keys are supported, isolate them at the enforcement layer, limit their permissions, and record the lifetime and revocation gap. Show expiry and rotation, including allowed overlap, and explain the chosen lifetime.",
+      "not_covered": [
+        {
+          "problem": "A credential scoped to more operations, resources, or tenants than needed",
+          "owner": "B02"
+        },
+        {
+          "problem": "No way to cut off the agent's access without cutting off the user",
+          "owner": "B04"
+        },
+        {
+          "problem": "Secrets showing up in tool output, responses, or normal logs",
+          "owner": "R03"
+        },
+        {
+          "problem": "Container image not pinned by digest or signature-checked",
+          "owner": "B10"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line": 54,
+          "note": "Secrets are referenced from Kubernetes Secrets, with no literal keys in the Dockerfile, prompt, config or .mcp.json."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B03.1",
+          "check": "Credentials are fetched at run time from a managed identity or secrets service, not fixed API keys, where short-lived or federated credentials are available.",
+          "verify": "1) Find credential setup (`AssumeRole`, IRSA, Workload Identity, Managed Identity, Vault, `os.environ`, `process.env`). 2) Check each credential is fetched at run time. 3) Answer no if a fixed key (`AWS_ACCESS_KEY_ID`, `API_KEY` in a Secret or env) is used for a service that offers federated or short-lived credentials, or code falls back to a static key when the managed source fails.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "STS token exchange is runtime and short-lived, but DATABASE_URL and ANTHROPIC_API_KEY come from static k8s Secrets (deployment.yaml:52-54) and whether the database offers short-lived credentials is not stated here; .mcp.json:7 uses an env bearer token of unknown source.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B03.2",
+          "check": "Credential lifetime and rotation are set in config to bounded values.",
+          "verify": "1) Search for lifetime and rotation settings (`DurationSeconds`, `ttl`, `expires_in`, `max_ttl`, rotation job or policy). 2) Check each credential the agent uses has a bounded value. 3) Answer no if any credential has no expiry, no rotation, or an unbounded or very long value. Answer unknown if lifetimes are set in an identity provider outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Token TTL is 300s (credentials.py:20) and pod token 600s (deployment.yaml:74), but rotation of the DB URL and Anthropic key secrets is set outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B03.3",
+          "check": "No long-lived secrets appear in prompts, Dockerfiles or image layers, or checked-in config.",
+          "verify": "1) Search prompt templates, Dockerfiles (`ENV`, `ARG`, `COPY .env`), `.env*`, `*.yaml`, `*.tfvars`, `.mcp.json` `env` blocks for key-like literals (`sk-`, `AKIA`, `token:`, `password:`). 2) Check prompt-building code for env values inserted into messages. 3) Answer no if any real secret is checked in, baked into an image, or placed in a prompt; `.gitignore` listing a file does not count if it is committed.",
+          "met": "yes",
+          "evidence": "k8s/deployment.yaml:54",
+          "quote": "valueFrom: {secretKeyRef: {name: hr-agent-anthropic, key: api_key}}",
+          "counter_search": "Searched all files for sk-, AKIA, password, secret and token literals, Dockerfile ENV and ARG lines, .env files, and prompt-building code; found only secretKeyRef references and the ${HR_GATEWAY_TOKEN} placeholder.",
+          "note": "Secrets are referenced from Kubernetes Secrets, with no literal keys in the Dockerfile, prompt, config or .mcp.json.",
+          "coverage": [
+            {
+              "subject": "agent env secrets",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:52",
+              "quote": "valueFrom: {secretKeyRef: {name: hr-agent-db, key: url}}",
+              "note": "Database URL is injected from a Secret reference."
+            },
+            {
+              "subject": "gateway env secret",
+              "status": "enforced",
+              "evidence": "k8s/deployment.yaml:108",
+              "quote": "valueFrom: {secretKeyRef: {name: hr-gateway-db, key: url}}",
+              "note": "Gateway database URL is also a Secret reference."
+            },
+            {
+              "subject": "Dockerfile",
+              "status": "enforced",
+              "evidence": "Dockerfile:9",
+              "quote": "ENV PYTHONPATH=/deps:/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1",
+              "note": "Only non-secret environment values are baked into the image."
+            },
+            {
+              "subject": ".mcp.json header",
+              "status": "enforced",
+              "evidence": ".mcp.json:7",
+              "quote": "\"Authorization\": \"Bearer ${HR_GATEWAY_TOKEN}\"",
+              "note": "Header uses an environment placeholder, not a literal token."
+            },
+            {
+              "subject": "system prompt",
+              "status": "enforced",
+              "evidence": "prompts/system.md:1",
+              "quote": "You are the Acme HR helpdesk assistant.",
+              "note": "Prompt text contains no credentials or secret values."
+            },
+            {
+              "subject": "tool fingerprints",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:38",
+              "quote": "fingerprint: \"sha256:5d1c0e9a7b3f48e2a61c9d04f7be3a92c815e6d07ab4f3c2e19d8a6b5c4f0e71\"",
+              "note": "Fingerprints are public hashes, not secrets."
+            },
+            {
+              "subject": "model message content",
+              "status": "enforced",
+              "evidence": "src/agent.py:52",
+              "quote": "return RunState(messages=[{\"role\": \"user\", \"content\": user_text}], budget=budget, subject_token=subject_token)",
+              "note": "Messages carry only user text; the subject token is held in state, not sent to the model."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B03.4",
+          "check": "Where the service supports it, tokens are bound to their holder with mTLS, DPoP, or workload proof tokens.",
+          "verify": "1) Find token and client setup for each service (`mTLS`, `client_cert`, `DPoP`, `cert-bound`, SPIFFE). 2) Check whether the service supports holder binding. 3) Answer no if a supporting service uses plain bearer tokens. Answer unknown if support depends on a provider outside this repo and nothing states it.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Gateway enforces certificate-bound tokens (gateway.py:89) but whether the downstream tokens minted at gateway.py:119 and the direct-route token are holder-bound depends on the STS and MCP servers outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "Runtime token exchange is short-lived and certificate-bound at the gateway, but rotation of the static DB and Anthropic secrets and downstream token binding are set outside this repo.",
+      "next_step": "Collect the secret rotation policy for hr-agent-db, hr-gateway-db and hr-agent-anthropic, the DB auth options, and STS proof that downstream tokens carry cnf binding.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B04",
+      "gate": "G1",
+      "title": "Independent revocation",
+      "requirement": "Show that an operator can cut off this agent's access without cutting off the user who launched it. The agent must not need to cooperate. Set and measure the longest time before the cutoff takes effect. Count cached tokens, self-contained tokens, and open sessions. A trusted enforcement point must block later calls within a time limit that fits the potential harm. Revoking only the refresh token is not enough. If tokens live longer than that limit, push the revocation to each service (for example, with OpenID CAEP session-revoked events) or make the tokens shorter-lived.",
+      "not_covered": [
+        {
+          "problem": "A kill switch that doesn't stop running work or open tool streams",
+          "owner": "R11"
+        },
+        {
+          "problem": "Sub-agents or remote workers still acting after the parent is stopped",
+          "owner": "E09"
+        },
+        {
+          "problem": "Static API keys used where short-lived credentials are available",
+          "owner": "B03"
+        },
+        {
+          "problem": "No way to trace a suspicious action to its team, operator, and live instance",
+          "owner": "A05"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/gateway.py",
+          "line": 101,
+          "note": "An operator can set an agent_principal stop flag that matches only the agent workload identity, leaving the employee's own identity untouched."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B04.1",
+          "check": "A revocation control disables the agent's own identity or credentials without disabling the user who launched it.",
+          "verify": "1) Find a disable or revoke path (script, runbook, IdP config, `disable`, `revoke`, deny list). 2) Check it targets the agent's own identity or credential. 3) Answer no if the agent uses the user's token, so revocation disables the user too, or no revoke path exists. Answer unknown if revocation lives only in an identity provider outside this repo.",
+          "met": "yes",
+          "evidence": "src/gateway.py:101",
+          "quote": "OR (scope = 'agent_principal' AND value = $3)) LIMIT 1",
+          "counter_search": "Searched for disable, revoke and deny-list paths; the stop_flags table has separate agent_principal and subject scopes, and the agent uses its own workload identity as actor.",
+          "note": "An operator can set an agent_principal stop flag that matches only the agent workload identity, leaving the employee's own identity untouched.",
+          "coverage": [
+            {
+              "subject": "agent principal flag at gateway",
+              "status": "enforced",
+              "evidence": "src/gateway.py:101",
+              "quote": "OR (scope = 'agent_principal' AND value = $3)) LIMIT 1",
+              "note": "Flag value matches the token act.sub, which is the agent workload."
+            },
+            {
+              "subject": "agent identity separate from user",
+              "status": "enforced",
+              "evidence": "config/agent.yaml:6",
+              "quote": "workload_identity: spiffe://acme.example/ns/hr-agent/sa/hr-helpdesk-agent",
+              "note": "Agent has its own workload identity apart from the employee."
+            },
+            {
+              "subject": "operator write path",
+              "status": "enforced",
+              "evidence": "migrations/001_init.sql:93",
+              "quote": "GRANT SELECT, INSERT, UPDATE ON control.stop_flags TO hr_agent_operator;",
+              "note": "Only the operator role can write stop flags."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B04.2",
+          "check": "Revocation is applied at a trusted enforcement point (identity provider, gateway, or target service) and does not need the agent's cooperation.",
+          "verify": "1) Find where revocation is checked (gateway, auth middleware, IdP, introspection, deny list lookup). 2) Check it runs outside the agent process. 3) Answer no if revocation sends a message or signal to the agent and relies on it to drop credentials, or the check runs inside agent code.",
+          "met": "no",
+          "evidence": "src/gateway_client.py:54",
+          "quote": "log.warning(\"gateway unavailable, using direct route\", extra={\"tool\": spec.qualified})",
+          "counter_search": "",
+          "note": "[coverage] Fallback sends the call to the MCP server without the gateway stop check.",
+          "coverage": [
+            {
+              "subject": "gateway stop check",
+              "status": "enforced",
+              "evidence": "src/gateway.py:171",
+              "quote": "if why := await _stop_reason(claims, instance):",
+              "note": "Gateway refuses calls when a matching stop flag is set."
+            }
+          ],
+          "deviations": [
+            {
+              "subject": "direct route skips enforcement point",
+              "status": "missing",
+              "evidence": "src/gateway_client.py:54",
+              "quote": "log.warning(\"gateway unavailable, using direct route\", extra={\"tool\": spec.qualified})",
+              "note": "Fallback sends the call to the MCP server without the gateway stop check."
+            },
+            {
+              "subject": "agent_type scope not at gateway",
+              "status": "missing",
+              "evidence": "src/killswitch.py:21",
+              "quote": "(scope = 'agent_type'",
+              "note": "agent_type stop flag is read only by agent code, not by the gateway query."
+            }
+          ],
+          "attempts": []
+        },
+        {
+          "id": "B04.3",
+          "check": "Later calls are blocked even with cached tokens, self-contained tokens, and open sessions: token lifetime is shorter than the revocation limit, or revocation is pushed to each service (for example CAEP) or checked on every call.",
+          "verify": "1) Find access-token lifetimes and how services validate tokens (signature only vs `introspect`, deny list, CAEP). 2) Compare lifetime with the stated revocation limit. 3) Answer no if self-contained JWTs outlive the limit and are checked by signature only, cached tokens or open sessions skip the check, or no limit is stated. Answer unknown if validation lives outside this repo.",
+          "met": "no",
+          "evidence": "src/gateway_client.py:59",
+          "quote": "return await self._post(spec.direct_route[\"endpoint\"], token, spec, args, ctx, operation_id)",
+          "counter_search": "",
+          "note": "[coverage] Cached 300s token is used without any per-call revocation check here.",
+          "coverage": [
+            {
+              "subject": "token lifetime",
+              "status": "enforced",
+              "evidence": "src/credentials.py:20",
+              "quote": "TOKEN_TTL_SECONDS = 300",
+              "note": "Access tokens outlive the 10 second stop target."
+            }
+          ],
+          "deviations": [
+            {
+              "subject": "direct-route token path",
+              "status": "missing",
+              "evidence": "src/gateway_client.py:59",
+              "quote": "return await self._post(spec.direct_route[\"endpoint\"], token, spec, args, ctx, operation_id)",
+              "note": "Cached 300s token is used without any per-call revocation check here."
+            }
+          ],
+          "attempts": []
+        },
+        {
+          "id": "B04.4",
+          "check": "Revocation covers access tokens and open sessions, not only the refresh token.",
+          "verify": "1) Find the revoke code or runbook. 2) List what it revokes: refresh token, access tokens, sessions, streams. 3) Answer no if it only revokes the refresh token or deletes stored credentials while issued access tokens and open sessions stay valid.",
+          "met": "unknown",
+          "evidence": "src/credentials.py:68",
+          "quote": "def drop_subject(self, subject: str) -> None:",
+          "counter_search": "",
+          "note": "[coverage] Nothing calls drop_subject, so cached tokens persist until expiry.",
+          "coverage": [
+            {
+              "subject": "stop flag cancels open runs",
+              "status": "enforced",
+              "evidence": "src/killswitch.py:58",
+              "quote": "task.cancel(msg=f\"stopped: {why}\")",
+              "note": "Open runs are cancelled in the agent process."
+            }
+          ],
+          "deviations": [
+            {
+              "subject": "issued access tokens after revocation",
+              "status": "unclear",
+              "evidence": "src/credentials.py:68",
+              "quote": "def drop_subject(self, subject: str) -> None:",
+              "note": "Nothing calls drop_subject, so cached tokens persist until expiry."
+            }
+          ],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "A trusted enforcement point must block later calls within a time limit",
+        "Show that an operator can cut off this agent's access without cutting off the user who launched it. The agent must not need to cooperate. Set and measure the longest time before the cutoff takes effect. Count cached tokens, self-contained tokens, and open sessions. A trusted enforcement point must block later calls within a time limit that fits the potential harm. Revoking only the refresh token is not enough. If tokens live longer than that limit, push the revocation to each service (for example, with OpenID CAEP session-revoked events) or make the tokens shorter-lived."
+      ],
+      "also_affects": [
+        "B01"
+      ],
+      "summary": "Stop flags cut off the agent identity at the gateway without affecting the employee, but the direct-route fallback and agent_type flags bypass that enforcement point while tokens last 300 seconds.",
+      "next_step": "Remove direct_route fallback for escalate_to_human, add agent_type to the gateway stop query, and document the revocation limit against the 300 second token TTL.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "B05",
+      "gate": "G1",
+      "title": "Destructive-action interception",
+      "requirement": "List the high-impact operations. These include deletes, destructive database updates, force-pushes, tearing down infrastructure, payment changes, and sending anything outside. Block them by default in the execution path. Allow one only when a reviewer or system with higher authority approves that specific action. When the action runs, authorize its operation, target, and arguments, and block it if they aren't allowed. A list of blocked words or command names is not enough. Test other tools and raw API or shell paths that could do the same thing. Treat deleting audit records, or changing how long they are kept, as high-impact too. That includes asking a more powerful tool or peer to do it. Some agents can do all three of these in one context: read untrusted input, reach sensitive data or systems, and change things or talk to the outside. For those agents, treat every consequential action as high-impact. The exception is a design that stops untrusted content from picking the tool, destination, or arguments. Examples are plan-then-execute, a two-model pattern, or capability tracking such as CaMeL. Record which of the three each agent type has.",
+      "not_covered": [
+        {
+          "problem": "Denied actions not recorded in the audit trail",
+          "owner": "R13"
+        },
+        {
+          "problem": "Approvals that can be replayed, reused in parallel, or used after expiry",
+          "owner": "B06"
+        },
+        {
+          "problem": "Outside effects left unreconciled after the agent is stopped",
+          "owner": "R12"
+        },
+        {
+          "problem": "A chain of individually allowed actions that adds up to data theft",
+          "owner": "R09"
+        },
+        {
+          "problem": "Tool output not labelled or kept apart from trusted instructions",
+          "owner": "R02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "config/tools.yaml",
+          "line": 61,
+          "note": "Every tool lists an approval mode in tools.yaml; both write and send tools require approval and unlisted tools are denied."
+        }
+      ],
+      "checks": [
+        {
+          "id": "B05.1",
+          "check": "High-impact operations are listed in code or config and blocked by default, including deletes, destructive updates, force-pushes, infrastructure teardown, payment changes, outbound sends, and deleting audit records or changing their retention.",
+          "verify": "1) Search code and config for a list of high-impact operations (deny/approval policy, OPA/Rego, Cedar, hook config). 2) Check it covers deletes, destructive updates, force-push, teardown, payments, outbound sends, audit deletion or retention changes. 3) Answer no if no list exists, any category is missing with a tool that can do it, or unlisted operations default to `allow`.",
+          "met": "yes",
+          "evidence": "config/tools.yaml:61",
+          "quote": "approval: subject",
+          "counter_search": "Searched for delete, drop, force-push, teardown, payment and send tools and shell or HTTP tools; the only outbound or writing tools are file_leave_request and escalate_to_human, both gated. Audit partition drops run from a CronJob, not a model-callable tool.",
+          "note": "Every tool lists an approval mode in tools.yaml; both write and send tools require approval and unlisted tools are denied.",
+          "coverage": [
+            {
+              "subject": "search_policies",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:21",
+              "quote": "approval: none",
+              "note": "Read-only handbook search needs no approval."
+            },
+            {
+              "subject": "get_leave_balance",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:36",
+              "quote": "approval: none",
+              "note": "Read-only lookup of the employee's own balance."
+            },
+            {
+              "subject": "file_leave_request",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:61",
+              "quote": "approval: subject",
+              "note": "Write operation held for the employee's approval."
+            },
+            {
+              "subject": "escalate_to_human",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:88",
+              "quote": "approval: subject",
+              "note": "Outbound ticket send held for the employee's approval."
+            },
+            {
+              "subject": "default for unlisted tools",
+              "status": "enforced",
+              "evidence": "src/tools.py:68",
+              "quote": "return self._tools.get(name)",
+              "note": "Unlisted names return None and are denied by the caller."
+            },
+            {
+              "subject": "audit deletion and retention",
+              "status": "enforced",
+              "evidence": "k8s/audit-maintenance.yaml:35",
+              "quote": "value: \"6\"",
+              "note": "Retention is a reviewed CronJob setting, not model-callable."
+            },
+            {
+              "subject": "agent audit rights",
+              "status": "enforced",
+              "evidence": "migrations/001_init.sql:81",
+              "quote": "GRANT INSERT ON audit.events TO hr_agent;",
+              "note": "Agent role can only insert audit rows, not delete them."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B05.2",
+          "check": "The gate runs in the execution path when the call runs and checks the operation, the target, and the arguments, not only a tool name, command name, or blocklist of words.",
+          "verify": "1) Find where tool calls execute (`tool_use`, `call_tool`, `execute`, `can_use_tool`, `PreToolUse`). 2) Find the gate that runs before the side effect and see what it inspects. 3) Answer no if it checks only the tool or command name, matches words (`'rm' in cmd`, `DROP`), runs after the call, lives only in the prompt, or sits in a `try`/`catch` that continues on error. 4) For each value that lets an action skip approval (an internal recipient, a small amount, a safe path), read the comparison itself: answer no if a domain, host, or path is matched by suffix, prefix, or substring without an anchor, so `endswith('example.com')` also passes `evil-example.com`.",
+          "met": "yes",
+          "evidence": "src/agent.py:113",
+          "quote": "if spec.approval == \"subject\":",
+          "counter_search": "Searched for other callers of _execute and gateway.call; _execute is reached only from agent.py:121 and agent.py:144, and no gate sits in a try block that continues on error. No domain, amount or path comparison lets a call skip approval.",
+          "note": "The gate runs in _handle_tool before execution and approval is bound to operation, target and argument hash at consume time.",
+          "coverage": [
+            {
+              "subject": "pre-execution gate",
+              "status": "enforced",
+              "evidence": "src/agent.py:113",
+              "quote": "if spec.approval == \"subject\":",
+              "note": "Subject-approval tools stop before any side effect runs."
+            },
+            {
+              "subject": "operation binding",
+              "status": "enforced",
+              "evidence": "src/approvals.py:78",
+              "quote": "AND operation = $4",
+              "note": "Consume statement also checks the operation name."
+            },
+            {
+              "subject": "target binding",
+              "status": "enforced",
+              "evidence": "src/approvals.py:79",
+              "quote": "AND target = $5",
+              "note": "Consume statement also checks the target value."
+            },
+            {
+              "subject": "argument binding",
+              "status": "enforced",
+              "evidence": "src/approvals.py:80",
+              "quote": "AND args_sha256 = $6",
+              "note": "Consume statement checks the argument hash."
+            },
+            {
+              "subject": "approved execution path",
+              "status": "enforced",
+              "evidence": "src/agent.py:144",
+              "quote": "result = await self._execute(ctx, state, step_id, pending[\"tool_use_id\"], spec, target, args, approval_id=approval_id)",
+              "note": "Resumed execution only follows a successful consume."
+            },
+            {
+              "subject": "unapproved execution path",
+              "status": "enforced",
+              "evidence": "src/agent.py:121",
+              "quote": "return await self._execute(ctx, state, step_id, tool_use_id, spec, target, args, approval_id=None)",
+              "note": "Reached only for approval none read-only tools."
+            },
+            {
+              "subject": "inventory model call I7727b50a21",
+              "status": "enforced",
+              "evidence": "src/agent.py:70",
+              "quote": "resp = await self.llm.messages.create(",
+              "note": "Model call produces proposals only, with no side effects."
+            },
+            {
+              "subject": "inventory registration Ib44070acfc",
+              "status": "enforced",
+              "evidence": "src/gateway.py:73",
+              "quote": "_disabled.add(spec.qualified)",
+              "note": "Registration path only disables tools, never enables new ones."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B05.3",
+          "check": "The same gate covers every path that can do the operation, including raw shell, HTTP or API clients, other tools, and requests to a more powerful tool or peer agent.",
+          "verify": "1) Open the tool registry or config and write every tool the model can call into your note, by name, including MCP servers and sub-agents. 2) For each, say whether it can do a gated operation, including through a page it controls: a browser click or form fill in a logged-in session can buy, send, or delete. 3) Trace each such tool to the gate. 4) Answer no if any alias, raw shell or HTTP tool, browser action, second dispatch path, peer agent, or more powerful MCP tool can do the operation without passing the same gate.",
+          "met": "yes",
+          "evidence": "src/agent.py:101",
+          "quote": "spec = self.registry.get(name)",
+          "counter_search": "Searched for subprocess, shell, fetch, sub-agent and second dispatch paths; max_subagents is 0 and the only callers of gateway.call are _execute and the read-only balance recheck.",
+          "note": "Every model-callable tool passes through _handle_tool, so the same approval gate covers all four tools and there is no shell, HTTP or peer-agent tool.",
+          "coverage": [
+            {
+              "subject": "search_policies",
+              "status": "enforced",
+              "evidence": "src/agent.py:166",
+              "quote": "if spec.kind == \"local\":",
+              "note": "Local read-only SQL search with no write capability."
+            },
+            {
+              "subject": "get_leave_balance",
+              "status": "enforced",
+              "evidence": "src/agent.py:177",
+              "quote": "raw = await self.gateway.call(spec, args, ctx, state.subject_token, operation_id=operation_id)",
+              "note": "Read-only tool through the same dispatcher."
+            },
+            {
+              "subject": "file_leave_request",
+              "status": "enforced",
+              "evidence": "src/agent.py:113",
+              "quote": "if spec.approval == \"subject\":",
+              "note": "Write tool held at the same gate."
+            },
+            {
+              "subject": "escalate_to_human",
+              "status": "enforced",
+              "evidence": "src/agent.py:113",
+              "quote": "if spec.approval == \"subject\":",
+              "note": "Send tool held at the same gate, including its direct route."
+            },
+            {
+              "subject": "sub-agents",
+              "status": "enforced",
+              "evidence": "config/agent.yaml:23",
+              "quote": "max_subagents: 0",
+              "note": "No peer or sub-agent can be asked to act."
+            },
+            {
+              "subject": "recheck gateway call",
+              "status": "enforced",
+              "evidence": "src/agent.py:154",
+              "quote": "bal = await self.gateway.call(balance_spec, {\"leave_type\": args[\"leave_type\"]}, ctx, state.subject_token,",
+              "note": "Only reads the balance, never performs a write."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B05.4",
+          "check": "A blocked operation runs only after approval from a person or system with higher authority than the agent; a prompt, comment, or model instruction is never the enforcement.",
+          "verify": "1) Find what happens when the gate blocks (approval request, `interrupt()`, `needs_approval`, webhook to reviewer). 2) Check who approves. 3) Answer no if the model, the agent itself, or a prompt instruction can approve, if approval is auto-granted (`bypassPermissions`, `acceptEdits`, auto-approve flag, `yes` default), or if a timeout proceeds.",
+          "met": "yes",
+          "evidence": "src/approvals.py:74",
+          "quote": "AND approved_by = subject",
+          "counter_search": "Searched for auto-approve flags, bypassPermissions, acceptEdits and default-yes approvals; none found. Expiry denies rather than proceeds.",
+          "note": "Only the employee's own authenticated session can approve, each grant expires and is used once, and the model has no approval path.",
+          "coverage": [
+            {
+              "subject": "approval endpoint",
+              "status": "enforced",
+              "evidence": "src/main.py:149",
+              "quote": "await approvals.confirm(approval_id, employee_id)",
+              "note": "Approval comes from the verified employee token on the confirm route."
+            },
+            {
+              "subject": "approver must be subject",
+              "status": "enforced",
+              "evidence": "src/approvals.py:59",
+              "quote": "WHERE approval_id = $1 AND subject = $2 AND approved_at IS NULL AND expires_at > now()",
+              "note": "Update only succeeds for the run's own subject before expiry."
+            },
+            {
+              "subject": "single use",
+              "status": "enforced",
+              "evidence": "src/approvals.py:72",
+              "quote": "AND used_at IS NULL",
+              "note": "A used approval cannot run again."
+            },
+            {
+              "subject": "timeout",
+              "status": "enforced",
+              "evidence": "config/agent.yaml:47",
+              "quote": "ttl_seconds: 600",
+              "note": "Approvals expire after ten minutes and then fail closed."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "B05.5",
+          "check": "For an agent that reads untrusted input, reaches sensitive data or systems, and acts outside, every consequential action is gated, unless code shows untrusted content cannot pick the tool, destination, or arguments (for example plan-then-execute or capability tracking).",
+          "verify": "1) Check whether the agent reads untrusted content (web, email, files, tool output), reaches sensitive data, and can act outside. 2) If all three, list consequential actions and check each is gated. 3) Answer no if any is ungated and untrusted content can choose its tool, destination, or arguments with no plan-then-execute or capability tracking in code. Answer yes if the three are not combined.",
+          "met": "yes",
+          "evidence": "src/agent.py:113",
+          "quote": "if spec.approval == \"subject\":",
+          "counter_search": "Searched for ungated write or send tools; the two consequential tools are both approval: subject and the other two are reads.",
+          "note": "The agent combines untrusted input, sensitive data and outside actions, and every consequential action goes through the approval gate.",
+          "coverage": [
+            {
+              "subject": "untrusted input",
+              "status": "enforced",
+              "evidence": "release/manifest.yaml:26",
+              "quote": "untrusted_input: yes (employee messages, handbook passages, tool output)",
+              "note": "All three capabilities are present so every consequential action is gated."
+            },
+            {
+              "subject": "file_leave_request gated",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:61",
+              "quote": "approval: subject",
+              "note": "Consequential write requires the employee approval first."
+            },
+            {
+              "subject": "escalate_to_human gated",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:88",
+              "quote": "approval: subject",
+              "note": "Consequential send requires the employee approval first."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/approvals.py:31 describe() for file_leave_request omits the model-written note field, yet the approval hash covers it, so the employee approves an action whose note they never saw."
+      ],
+      "violates": [
+        "approves that specific action"
+      ],
+      "also_affects": [],
+      "summary": "The approval gate covers all consequential tools, but the leave-request approval text omits the model-written note, so the employee approves arguments they were not shown.",
+      "next_step": "Include the note in describe() for hris/file_leave_request in src/approvals.py, or remove the note field from the input schema.",
+      "lead_role": "agent_team"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

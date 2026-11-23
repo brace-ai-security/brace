@@ -8,6 +8,7 @@ Outputs:
   skills/brace-review/references/<aspect>.md
   skills/brace-tests/references/<aspect>.md
   skills/brace-review/references/checks.json (must_show checks, read by validate_findings.py)
+  skills/brace-checklist/references/{checklist,roles,verification}.md (exact copies, so that skill is standalone)
 
 Run with --check to fail (exit 1) when the outputs are out of date.
 """
@@ -170,6 +171,13 @@ def main():
              for iid in sorted(must_show)}
     outputs.append((ROOT / "skills" / "brace-review" / "references" / "checks.json",
                     json.dumps(table, indent=1) + "\n"))
+    # Standalone copies bundled in brace-checklist, so that skill works outside this repo.
+    for src, dest in (("CHECKLIST.md", "checklist.md"), ("ROLES.md", "roles.md"),
+                      ("CHECKLIST-VERIFICATION.md", "verification.md")):
+        header = (f"<!-- GENERATED from {src} in the BRACE repository. Do not edit by hand; "
+                  "CI/CD regenerates this copy. Content below is copied exactly. -->\n")
+        outputs.append((ROOT / "skills" / "brace-checklist" / "references" / dest,
+                        header + (ROOT / src).read_text()))
     for path, text in outputs:
         if check:
             if not path.exists() or path.read_text() != text:

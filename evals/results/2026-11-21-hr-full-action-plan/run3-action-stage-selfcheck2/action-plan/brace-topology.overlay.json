@@ -1,0 +1,106 @@
+{
+  "nodes": [
+    {
+      "ref": "data:hr-postgres",
+      "kind": "data_store",
+      "name": "hr-postgres (approvals, quotas, stop flags, handbook)",
+      "evidence": "src/main.py:165",
+      "quote": "pool = await asyncpg.create_pool(os.environ[\"DATABASE_URL\"], min_size=2, max_size=20)"
+    },
+    {
+      "ref": "mcp:helpdesk",
+      "kind": "mcp_server",
+      "name": "helpdesk-mcp",
+      "evidence": "config/tools.yaml:9",
+      "quote": "  helpdesk:"
+    },
+    {
+      "ref": "mcp:hris",
+      "kind": "mcp_server",
+      "name": "hris-mcp",
+      "evidence": "config/tools.yaml:4",
+      "quote": "  hris:"
+    },
+    {
+      "ref": "api:sts",
+      "kind": "external_api",
+      "name": "token service (STS)",
+      "evidence": "src/credentials.py:18",
+      "quote": "STS_URL = \"https://sts.identity.svc.cluster.local/oauth2/token\""
+    }
+  ],
+  "edges": [
+    {
+      "from": "tool:escalate_to_human",
+      "to": "mcp:helpdesk",
+      "label": "direct route that skips the gateway when it returns 503",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway_client.py:59",
+      "quote": "return await self._post(spec.direct_route[\"endpoint\"], token, spec, args, ctx, operation_id)"
+    },
+    {
+      "from": "mcp:hr-tool-gateway",
+      "to": "mcp:hris",
+      "label": "forwards approved HRIS calls",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway.py:180",
+      "quote": "upstream = await _upstream.post(registry.servers[spec.server][\"endpoint\"], headers=headers, timeout=8.0,"
+    },
+    {
+      "from": "mcp:hr-tool-gateway",
+      "to": "mcp:helpdesk",
+      "label": "forwards approved helpdesk calls",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway.py:180",
+      "quote": "upstream = await _upstream.post(registry.servers[spec.server][\"endpoint\"], headers=headers, timeout=8.0,"
+    },
+    {
+      "from": "agent",
+      "to": "api:sts",
+      "label": "exchanges employee token for tool tokens",
+      "risks": [
+        "personal_data"
+      ],
+      "evidence": "src/credentials.py:47",
+      "quote": "resp = await self._client.post("
+    },
+    {
+      "from": "tool:search_policies",
+      "to": "data:hr-postgres",
+      "label": "reads handbook chunks, some employee-only",
+      "risks": [
+        "personal_data"
+      ],
+      "evidence": "src/retrieval.py:50",
+      "quote": "rows = await self._pool.fetch(_SEARCH, query, employee_id, self._top_k)"
+    },
+    {
+      "from": "agent",
+      "to": "data:hr-postgres",
+      "label": "stores approvals, quotas and reads stop flags",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/approvals.py:46",
+      "quote": "await self._pool.execute("
+    }
+  ],
+  "zones": [
+    {
+      "ref": "mcp:hr-tool-gateway",
+      "zone": "cluster",
+      "evidence": "src/gateway_client.py:17",
+      "quote": "GATEWAY_URL = \"https://hr-tool-gateway.hr-agent.svc.cluster.local:8443/mcp\""
+    }
+  ]
+}

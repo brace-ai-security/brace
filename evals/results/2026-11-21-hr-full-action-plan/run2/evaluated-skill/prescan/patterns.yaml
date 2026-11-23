@@ -1,0 +1,409 @@
+# Pre-scan patterns for the brace-review skill.
+#
+# Each pattern marks code that LOOKS like a control but often fails, or a common
+# agent security mistake. A hit is a place to read, not a finding. The reviewer
+# answers the `ask` before using the hit as evidence for any check.
+#
+# Fields:
+#   id         P<nn>, stable.
+#   item       the BRACE item whose requirement this usually breaks.
+#   title      short name.
+#   languages  file types to scan (see LANGUAGE_GLOBS in scripts/prescan.py).
+#   regex      Python `re` syntax, matched per line, case-sensitive unless (?i) or (?i:...).
+#   file_glob  optional; when present it replaces the language globs. Matched against
+#              the file name and the repo-relative path.
+#   include_comments  optional; by default lines that are only a comment (#, //, /*, *, --)
+#              are skipped. Set true for patterns that matter in comments, such as secrets.
+#   window     optional; the regex is matched against this line plus the next N lines
+#              joined with "\n". Such regexes start with ^ so a hit is reported once,
+#              at the line where it starts.
+#   ask        one sentence: what to check to confirm or dismiss the hit.
+#
+# Regexes are YAML single-quoted: backslashes are literal, and '' is a single quote.
+
+# ---------------------------------------------------------------- command execution
+- id: P01
+  item: B01
+  title: "Python runs a command through a shell"
+  languages: [python]
+  regex: '\bshell\s*=\s*True\b|\bos\.(system|popen)\s*\(|\bsubprocess\.(getoutput|getstatusoutput)\s*\('
+  ask: "Does any model- or user-influenced text reach this command string? With a shell, an allowlist on the first word doesn't stop `;`, `&&`, `|`, or `$()`."
+
+- id: P02
+  item: B01
+  title: "Node runs a command string through a shell"
+  languages: [typescript, javascript]
+  regex: '\bexecSync\s*\(|\bchild_process\.exec\s*\(|\bshell\s*:\s*true\b|import\s*\{[^}]*\bexec\b[^}]*\}\s*from\s*[''"](node:)?child_process|\{\s*exec\s*\}\s*=\s*require\(\s*[''"](node:)?child_process'
+  ask: "Does model- or user-influenced text reach this command string? `exec`/`execSync`/`shell: true` hand the whole string to /bin/sh, so `;`, `&&` and `$()` run."
+
+- id: P03
+  item: B01
+  title: "Go runs sh -c / bash -c"
+  languages: [go]
+  regex: 'exec\.Command(Context)?\([^)]*"(/bin/|/usr/bin/)?(ba|z|da)?sh",\s*"-c"'
+  ask: "Is the `-c` string built from model or user input? If so, argument allowlists elsewhere don't apply to what the shell parses."
+
+- id: P04
+  item: B01
+  title: "Command allowlist checks only the first word"
+  languages: [python, typescript, javascript, go]
+  regex: '\.split\(\s*\)\s*\[\s*0\s*\]|shlex\.split\([^)]*\)\s*\[\s*0\s*\]|\.split\(\s*([''"] [''"]|/\\s\+/)\s*\)\s*\[\s*0\s*\]|strings\.Fields\([^)]*\)\[0\]'
+  ask: "If this first token is what an allowlist checks, is the full command then run by a shell or with arguments like `-exec`, `--upload-pack`, or `-o ProxyCommand` that the check never sees?"
+
+- id: P05
+  item: B01
+  title: "Dynamic code evaluation"
+  languages: [python, typescript, javascript]
+  regex: '(?<![\w.])(eval|exec)\s*\(\s*(?![''"]\s*\))|\bnew\s+Function\s*\(|\bvm\.(runIn\w+|Script)\b|\bvm2\b'
+  ask: "Can model output or tool results reach this evaluated string, and if this is a deliberate code tool, is it listed in the tool surface and run in an isolated sandbox?"
+
+# ---------------------------------------------------------------- path sandboxing
+- id: P06
+  item: B08
+  title: "Path sandbox enforced by string prefix"
+  languages: [python, typescript, javascript, go]
+  regex: '(?i)\.starts_?with\s*\(\s*[\w.]*(root|base|dir|sandbox|workspace|workdir|allowed|prefix|home)|strings\.HasPrefix\([^,]+,\s*\w*(root|base|dir|sandbox|workspace|allowed)'
+  ask: "Is the path resolved (realpath/resolve, symlinks followed) before the check, and does the prefix end with a separator so `/work-evil` doesn't pass a `/work` check?"
+
+# ---------------------------------------------------------------- fail-open control flow
+- id: P07
+  item: B05
+  title: "Python except block allows"
+  languages: [python]
+  window: 3
+  regex: '^\s*except\b[^\n]*:[ \t]*(#[^\n]*)?(\n[ \t]*(#|log|logger|logging|print|warnings)[^\n]*)*\n?[ \t]*(return\s+(True|[''"](allow|allowed|approve|approved|ok|pass)[''"]|\{\s*[''"](allow|allowed|approved)[''"]\s*:\s*True)|(allowed|approved|is_allowed|ok)\s*=\s*True)'
+  ask: "Is this inside a policy, approval, validation, or auth decision? If an error there returns allow, a crash or timeout in the checker approves the action."
+
+- id: P08
+  item: B05
+  title: "JS/TS catch or Go error branch allows"
+  languages: [typescript, javascript, go]
+  window: 3
+  regex: '^\s*\}?\s*catch\s*(\([^)]*\))?\s*\{[^\n]*(\n[ \t]*(//|console\.|log|logger)[^\n]*)*\n?[^\n]*(return\s+(true\b|[''"](allow|allowed|approved)[''"]|\{\s*(allow|allowed|approved)\s*:\s*true)|(allowed|approved|isAllowed|ok)\s*=\s*true)|^\s*if\s+err\s*!=\s*nil\s*\{[ \t]*(\n[ \t]*(//|log\.|slog\.|logger\.)[^\n]*)*\n[ \t]*return\s+(true\b|"allow"|[A-Za-z_.]*Allow\b)'
+  ask: "Is this catch or error branch inside a policy, approval, validation, or auth check? An error there should deny; returning allow means any failure in the checker approves the action."
+
+- id: P09
+  item: A03
+  title: "File walk skips names by prefix"
+  languages: [python, typescript, javascript, go]
+  regex: '\.(startswith|startsWith)\(\s*[''"](_|__|\.|~)[''"]\s*\)|strings\.HasPrefix\([^,]+,\s*"(_|__|\.)"\)'
+  ask: "Is this inside code that hashes, fingerprints, or scans the harness, prompts, or tools? If so, files named `_x`, `__init__`, or `.hidden` are left out of the identity or scan and can change undetected."
+
+- id: P10
+  item: A03
+  title: "Ignore/skip list in a walk"
+  languages: [python, typescript, javascript, go]
+  regex: '(?i)\b(ignore|ignored|skip|skipped|exclude|excluded)_?(dirs|directories|names|patterns|files|exts|extensions|list|set)\b\s*[:=]'
+  ask: "If this list feeds a hash, drift check, or security scan, does it exclude anything that defines agent behaviour (prompts, rules, configs, `.mcp.json`, tool code)?"
+
+# ---------------------------------------------------------------- environment / delegation
+- id: P11
+  item: E08
+  title: "Full parent environment passed to a child"
+  languages: [python, typescript, javascript, go]
+  regex: '\.\.\.\s*process\.env\b|\bos\.environ\.copy\(\)|\benv\s*=\s*(dict\()?os\.environ\b|\{\s*\*\*os\.environ|\.Env\s*=\s*(append\()?os\.Environ\(\)|env:\s*process\.env\b'
+  ask: "Does this child (sub-agent, tool, MCP server, shell) receive the parent's API keys and tokens? It should get an explicit allowlist of variables and its own scoped credentials."
+
+# ---------------------------------------------------------------- pinning
+- id: P12
+  item: C05
+  title: "Model named by floating alias"
+  languages: [python, typescript, javascript, go, yaml, json, toml, hcl]
+  regex: '[''"][\w./:-]*-latest[''"]|[''"](gpt-4o|gpt-4o-mini|gpt-4-turbo|gpt-4\.1|o1|o3|o3-mini|o4-mini|chatgpt-4o-latest|gemini-[\d.]+-(pro|flash)|claude-[\w.-]*-latest)[''"]'
+  ask: "Does this name resolve to a dated snapshot, or can the provider change the model behind it without a release, breaking the manifest's model identity?"
+
+- id: P13
+  item: B10
+  title: "Dockerfile base image not pinned by digest"
+  languages: [dockerfile]
+  regex: '(?i)^\s*FROM\s+(--platform=\S+\s+)?(?!scratch\b)(?![^\s]*@sha256:)[^\s$]+'
+  ask: "Is this base image a tag (mutable) rather than `@sha256:`? A tag can be repointed, so the built image won't match the reviewed one."
+
+- id: P14
+  item: B10
+  title: "Container image in manifest not pinned by digest"
+  languages: [yaml, hcl, json]
+  regex: '^\s*-?\s*[''"]?image[''"]?\s*[:=]\s*[''"]?(?![^\s''"]*@sha256:)(?![^\s''"]*\{\{)(?!\$)[\w.-]+(/[\w.-]+)*(:[\w.-]+)?[''"]?\s*,?\s*(#.*)?$'
+  ask: "Is this image referenced by tag or `:latest` instead of digest, and is there an admission check that verifies digest and signature before it runs?"
+
+- id: P15
+  item: E02
+  title: "Package runner fetches unpinned code"
+  languages: [json, yaml, shell, dockerfile, toml, typescript, javascript, python]
+  regex: '^(?!.*[''"]\$schema[''"]).*?(\bnpx\s+(-y|--yes)\b|@latest\b|[''"]command[''"]\s*:\s*[''"](npx|uvx|bunx|pipx)[''"]|\buvx\s+(?![\w.-]+==)[\w.-]+)'
+  ask: "Does this launch a tool or MCP server whose version isn't pinned (no exact version or hash)? Each start can then pull a different, unreviewed release."
+
+- id: P16
+  item: C05
+  title: "pip install without pins or lockfile"
+  languages: [dockerfile, shell, yaml]
+  regex: '\bpip3?\s+install\b(?!.*(\s-r\s|--requirement|--require-hashes|\s-c\s|--constraint|==|\.whl\b|\s-e\s|\s\.\s*$|\s\.\s*&&|\s\./))'
+  ask: "Are the packages here pinned to exact versions (ideally with `--require-hashes`)? An unpinned install pulls whatever is newest at build time."
+
+- id: P17
+  item: C05
+  title: "npm/yarn/pnpm install without lockfile enforcement"
+  languages: [dockerfile, shell, yaml]
+  regex: '\bnpm\s+(install|i)\b|\byarn\s+add\b|\byarn(\s+install)?\s*($|&&)(?!.*--(frozen-lockfile|immutable))|\bpnpm\s+(add\b|install\b(?!.*--frozen-lockfile))'
+  ask: "Is this a build or deploy step? `npm install` can rewrite the lockfile; use `npm ci` / `--frozen-lockfile` so the reviewed dependency tree is what ships."
+
+- id: P18
+  item: E02
+  title: "Remote script piped to a shell"
+  languages: [dockerfile, shell, yaml]
+  regex: '\b(curl|wget)\b[^|#]*\|\s*(sudo\s+)?(ba|z|da)?sh\b'
+  ask: "Is the downloaded script pinned by version and checked against a hash or signature before it runs?"
+
+- id: P19
+  item: E02
+  title: "GitHub Action pinned by tag, not commit"
+  languages: [yaml]
+  file_glob: [".github/workflows/*.yml", ".github/workflows/*.yaml", "action.yml", "action.yaml"]
+  regex: '\buses:\s*[''"]?(?!\./)[\w.-]+/[\w./-]+@(?![0-9a-f]{40}\b)'
+  ask: "This action is referenced by a mutable tag or branch; does this workflow build, sign, or deploy the agent, where a repointed tag would run unreviewed code with its secrets?"
+
+# ---------------------------------------------------------------- network
+- id: P20
+  item: B09
+  title: "Allow-all CIDR"
+  languages: [yaml, hcl, json, python, typescript, javascript, go]
+  regex: '0\.0\.0\.0/0|::/0'
+  ask: "Is this an egress rule for the agent's workload? Allowing every destination means the egress allowlist is not enforced here."
+
+- id: P21
+  item: B09
+  title: "NetworkPolicy egress allows everything"
+  languages: [yaml]
+  window: 1
+  regex: '^\s*egress:\s*(\[\s*\{\s*\}\s*\]|\n\s*-\s*\{\s*\})'
+  ask: "An empty egress rule matches all destinations and ports; is there another policy that restricts this pod's egress?"
+
+- id: P22
+  item: E05
+  title: "TLS verification disabled"
+  languages: [python, typescript, javascript, go, yaml, hcl, shell, dockerfile, json]
+  regex: '\bverify\s*=\s*False\b|InsecureSkipVerify:\s*true|rejectUnauthorized:\s*false|NODE_TLS_REJECT_UNAUTHORIZED|ssl\.CERT_NONE|check_hostname\s*=\s*False|\bcurl\b[^\n]*\s(-k|--insecure)\b|insecure[_-]skip[_-]tls[_-]verify\s*[:=]\s*true'
+  ask: "Does this connection carry tool calls, model calls, or credentials? Without TLS verification, the server identity that tool namespacing and allowlists rely on is unproven."
+
+# ---------------------------------------------------------------- runtime hardening
+- id: P23
+  item: B11
+  title: "Privileged container"
+  languages: [yaml, hcl, json, dockerfile, shell]
+  regex: '\bprivileged[''"]?\s*[:=]\s*true\b|--privileged\b'
+  ask: "Does the agent's workload actually need full host privileges? A privileged container can escape to the node."
+
+- id: P24
+  item: B11
+  title: "Host namespace or hostPath mount"
+  languages: [yaml, hcl, json]
+  regex: '^\s*(-\s*)?(hostPath:|host_path\s*\{|hostNetwork:\s*true|hostPID:\s*true|hostIPC:\s*true|host_network\s*=\s*true|host_pid\s*=\s*true)'
+  ask: "Which host path or namespace does this expose to the agent's pod, and could the agent read or write node files, credentials, or other pods through it?"
+
+- id: P25
+  item: B11
+  title: "Docker socket mounted"
+  languages: [yaml, hcl, json, dockerfile, shell, python, typescript, javascript, go]
+  regex: 'docker\.sock\b'
+  ask: "Is the Docker socket reachable from the agent or its tools? Access to it is root on the host."
+
+- id: P26
+  item: B11
+  title: "Escalation or root allowed"
+  languages: [yaml, hcl, json, dockerfile]
+  regex: 'allowPrivilegeEscalation:\s*true|allow_privilege_escalation\s*=\s*true|runAsUser:\s*0\b|run_as_user\s*=\s*0\b|runAsNonRoot:\s*false|readOnlyRootFilesystem:\s*false|^\s*USER\s+(root|0)(:|\s|$)'
+  ask: "Does the agent's container run as root or allow escalation? Set runAsNonRoot, allowPrivilegeEscalation: false, and a read-only root filesystem unless a documented need says otherwise."
+
+- id: P27
+  item: B11
+  title: "securityContext to check for missing hardening"
+  languages: [yaml]
+  regex: '^\s*securityContext:\s*(\{\s*\})?\s*$'
+  ask: "Does this securityContext set allowPrivilegeEscalation: false, runAsNonRoot: true, readOnlyRootFilesystem: true, and drop ALL capabilities? A missing field defaults to the permissive value."
+
+- id: P28
+  item: B11
+  title: "Dangerous Linux capability added"
+  languages: [yaml, hcl, json, dockerfile, shell]
+  regex: '\b(CAP_)?(SYS_ADMIN|NET_ADMIN|SYS_PTRACE|NET_RAW|SYS_MODULE|DAC_READ_SEARCH)\b|--cap-add\b'
+  ask: "Does the agent's workload need this capability? SYS_ADMIN and SYS_PTRACE are enough to escape most container sandboxes."
+
+# ---------------------------------------------------------------- admission / signing policy
+- id: P29
+  item: B10
+  title: "Admission policy only audits"
+  languages: [yaml, json, hcl]
+  regex: 'validationFailureAction:\s*[''"]?(Audit|audit)\b|failureAction:\s*[''"]?Audit\b|enforcementAction:\s*[''"]?(dryrun|warn)\b|failurePolicy:\s*[''"]?Ignore\b|validationActions:\s*\[\s*[''"]?(Audit|Warn)[''"]?\s*\]'
+  ask: "Is this the policy meant to block unsigned images or unsafe pods? In Audit/Warn/Ignore mode a violating workload still runs."
+
+- id: P30
+  item: B10
+  title: "Signature identity accepts any subject or issuer"
+  languages: [yaml, json, hcl, shell]
+  regex: '(?i)(subject|issuer|subjectRegExp|issuerRegExp|certificate-identity-regexp|certificate-oidc-issuer-regexp|identity)[''"]?\s*[:=]?\s*[''"]?[^\n]*(\.\*|[''"]\*[''"]|:\s*\*\s*$)'
+  ask: "Does this signer identity match only your CI workflow and OIDC issuer? A wildcard accepts an image signed by anyone with a valid certificate."
+
+- id: P31
+  item: B02
+  title: "Wildcard IAM or RBAC grant"
+  languages: [yaml, json, hcl]
+  regex: '[''"]?(Action|Resource|NotAction)[''"]?\s*[:=]\s*\[?\s*[''"](\*|[a-z0-9-]+:\*)[''"]|\b(actions|resources)\s*=\s*\[\s*"(\*|[a-z0-9-]+:\*)"|^\s*(verbs|resources|apiGroups):\s*\[\s*[''"]?\*|^\s*-\s*[''"]\*[''"]\s*$|\bcluster-admin\b'
+  ask: "Is this grant attached to the agent's identity? A wildcard action or resource gives it operations beyond the named ones the task needs."
+
+# ---------------------------------------------------------------- secrets
+- id: P32
+  item: B03
+  title: "Literal secret in code or config"
+  languages: [python, typescript, javascript, go, yaml, json, hcl, toml, env, dockerfile, shell]
+  include_comments: true
+  regex: '(?i)\b(api[_-]?key|secret[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|bearer[_-]?token|password|passwd)\b[''"]?\s*[:=]\s*[''"](?![$<{%*]|\s*[''"])(?!(changeme|example|placeholder|your[_-]|xxx|dummy|test|redacted)[^''"]*[''"])[^''"\s]{8,}[''"]'
+  ask: "Is this a real credential committed to the repo? Long-lived secrets belong in a secrets service, issued short-lived to the agent; don't copy the value into the report."
+
+- id: P33
+  item: B03
+  title: "Known API key format"
+  languages: [python, typescript, javascript, go, yaml, json, hcl, toml, env, dockerfile, shell]
+  include_comments: true
+  regex: '\b(sk_live_[0-9A-Za-z]{10,}|rk_live_[0-9A-Za-z]{10,}|sk-ant-[\w-]{20,}|sk-(proj-)?[A-Za-z0-9_-]{32,}|ghp_[A-Za-z0-9]{30,}|github_pat_\w{30,}|xox[abpr]-[\w-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})\b'
+  ask: "This matches a provider key format; confirm whether it is live and committed, and if so it must be rotated and moved to a secrets service."
+
+- id: P34
+  item: E06
+  title: "MCP server defined directly in config"
+  languages: [json]
+  file_glob: [".mcp.json", "mcp.json", "*mcp*.json", "claude_desktop_config.json"]
+  regex: '[''"](command|url|serverUrl|endpoint)[''"]\s*:'
+  ask: "Does this server reach the agent only through the enforced gateway, or does the agent connect to it directly so gateway policy and logging are skipped?"
+
+# ---------------------------------------------------------------- trust in model or caller claims
+- id: P35
+  item: B05
+  title: "Tool annotation hint used as a safety signal"
+  languages: [python, typescript, javascript, go]
+  regex: '\b(readOnlyHint|destructiveHint|idempotentHint|openWorldHint|read_only_hint|destructive_hint|ReadOnlyHint|DestructiveHint)\b'
+  ask: "Does any allow, skip-approval, or auto-run decision read this hint? The server sets it and can lie, so it must not decide whether an action needs approval."
+
+- id: P36
+  item: B05
+  title: "Force-push detected by string match"
+  languages: [python, typescript, javascript, go]
+  regex: '[''"]--force(-with-lease)?[''"]|\b[Ff]orce_?[Pp]ush\b|\bFORCE_PUSH\b'
+  ask: "Does the check also catch `-f`, combined flags like `-fu`, a `+branch` refspec, `--force-with-lease`, `--mirror`, git aliases, and force updates through the hosting API?"
+
+- id: P37
+  item: B06
+  title: "Approval flag read from tool arguments"
+  languages: [python, typescript, javascript, go]
+  regex: '(?i)\b(args|arguments|params|input|tool_?input|kwargs|payload|body)\s*(\[\s*[''"]|\.get\(\s*[''"]|\.)(approved|confirmed|is_approved|user_confirmed|approval|confirm|skip_approval|force)\b'
+  ask: "Can the model set this field itself? An approval must come from the approval system tied to this instance and operation, not from arguments the model writes."
+
+- id: P38
+  item: A04
+  title: "Tenant or user id taken from request or tool input"
+  languages: [python, typescript, javascript, go]
+  regex: '(?i)\b(args|arguments|params|input|tool_?input|kwargs|payload|body|request\.json|req\.body|req\.query|req\.params|request\.args|request\.form)\s*(\[\s*[''"]|\.get\(\s*[''"]|\.)(tenant|tenant_?id|org_?id|organization_?id|user_?id|account_?id|customer_?id|workspace_?id|owner_?id)\b|\.Query\(\)\.Get\(\s*"(?i:tenant|user|org|account)'
+  ask: "Is this value used for access decisions or audit identity? It should come from the authenticated session or execution layer, not from fields the caller or model fills in."
+
+- id: P39
+  item: A04
+  title: "Identity read from a custom header"
+  languages: [python, typescript, javascript, go, yaml]
+  regex: '(?i)[''"]x-(user|tenant|org|account|agent|auth|forwarded-user|remote-user|customer|workspace|principal|on-behalf-of)[\w-]*[''"]'
+  ask: "Is this header set only by a trusted proxy that strips client-supplied copies, or can any caller (or the agent) set it to claim another identity?"
+
+# ---------------------------------------------------------------- audit, budgets, leakage
+- id: P40
+  item: R13
+  title: "Audit write inside a try block"
+  languages: [python, typescript, javascript]
+  window: 6
+  regex: '^\s*try\s*(:|\{)[ \t]*(\n[^\n]*){0,5}?\n[^\n]*\b(audit\w*|log_?[Aa]ction|record_?[Ee]vent|emit_?[Aa]udit|write_?[Aa]udit)\s*[.(]'
+  ask: "Is the audit record written only after the action succeeds? Check the deny, error, and exception branches also record the attempt, and that an audit failure doesn't silently pass."
+
+- id: P41
+  item: B07
+  title: "Timeout or budget defined"
+  languages: [python, typescript, javascript, go]
+  regex: '(?i)^\s*(const\s+|let\s+|var\s+|self\.|this\.)?(\w*(tool|agent|step|run|llm|model|completion|exec|command|loop|turn|task|sandbox)_?\w*(timeout|budget|deadline)\w*|max_?(steps|iterations|iters|turns|tool_?calls|tokens|cost|spend|depth)\w*)\s*(:\s*[\w.\[\]]+\s*)?:?=\s*[\d.]'
+  ask: "Search for every read of this name: is it actually passed to the call or loop it should bound, and does exceeding it stop the run outside the model's control?"
+
+- id: P42
+  item: B07
+  title: "Rate or quota counter"
+  languages: [python, typescript, javascript, go]
+  regex: '(?i)\b(rate_?limit|quota|budget|tokens?_?used|spend|spent|cost_?so_?far|total_?cost)\w*\s*(\[[^\]]*\]\s*)?(\+=|\.incr(by)?\(|\.increment\(|\+\+)|\.incr(by)?\(\s*f?[''"`](rate|quota|usage|budget)'
+  ask: "Is this counter keyed by a trusted identity, shared across replicas and restarts, and stored where the agent and its caller can't reset or write it?"
+
+- id: P43
+  item: R03
+  title: "Redaction implemented as regex"
+  languages: [python, typescript, javascript, go]
+  regex: '(?i)(redact|mask|scrub|sanitiz|secret|pii|sensitive)\w*\s*[:=]\s*(re\.compile|new\s+RegExp|regexp\.(Must)?Compile|\[\s*re\.compile)|(?i:redact|mask|scrub)\w*\s*\([^\n]*\bre\.sub\('
+  ask: "Which secret and PII formats does this miss (JWTs, provider key prefixes, base64 or URL-encoded values, multiline keys, values split across lines)? Check it runs on tool output, logs, and errors, not just final replies."
+
+- id: P44
+  item: R03
+  title: "Logging environment, headers, or credentials"
+  languages: [python, typescript, javascript, go]
+  regex: '(?i)\b(logger|logging|log|console|slog)\.(debug|info|log|warn|warning|error|printf|println)\s*\([^\n]*(process\.env\b|os\.environ\b|os\.Environ\(\)|\b(req|request|r|ctx)\.(headers|Header)\b|[{]\s*[\w.]*(token|secret|password|api_?key|authorization)\w*\s*[}]|,\s*[\w.]*(token|secret|password|api_?key|authorization)\s*[,)])'
+  ask: "Does this log line write a secret or a full header/env dump to a sink people or the model can read?"
+
+# ---------------------------------------------------------------- input boundary
+- id: P45
+  item: R01
+  title: "Unsafe deserialization"
+  languages: [python]
+  regex: '\b(c?[Pp]ickle|dill|cloudpickle|marshal|joblib)\.loads?\(|\btorch\.load\((?![^\n]*weights_only\s*=\s*True)|\byaml\.load\((?![^\n]*Loader\s*=\s*yaml\.(C?SafeLoader))|allow_pickle\s*=\s*True'
+  ask: "Can the loaded bytes come from a tool, download, memory store, shared volume, or user upload? Unpickling untrusted data runs arbitrary code."
+
+- id: P46
+  item: R01
+  title: "SQL built from strings"
+  languages: [python, typescript, javascript, go]
+  regex: '(?i)\b(execute|executemany|query|raw|text|exec)\s*\(\s*f[''"][^\n]*\b(select\s[^\n]*\sfrom\s|insert\s+into\s|update\s+\w+\s+set\s|delete\s+from\s)|[''"]\s*(select\s[^''"\n]*\sfrom\s|insert\s+into\s|update\s+\w+\s+set\s|delete\s+from\s)[^''"\n]*[''"]\s*(\+|%\s|\.format\()|\b(query|execute|raw)\s*\(\s*`[^`]*\b(select\s[^`]*\sfrom\s|insert\s+into\s|update\s+\w+\s+set\s|delete\s+from\s)[^`]*\$\{|fmt\.Sprintf\(\s*"(select\s[^"]*\sfrom\s|insert\s+into\s|update\s+\w+\s+set\s|delete\s+from\s)'
+  ask: "Can model output or tool input reach the interpolated value? Use bound parameters; quoting or allowlisting the first keyword doesn't stop injection."
+
+# ---------------------------------------------------------------- prompts, memory, caches
+- id: P47
+  item: R02
+  title: "System prompt built from tool output, memory, or retrieved text"
+  languages: [python, typescript, javascript, go]
+  regex: '(?i)(system_?prompt|system_?message|system_?msg|[''"]role[''"]\s*:\s*[''"]system[''"]|role:\s*[''"]system[''"])[^\n]*(tool|result|output|memory|memories|retriev|document|docs|search|observation|response|history|context)'
+  ask: "Does outside content (tool results, memory, retrieved docs) get placed in the system or policy channel? It should go in a labelled data/user turn so instructions in it don't gain system authority."
+
+- id: P48
+  item: R05
+  title: "Cache keyed without user or tenant"
+  languages: [python, typescript, javascript, go]
+  regex: '@(functools\.)?(lru_cache|cache)\b|\bcache_?[Kk]ey\s*=\s*(f?[''"`][^\n]*\{(query|prompt|q|question|input|text|url|messages)\}|[^\n]*\b(query|prompt|question|input)\b)'
+  ask: "Does the cache key include the tenant and user? If not, one tenant's answer or tool result can be served to another."
+
+- id: P49
+  item: R05
+  title: "Memory or vector store write"
+  languages: [python, typescript, javascript, go]
+  regex: '(?i)\b(memory|memories|mem0|vector_?store|vectorstore|vector_?db|vectordb|chroma\w*|pinecone\w*|qdrant\w*|weaviate\w*)\.(add|upsert|insert|save|write|put|add_texts|add_documents|addDocuments|add_memory)\s*\(|\.(add_texts|add_documents|addDocuments|add_memory|add_memories|upsert_points)\s*\('
+  ask: "Is the write scoped to a tenant/namespace set by the execution layer, validated before storing, and recorded with who wrote it and from what input?"
+
+- id: P50
+  item: E03
+  title: "Tool list loaded from server"
+  languages: [python, typescript, javascript, go]
+  regex: '\b(list_tools|listTools|ListTools)\s*\('
+  ask: "After loading, are each tool's description and schema compared against an approved fingerprint, so a changed tool is blocked rather than passed to the model?"
+
+
+# ---------------------------------------------------------------- approval exemptions
+- id: P51
+  item: B05
+  title: "Domain matched by unanchored suffix"
+  languages: [python, typescript, javascript, go]
+  regex: '\.(endswith|endsWith)\(\s*([A-Z_]*DOMAIN[A-Z_]*\b|[''"][a-z0-9-]+(\.[a-z0-9-]+)*\.(com|org|net|io|ai|co|dev|app|law|gov|edu|uk|de|eu|us)[''"])|strings\.HasSuffix\([^,]+,\s*([A-Za-z_]*[Dd]omain\w*|"[a-z0-9-]+(\.[a-z0-9-]+)*\.(com|org|net|io|ai|co|dev|app|law|gov|edu|uk|de|eu|us)")'
+  ask: "Does this decide whether an address, host, or URL is trusted, for example to skip approval or egress checks? Without a leading `@` or `.`, `evil-example.com` passes an `example.com` check."
+
+- id: P52
+  item: B05
+  title: "Browser automation action the model can steer"
+  languages: [python, typescript, javascript]
+  regex: '(\b(page|frame|tab|browser)|\b(locator|getBy\w+|get_by_\w+|\$)\([^)]*\)|\.(first|last|nth)\([^)]*\))\.(click|dblclick|fill|press|tap|type|selectOption|select_option|setInputFiles|set_input_files|dispatchEvent|dispatch_event)\s*\('
+  ask: "Can the model choose what this clicks or types in a logged-in session? If so, a Buy, Send, Delete, or settings button is a high-impact path that must pass the same approval gate as the dedicated tool."

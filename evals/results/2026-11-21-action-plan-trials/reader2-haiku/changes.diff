@@ -1,0 +1,410 @@
+diff --git a/config/tools.yaml b/config/tools.yaml
+index a9360bd..b094fa4 100644
+--- a/config/tools.yaml
++++ b/config/tools.yaml
+@@ -88,9 +88,6 @@ tools:
+     approval: subject
+     target: "queue:hr-advisors"
+     fingerprint: "sha256:3e9b71f0c2d84a6e5b17f9c03d2a8e46b1f5c07d93a2e68b4c1d0f7a5e3b9c28"
+-    direct_route:
+-      endpoint: https://helpdesk-mcp.helpdesk.svc.cluster.local:8443/mcp
+-      audience: helpdesk-mcp
+     input_schema:
+       type: object
+       properties:
+diff --git a/k8s/networkpolicy.yaml b/k8s/networkpolicy.yaml
+index 118d761..cdb62d7 100644
+--- a/k8s/networkpolicy.yaml
++++ b/k8s/networkpolicy.yaml
+@@ -45,9 +45,6 @@ spec:
+     - toEndpoints:
+         - matchLabels: {"k8s:io.kubernetes.pod.namespace": observability, app: otel-collector}
+       toPorts: [{ports: [{port: "4317", protocol: TCP}]}]
+-    - toEndpoints:
+-        - matchLabels: {"k8s:io.kubernetes.pod.namespace": helpdesk, app: helpdesk-mcp}
+-      toPorts: [{ports: [{port: "8443", protocol: TCP}]}]
+   egressDeny:
+     - toCIDR: [169.254.169.254/32, 169.254.170.2/32, 100.100.100.200/32]
+     - toCIDRSet:
+diff --git a/migrations/002_approval_scope.sql b/migrations/002_approval_scope.sql
+new file mode 100644
+index 0000000..98b3c40
+--- /dev/null
++++ b/migrations/002_approval_scope.sql
+@@ -0,0 +1,2 @@
++ALTER TABLE approvals.grants ADD COLUMN scope text NOT NULL DEFAULT 'unset';
++ALTER TABLE approvals.grants ALTER COLUMN scope DROP DEFAULT;
+diff --git a/migrations/003_audit_operation_id.sql b/migrations/003_audit_operation_id.sql
+new file mode 100644
+index 0000000..12ed30c
+--- /dev/null
++++ b/migrations/003_audit_operation_id.sql
+@@ -0,0 +1 @@
++ALTER TABLE audit.events ADD COLUMN operation_id text;
+diff --git a/src/agent.py b/src/agent.py
+index cdeefaf..bc7e50b 100644
+--- a/src/agent.py
++++ b/src/agent.py
+@@ -9,13 +9,14 @@ from dataclasses import dataclass, field
+ from datetime import date
+ from typing import Any
+ 
++import httpx
+ from anthropic import AsyncAnthropic
+ from opentelemetry import trace
+ 
+ from .approvals import ApprovalInvalid, ApprovalStore
+ from .audit import AuditWriter, RunContext
+ from .budgets import BudgetExceeded, QuotaStore, RunBudget
+-from .gateway_client import GatewayClient, ToolDenied, ToolError
++from .gateway_client import GatewayClient, GatewayUnavailable, ToolDenied, ToolError
+ from .killswitch import StopControl
+ from .redact import redact
+ from .retrieval import PolicyIndex
+@@ -111,7 +112,7 @@ class Agent:
+                                     decision="deny", reason=exc.reason, args=args)
+             return _tool_result(tool_use_id, f"Invalid arguments: {exc.reason}", error=True)
+         if spec.approval == "subject":
+-            approval_id, text = await self.approvals.request(ctx, spec.qualified, target, args, tool_use_id)
++            approval_id, text = await self.approvals.request(ctx, spec.qualified, target, args, tool_use_id, spec.scope)
+             await self.audit.record(ctx, "approval_requested", step_id=step_id, tool=spec.qualified, target=target,
+                                     decision="hold", approval_id=approval_id, args=args)
+             state.status = "awaiting_approval"
+@@ -132,7 +133,7 @@ class Agent:
+                 args = validate_tool_args(spec, pending["args"])
+                 target = spec.target(ctx.subject)
+                 await self._recheck_state(ctx, state, spec, args)
+-                grant = await self.approvals.consume(ctx, approval_id, spec.qualified, target, args)
++                grant = await self.approvals.consume(ctx, approval_id, spec.qualified, target, args, spec.scope)
+             except (ApprovalInvalid, ValidationRejected, ToolDenied, ToolError) as exc:
+                 await self.audit.record(ctx, "authz_decision", step_id=step_id, tool=pending["operation"],
+                                         decision="deny", reason=str(exc), approval_id=approval_id)
+@@ -174,24 +175,33 @@ class Agent:
+                             await self.audit.record(ctx, "content_held", step_id=step_id, tool=spec.qualified,
+                                                     decision="hold", reason=exc.reason, result={"chunk_id": chunk["chunk_id"]})
+                 else:
++                    await self.audit.record(ctx, "tool_call_sent", step_id=step_id, tool=spec.qualified, target=target,
++                                            args=args, operation_id=operation_id)
+                     raw = await self.gateway.call(spec, args, ctx, state.subject_token, operation_id=operation_id)
+                     clean = validate_tool_output(spec, raw, self.cfg["limits"]["max_tool_output_bytes"])
+             except ToolDenied as exc:
+                 await self.audit.record(ctx, "tool_denied", step_id=step_id, tool=spec.qualified, target=target,
+-                                        decision="deny", reason=exc.reason, approval_id=approval_id, args=args)
++                                        decision="deny", reason=exc.reason, approval_id=approval_id, args=args,
++                                        operation_id=operation_id)
+                 return _tool_result(tool_use_id, "The request was refused by policy.", error=True)
+             except ToolError as exc:
+                 await self.audit.record(ctx, "tool_error", step_id=step_id, tool=spec.qualified, target=target,
+                                         decision="error", reason=f"status {exc.status}", approval_id=approval_id,
+-                                        args=args, result={"detail": exc.detail})
++                                        args=args, result={"detail": exc.detail}, operation_id=operation_id)
+                 log.warning("tool error", extra={"tool": spec.qualified, "detail": redact(exc.detail)})
+                 return _tool_result(tool_use_id, f"{spec.name} failed: {exc.detail}", error=True)
++            except (GatewayUnavailable, httpx.HTTPError) as exc:
++                await self.audit.record(ctx, "tool_error", step_id=step_id, tool=spec.qualified, target=target,
++                                        decision="error", reason=type(exc).__name__, approval_id=approval_id,
++                                        operation_id=operation_id)
++                return _tool_result(tool_use_id, "The tool is unavailable.", error=True)
+             except ValidationRejected as exc:
+                 await self.audit.record(ctx, "content_held", step_id=step_id, tool=spec.qualified, target=target,
+                                         decision="hold", reason=exc.reason, approval_id=approval_id)
+                 return _tool_result(tool_use_id, "The tool returned data that could not be used.", error=True)
+         await self.audit.record(ctx, "tool_result", step_id=step_id, tool=spec.qualified, target=target,
+-                                decision="ok", approval_id=approval_id, args=args, result=clean)
++                                decision="ok", approval_id=approval_id, args=args, result=clean,
++                                operation_id=operation_id)
+         envelope = {"source": spec.qualified, "trust": "untrusted_data", "data": clean}
+         return _tool_result(tool_use_id, json.dumps(envelope, ensure_ascii=False))
+ 
+diff --git a/src/approvals.py b/src/approvals.py
+index dc6f618..bbb0012 100644
+--- a/src/approvals.py
++++ b/src/approvals.py
+@@ -40,16 +40,16 @@ class ApprovalStore:
+         self._pool = pool
+         self._ttl = timedelta(seconds=ttl_seconds)
+ 
+-    async def request(self, ctx: RunContext, operation: str, target: str, args: dict[str, Any], tool_use_id: str) -> tuple[str, str]:
++    async def request(self, ctx: RunContext, operation: str, target: str, args: dict[str, Any], tool_use_id: str, scope: str) -> tuple[str, str]:
+         approval_id = str(uuid.uuid4())
+         text = describe(operation, target, args)
+         await self._pool.execute(
+             """INSERT INTO approvals.grants
+                  (approval_id, run_id, agent_instance_id, subject, operation, target, args_sha256, args,
+-                  tool_use_id, description, requested_at, expires_at)
+-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, now(), now() + $11)""",
++                  tool_use_id, description, requested_at, expires_at, scope)
++               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, now(), now() + $11, $12)""",
+             approval_id, ctx.run_id, ctx.agent_instance_id, ctx.subject, operation, target,
+-            args_digest(args), json.dumps(args), tool_use_id, text, self._ttl,
++            args_digest(args), json.dumps(args), tool_use_id, text, self._ttl, scope,
+         )
+         return approval_id, text
+ 
+@@ -64,7 +64,7 @@ class ApprovalStore:
+         if row is None:
+             raise ApprovalInvalid("not found, expired, already decided, or approver lacks authority")
+ 
+-    async def consume(self, ctx: RunContext, approval_id: str, operation: str, target: str, args: dict[str, Any]) -> dict[str, Any]:
++    async def consume(self, ctx: RunContext, approval_id: str, operation: str, target: str, args: dict[str, Any], scope: str) -> dict[str, Any]:
+         """Atomically mark the approval used. Every binding is re-checked in the same statement."""
+         row = await self._pool.fetchrow(
+             """UPDATE approvals.grants SET used_at = now()
+@@ -78,8 +78,9 @@ class ApprovalStore:
+                   AND operation = $4
+                   AND target = $5
+                   AND args_sha256 = $6
++                  AND scope = $7
+                 RETURNING approval_id, approved_by, approved_at, expires_at""",
+-            approval_id, ctx.agent_instance_id, ctx.subject, operation, target, args_digest(args),
++            approval_id, ctx.agent_instance_id, ctx.subject, operation, target, args_digest(args), scope,
+         )
+         if row is None:
+             raise ApprovalInvalid("approval does not match this action, was used, or expired")
+diff --git a/src/audit.py b/src/audit.py
+index 4f1ebcd..8f022fe 100644
+--- a/src/audit.py
++++ b/src/audit.py
+@@ -40,14 +40,14 @@ INSERT INTO audit.events (
+     trace_id, span_id, traceparent,
+     delegated_subject, agent_principal,
+     tool, operation_target, decision, reason, policy_version, approval_id,
+-    args_redacted, result_redacted, context_tokens, context_tokens_method, model_requested, model_served
++    args_redacted, result_redacted, context_tokens, context_tokens_method, model_requested, model_served, operation_id
+ ) VALUES (
+     $1, now(), $2, $3, $4, $5,
+     $6, $7, $8, $9, $10,
+     $11, $12, $13,
+     $14, $15,
+     $16, $17, $18, $19, $20, $21,
+-    $22::jsonb, $23::jsonb, $24, $25, $26, $27
++    $22::jsonb, $23::jsonb, $24, $25, $26, $27, $28
+ )
+ """
+ 
+@@ -75,6 +75,7 @@ class AuditWriter:
+         context_tokens_method: str | None = None,
+         model_requested: str | None = None,
+         model_served: str | None = None,
++        operation_id: str | None = None,
+     ) -> str:
+         span_ctx = trace.get_current_span().get_span_context()
+         if not span_ctx.is_valid:
+@@ -92,7 +93,7 @@ class AuditWriter:
+                 ctx.subject, ctx.agent_principal,
+                 tool, target, decision, reason, self._policy_version, approval_id,
+                 json.dumps(redact_obj(args)), json.dumps(redact_obj(result)),
+-                context_tokens, context_tokens_method, model_requested, model_served,
++                context_tokens, context_tokens_method, model_requested, model_served, operation_id,
+                 timeout=2.0,
+             )
+         except Exception as exc:  # any failure to persist stops the run
+diff --git a/src/gateway_client.py b/src/gateway_client.py
+index 547447d..13b48b2 100644
+--- a/src/gateway_client.py
++++ b/src/gateway_client.py
+@@ -43,20 +43,10 @@ class GatewayClient:
+     async def call(
+         self, spec: ToolSpec, args: dict[str, Any], ctx: RunContext, subject_token: str, *, operation_id: str
+     ) -> dict[str, Any]:
+-        try:
+-            token = await self._creds.token(
+-                audience=GATEWAY_AUDIENCE, scope=spec.scope, subject_token=subject_token, subject=ctx.subject
+-            )
+-            return await self._post(GATEWAY_URL, token, spec, args, ctx, operation_id)
+-        except GatewayUnavailable:
+-            if not spec.direct_route:
+-                raise
+-            log.warning("gateway unavailable, using direct route", extra={"tool": spec.qualified})
+-            token = await self._creds.token(
+-                audience=spec.direct_route["audience"], scope=spec.scope,
+-                subject_token=subject_token, subject=ctx.subject,
+-            )
+-            return await self._post(spec.direct_route["endpoint"], token, spec, args, ctx, operation_id)
++        token = await self._creds.token(
++            audience=GATEWAY_AUDIENCE, scope=spec.scope, subject_token=subject_token, subject=ctx.subject
++        )
++        return await self._post(GATEWAY_URL, token, spec, args, ctx, operation_id)
+ 
+     async def _post(
+         self, url: str, token: str, spec: ToolSpec, args: dict[str, Any], ctx: RunContext, operation_id: str
+diff --git a/src/main.py b/src/main.py
+index a18add3..86ea320 100644
+--- a/src/main.py
++++ b/src/main.py
+@@ -169,7 +169,7 @@ async def startup() -> None:
+     approvals = ApprovalStore(pool, CFG["approvals"]["ttl_seconds"])
+     stop = StopControl(pool, CFG["stop"]["poll_seconds"])
+     agent = Agent(
+-        CFG, registry, AsyncAnthropic(max_retries=1), GatewayClient(mtls, CredentialBroker(mtls)),
++        CFG, registry, AsyncAnthropic(max_retries=0), GatewayClient(mtls, CredentialBroker(mtls)),
+         PolicyIndex(pool, CFG["retrieval"]["top_k"], CFG["retrieval"]["cache_ttl_seconds"]),
+         approvals, QuotaStore(pool, CFG["budgets"]["quotas"]), audit, stop,
+     )
+diff --git a/src/tools.py b/src/tools.py
+index b2a10e2..c8c8bdf 100644
+--- a/src/tools.py
++++ b/src/tools.py
+@@ -2,7 +2,7 @@
+ from __future__ import annotations
+ 
+ import pathlib
+-from dataclasses import dataclass, field
++from dataclasses import dataclass
+ from typing import Any
+ 
+ import yaml
+@@ -28,7 +28,6 @@ class ToolSpec:
+     server: str | None = None
+     target_template: str | None = None
+     fingerprint: str | None = None
+-    direct_route: dict[str, str] | None = field(default=None, hash=False)
+ 
+     def target(self, subject: str) -> str:
+         return (self.target_template or self.qualified).format(subject=subject)
+@@ -56,7 +55,6 @@ class ToolRegistry:
+                 server=t.get("server"),
+                 target_template=t.get("target"),
+                 fingerprint=t.get("fingerprint"),
+-                direct_route=t.get("direct_route"),
+             )
+ 
+     @classmethod
+diff --git a/tests/test_approval_scope.py b/tests/test_approval_scope.py
+new file mode 100644
+index 0000000..12d3a37
+--- /dev/null
++++ b/tests/test_approval_scope.py
+@@ -0,0 +1,32 @@
++import asyncio
++
++import pytest
++
++from src.approvals import ApprovalInvalid, ApprovalStore
++from src.audit import RunContext
++
++
++class Pool:
++    async def fetchrow(self, sql, *p):
++        self.sql, self.p = sql, p
++        return None
++
++
++def test_consume_refuses_when_scope_differs():
++    pool = Pool()
++    store = ApprovalStore(pool, ttl_seconds=600)
++    ctx = RunContext(
++        run_id="r1",
++        agent_instance_id="i1",
++        agent_type_id="t1",
++        tenant="tenant1",
++        subject="employee1",
++        accountable_party="ap1",
++        operational_owner="oo1",
++        agent_principal="p1",
++    )
++    args = {"leave_type": "annual", "start_date": "2026-12-01", "end_date": "2026-12-02"}
++    with pytest.raises(ApprovalInvalid):
++        asyncio.run(store.consume(ctx, "a1", "hris/file_leave_request", "employee:employee1", args, "hris.leave.request"))
++    assert "scope = $7" in pool.sql
++    assert pool.p[-1] == "hris.leave.request"
+diff --git a/tests/test_audit_gateway_down.py b/tests/test_audit_gateway_down.py
+new file mode 100644
+index 0000000..937b41e
+--- /dev/null
++++ b/tests/test_audit_gateway_down.py
+@@ -0,0 +1,46 @@
++import asyncio
++
++from src.agent import Agent, RunState
++from src.audit import RunContext
++from src.gateway_client import GatewayUnavailable
++from src.tools import ToolRegistry
++
++
++class Audit:
++    events = []
++
++    async def record(self, ctx, event_type, **kw):
++        self.events.append((event_type, kw))
++
++
++class Gateway:
++    async def call(self, *a, **kw):
++        raise GatewayUnavailable("down")
++
++
++def test_gateway_outage_is_audited_with_operation_id():
++    agent = Agent.__new__(Agent)
++    agent.audit = Audit()
++    agent.audit.events = []
++    agent.gateway = Gateway()
++    agent.cfg = {"limits": {"max_tool_output_bytes": 1000}}
++    spec = ToolRegistry.from_config().get("get_leave_balance")
++    ctx = RunContext(
++        run_id="r1",
++        agent_instance_id="i1",
++        agent_type_id="t1",
++        tenant="tenant1",
++        subject="employee1",
++        accountable_party="ap1",
++        operational_owner="oo1",
++        agent_principal="p1",
++    )
++    state = RunState(messages=[], budget=None, subject_token="subject-token")
++    result = asyncio.run(agent._execute(ctx, state, "step1", "tool1", spec,
++                                        "employee:employee1", {"leave_type": "annual"}, None))
++    assert result["is_error"] is True
++    events = agent.audit.events
++    sent = [kw for t, kw in events if t == "tool_call_sent"]
++    errs = [kw for t, kw in events if t == "tool_error"]
++    assert sent and sent[0]["operation_id"]
++    assert errs and errs[0]["operation_id"]
+diff --git a/tests/test_gateway_down.py b/tests/test_gateway_down.py
+new file mode 100644
+index 0000000..2bf0f4a
+--- /dev/null
++++ b/tests/test_gateway_down.py
+@@ -0,0 +1,42 @@
++import asyncio
++
++import httpx
++import pytest
++
++from src.gateway_client import GATEWAY_URL, GatewayClient, GatewayUnavailable
++from src.audit import RunContext
++from src.tools import ToolRegistry
++
++
++class Creds:
++    async def token(self, **kw):
++        return "t"
++
++
++class Down:
++    urls = []
++
++    async def post(self, url, **kw):
++        self.urls.append(url)
++        raise httpx.ConnectError("down")
++
++
++def test_gateway_down_escalation_goes_only_through_gateway():
++    spec = ToolRegistry.from_config().get("escalate_to_human")
++    ctx = RunContext(
++        run_id="r1",
++        agent_instance_id="i1",
++        agent_type_id="t1",
++        tenant="tenant1",
++        subject="employee1",
++        accountable_party="ap1",
++        operational_owner="oo1",
++        agent_principal="p1",
++    )
++    down = Down()
++    down.urls = []
++    client = GatewayClient(down, Creds())
++    args = {"summary": "Need help with a payslip question", "category": "payroll"}
++    with pytest.raises(GatewayUnavailable):
++        asyncio.run(client.call(spec, args, ctx, "subject-token", operation_id="op1"))
++    assert down.urls == [GATEWAY_URL]

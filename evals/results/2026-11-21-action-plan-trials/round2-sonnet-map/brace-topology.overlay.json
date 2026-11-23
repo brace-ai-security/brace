@@ -1,0 +1,250 @@
+{
+  "nodes": [
+    {
+      "ref": "api:anthropic",
+      "kind": "external_api",
+      "name": "Anthropic model API",
+      "evidence": "src/main.py:172",
+      "quote": "CFG, registry, AsyncAnthropic(max_retries=1), GatewayClient(mtls, CredentialBroker(mtls)),"
+    },
+    {
+      "ref": "data:retrieval-chunks",
+      "kind": "data_store",
+      "name": "handbook chunks (Postgres)",
+      "evidence": "src/retrieval.py:17",
+      "quote": "SELECT c.chunk_id, c.source, c.trust, c.text,"
+    },
+    {
+      "ref": "data:stop-flags",
+      "kind": "data_store",
+      "name": "stop flags (Postgres)",
+      "evidence": "src/killswitch.py:18",
+      "quote": "SELECT reason FROM control.stop_flags"
+    },
+    {
+      "ref": "data:approval-grants",
+      "kind": "data_store",
+      "name": "approval grants (Postgres)",
+      "evidence": "src/approvals.py:47",
+      "quote": "\"\"\"INSERT INTO approvals.grants"
+    },
+    {
+      "ref": "data:quota-usage",
+      "kind": "data_store",
+      "name": "quota usage (Postgres)",
+      "evidence": "src/budgets.py:74",
+      "quote": "INSERT INTO quota.usage (scope, key, window_start, runs, tokens, cost_usd)"
+    },
+    {
+      "ref": "api:sts",
+      "kind": "external_api",
+      "name": "identity token service",
+      "evidence": "src/credentials.py:18",
+      "quote": "STS_URL = \"https://sts.identity.svc.cluster.local/oauth2/token\""
+    },
+    {
+      "ref": "api:sso",
+      "kind": "external_api",
+      "name": "employee SSO",
+      "evidence": "src/main.py:36",
+      "quote": "SSO_ISSUER = \"https://sso.acme.example\""
+    },
+    {
+      "ref": "mcp:hris",
+      "kind": "mcp_server",
+      "name": "HRIS MCP server",
+      "evidence": "config/tools.yaml:4",
+      "quote": "  hris:"
+    },
+    {
+      "ref": "mcp:helpdesk",
+      "kind": "mcp_server",
+      "name": "helpdesk MCP server",
+      "evidence": "config/tools.yaml:9",
+      "quote": "  helpdesk:"
+    }
+  ],
+  "edges": [
+    {
+      "from": "agent",
+      "to": "api:anthropic",
+      "label": "sends conversation to the model",
+      "risks": [
+        "personal_data",
+        "untrusted_input"
+      ],
+      "evidence": "src/agent.py:70",
+      "quote": "resp = await self.llm.messages.create("
+    },
+    {
+      "from": "tool:search_policies",
+      "to": "data:retrieval-chunks",
+      "label": "reads handbook chunks",
+      "risks": [
+        "untrusted_input",
+        "personal_data"
+      ],
+      "evidence": "src/agent.py:167",
+      "quote": "raw = await self.index.search(args[\"query\"], ctx.subject)"
+    },
+    {
+      "from": "agent",
+      "to": "data:stop-flags",
+      "label": "reads stop flags",
+      "risks": [],
+      "evidence": "src/killswitch.py:40",
+      "quote": "row = await self._pool.fetchrow("
+    },
+    {
+      "from": "agent",
+      "to": "data:approval-grants",
+      "label": "writes and consumes approvals",
+      "risks": [
+        "writes"
+      ],
+      "evidence": "src/approvals.py:46",
+      "quote": "await self._pool.execute("
+    },
+    {
+      "from": "agent",
+      "to": "data:quota-usage",
+      "label": "records usage",
+      "risks": [
+        "writes"
+      ],
+      "evidence": "src/budgets.py:85",
+      "quote": "INSERT INTO quota.usage (scope, key, window_start, runs, tokens, cost_usd)"
+    },
+    {
+      "from": "agent",
+      "to": "api:sts",
+      "label": "exchanges tokens for per-tool credentials",
+      "risks": [],
+      "evidence": "src/credentials.py:47",
+      "quote": "resp = await self._client.post("
+    },
+    {
+      "from": "agent",
+      "to": "api:sso",
+      "label": "fetches SSO signing keys",
+      "risks": [],
+      "evidence": "src/main.py:38",
+      "quote": "SSO_JWKS = jwt.PyJWKClient(f\"{SSO_ISSUER}/.well-known/jwks.json\", cache_keys=True, lifespan=300)"
+    },
+    {
+      "from": "tool:get_leave_balance",
+      "to": "mcp:hr-tool-gateway",
+      "label": "reads own leave balance",
+      "risks": [
+        "personal_data"
+      ],
+      "evidence": "src/gateway_client.py:50",
+      "quote": "return await self._post(GATEWAY_URL, token, spec, args, ctx, operation_id)"
+    },
+    {
+      "from": "tool:file_leave_request",
+      "to": "mcp:hr-tool-gateway",
+      "label": "files a leave request",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway_client.py:50",
+      "quote": "return await self._post(GATEWAY_URL, token, spec, args, ctx, operation_id)"
+    },
+    {
+      "from": "tool:escalate_to_human",
+      "to": "mcp:hr-tool-gateway",
+      "label": "creates an HR ticket",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway_client.py:50",
+      "quote": "return await self._post(GATEWAY_URL, token, spec, args, ctx, operation_id)"
+    },
+    {
+      "from": "tool:escalate_to_human",
+      "to": "mcp:helpdesk",
+      "label": "direct route when gateway is down, skips the gateway",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway_client.py:59",
+      "quote": "return await self._post(spec.direct_route[\"endpoint\"], token, spec, args, ctx, operation_id)"
+    },
+    {
+      "from": "mcp:hr-tool-gateway",
+      "to": "mcp:hris",
+      "label": "forwards HRIS tool calls",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway.py:180",
+      "quote": "upstream = await _upstream.post(registry.servers[spec.server][\"endpoint\"], headers=headers, timeout=8.0,"
+    },
+    {
+      "from": "mcp:hr-tool-gateway",
+      "to": "mcp:helpdesk",
+      "label": "forwards helpdesk tool calls",
+      "risks": [
+        "writes",
+        "personal_data"
+      ],
+      "evidence": "src/gateway.py:180",
+      "quote": "upstream = await _upstream.post(registry.servers[spec.server][\"endpoint\"], headers=headers, timeout=8.0,"
+    },
+    {
+      "from": "mcp:hr-tool-gateway",
+      "to": "api:sts",
+      "label": "exchanges tokens for downstream credentials",
+      "risks": [],
+      "evidence": "src/gateway.py:119",
+      "quote": "resp = await _upstream.post(f\"{STS_BASE}/oauth2/token\", timeout=3.0, data={"
+    },
+    {
+      "from": "mcp:hr-tool-gateway",
+      "to": "data:audit-log",
+      "label": "writes gateway decisions",
+      "risks": [
+        "writes"
+      ],
+      "evidence": "src/gateway.py:133",
+      "quote": "await _pool.execute("
+    }
+  ],
+  "zones": [
+    {
+      "ref": "mcp:hr-tool-gateway",
+      "zone": "cluster",
+      "evidence": ".mcp.json:5",
+      "quote": "      \"url\": \"https://hr-tool-gateway.hr-agent.svc.cluster.local:8443/mcp\","
+    },
+    {
+      "ref": "mcp:hris",
+      "zone": "cluster",
+      "evidence": "config/tools.yaml:5",
+      "quote": "    endpoint: https://hris-mcp.hris.svc.cluster.local:8443/mcp"
+    },
+    {
+      "ref": "mcp:helpdesk",
+      "zone": "cluster",
+      "evidence": "config/tools.yaml:10",
+      "quote": "    endpoint: https://helpdesk-mcp.helpdesk.svc.cluster.local:8443/mcp"
+    },
+    {
+      "ref": "api:sts",
+      "zone": "cluster",
+      "evidence": "src/credentials.py:18",
+      "quote": "STS_URL = \"https://sts.identity.svc.cluster.local/oauth2/token\""
+    },
+    {
+      "ref": "api:anthropic",
+      "zone": "public",
+      "evidence": "k8s/networkpolicy.yaml:33",
+      "quote": "        - matchName: api.anthropic.com"
+    }
+  ]
+}

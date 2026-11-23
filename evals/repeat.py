@@ -143,7 +143,90 @@ def call(model, cwd, prompt, log, timeout):
         raise RuntimeError(f"{model} CLI exited {result.returncode}; see {log.name}")
 
 
-def run_one(model, fixture, index, out, timeout, resume=False, batch_size=0):
+TOOLS = ROOT / "tools/brace"
+
+
+def core(doc):
+    """Findings without the action fields, to prove the action stage changed nothing else."""
+    out = []
+    for f in doc.get("findings", []):
+        out.append({k: v for k, v in f.items() if k not in ("components", "fix", "assignee")})
+    for f in out:
+        for c in f.get("checks", []):
+            for kind in ("coverage", "deviations"):
+                for row in c.get(kind) or []:
+                    if isinstance(row, dict):
+                        row.pop("component", None)
+    return out
+
+
+def action_stage(model, fixture, final, dest, timeout, safety, test_python=None):
+    """Fresh session: map, fix steps and action plan (skill steps 2-map, 9, 10) on final findings."""
+    adir = dest / "action-plan"
+    adir.mkdir(exist_ok=True)
+    info = {"status": "error"}
+    before = json.loads(final.read_text())
+    with tempfile.TemporaryDirectory(prefix="brace-action-") as temporary:
+        work = Path(temporary)
+        repo = work / "agent"
+        shutil.copytree(ROOT / "evals/fixtures" / fixture, repo)
+        shutil.copytree(TOOLS, repo / "tools/brace", ignore=shutil.ignore_patterns(
+            "examples", "tests", "__pycache__", "*.pyc"))
+        shutil.copytree(SCRIPTS.parent, work / "skill")
+        shutil.copyfile(final, repo / "brace-findings.json")
+        try:
+            call(model, work, safety +
+                 "Read skill/SKILL.md. The review (steps 1-8) is finished and agent/brace-findings.json is final. "
+                 "Run commands from agent/. Perform only: the 'Map the connections' paragraph of step 2 (run the "
+                 "inventory first), step 9 and step 10. In step 10 run topology.py record WITHOUT --apply: the user "
+                 "has not confirmed. Do not write files under agent/.brace/. Do not change any rating, check, "
+                 "evidence, summary, challenge or other existing field; only add the fields step 9 lists. "
+                 "Do not edit the fixture's source code in agent/. For step 9's self-check you MAY copy agent/ to "
+                 "scratch/ in this workspace, edit and compile files there, and run its tests"
+                 + (f" with {test_python} -m pytest (it has the project's packages)" if test_python else "")
+                 + "; this overrides the read-only rule for scratch/ only.", adir / "session.log", timeout)
+        except Exception as exc:
+            info["error"] = str(exc)
+        for name in ("brace-findings.json", "brace-topology.cdx.json", "brace-topology.overlay.json",
+                     "brace-action-plan.md", "brace-actions.csv"):
+            if (repo / name).exists():
+                shutil.copyfile(repo / name, adir / name)
+        info["brace_dir_written"] = (repo / ".brace").exists()
+        after_path, topo = repo / "brace-findings.json", repo / "brace-topology.cdx.json"
+        if not topo.exists():
+            info["error"] = info.get("error", "") + " no topology written"
+        else:
+            after = json.loads(after_path.read_text())
+            info["core_unchanged"] = core(before) == core(after)
+            plan = subprocess.run([sys.executable, str(TOOLS / "action_plan.py"), str(after_path), str(topo),
+                                   "-o", str(adir / "harness-action-plan.md"), "--repo", str(repo), "--strict"],
+                                  capture_output=True, text=True)
+            info["strict_exit"] = plan.returncode
+            info["strict_notes"] = [l for l in plan.stderr.splitlines() if l.startswith("note:")]
+            refs = validator.topology_refs(topo)
+            info["field_errors"] = [e for f in after["findings"] for e in validator.action_fields(f["item"], f, refs)]
+            actionable = [f for f in after["findings"] if f.get("rating") in ("gap", "needs_evidence")]
+            info["actionable"] = len(actionable)
+            info["with_components"] = sum(bool(f.get("components")) for f in actionable)
+            info["with_fix_steps"] = sum(bool((f.get("fix") or {}).get("steps")) for f in actionable)
+            info["with_done_when"] = sum(bool((f.get("fix") or {}).get("done_when")) for f in actionable)
+            info["with_test"] = sum(bool((f.get("fix") or {}).get("test")) for f in actionable)
+            bom = json.loads(topo.read_text())
+            info["topology_valid"] = not subprocess.run(
+                [sys.executable, str(TOOLS / "topology.py"), "validate", str(topo)], capture_output=True).returncode
+            info["nodes"] = len(json.loads(subprocess.run(
+                [sys.executable, "-c", "import json,sys;sys.path.insert(0,sys.argv[2]);import topology;"
+                 "print(json.dumps(list(topology.all_nodes(json.load(open(sys.argv[1]))))))", str(topo), str(TOOLS)],
+                capture_output=True, text=True).stdout or "[]"))
+            info["status"] = "pass" if (info["core_unchanged"] and plan.returncode == 0 and not info["field_errors"]
+                                        and info["with_fix_steps"] == info["actionable"]
+                                        and info["with_components"] == info["actionable"]
+                                        and not info["brace_dir_written"] and info["topology_valid"]) else "fail"
+    (adir / "result.json").write_text(json.dumps(info, indent=2) + "\n")
+    return info
+
+
+def run_one(model, fixture, index, out, timeout, resume=False, batch_size=0, action_plan=False):
     dest = out / f"{fixture}.{model}.run-{index}"
     dest.mkdir(exist_ok=resume)
     manifest = dest / "run.json"
@@ -194,15 +277,23 @@ def run_one(model, fixture, index, out, timeout, resume=False, batch_size=0):
                             subprocess.run([sys.executable, str(scripts/'new_findings.py'), str(batch_findings),
                                             '--items', ','.join(ids)], check=True, stdout=subprocess.DEVNULL)
                             (batch_work/'batch-policy.json').write_text(json.dumps({i:table[i] for i in ids},indent=2)+'\n')
+                            # Give the batch its own items' pre-scan hits explicitly, so none is missed.
+                            subprocess.run([sys.executable, str(scripts/'prescan.py'), str(batch_repo)],
+                                           check=True, stdout=subprocess.DEVNULL)
+                            hits = [h for h in json.loads((batch_repo/'brace-prescan.json').read_text())['hits']
+                                    if h.get('item') in ids]
+                            (batch_work/'batch-prescan.json').write_text(json.dumps(hits, indent=2)+'\n')
                             saved = dest/f'batch-{number:02d}.json'
                             if resume and saved.exists():
                                 shutil.copyfile(saved, batch_findings)
                                 subprocess.run([sys.executable, str(scripts/'prescan.py'), str(batch_repo)],check=True,stdout=subprocess.DEVNULL)
                             else:
                                 call(model, batch_work, safety +
-                                 'Read skill/SKILL.md and batch-policy.json. Review ONLY these items: ' + ','.join(ids) + '. '
+                                 'Read skill/SKILL.md, batch-policy.json and batch-prescan.json. Review ONLY these items: ' + ','.join(ids) + '. '
+                                 'batch-prescan.json lists every pre-scan hit for these items (' + str(len(hits)) + '); resolve each one by id. '
                                  'A canonical starter with only those items is already in agent/brace-findings.json. '
                                  'Follow steps 1 through 7 for this batch, including inventory, coverage/deviations, '
+                                 'but skip the Map the connections paragraph (a later session maps), '
                                  'falsification attempts, all relevant prescan hits, and --batch validation with '
                                  '--before-challenges. Save that findings file; do not add other items. '
                                  'Do not run challenges: a separate fresh process will establish independent discovery. '
@@ -228,7 +319,8 @@ def run_one(model, fixture, index, out, timeout, resume=False, batch_size=0):
                 else:
                     call(model, work, safety +
                  "Read skill/SKILL.md and review agent/ against every one of the 53 items. "
-                 "Use the supplied scripts with the specified interpreter. Follow steps 1 through 7 fully, resolve every "
+                 "Use the supplied scripts with the specified interpreter. Follow steps 1 through 7 fully (skip the "
+                 "Map the connections paragraph; a later session maps), resolve every "
                  "prescan hit, and save agent/brace-findings.json. Stop before step 8: an external harness "
                  "will provide fresh challengers. Do not claim challenges occurred. Normal mode, no "
                  "conservative flag. Unchallenged-rating validator errors are expected at this stage.",
@@ -313,6 +405,8 @@ def run_one(model, fixture, index, out, timeout, resume=False, batch_size=0):
             result["validation_errors"] = errors
             code = grade(findings, fixture, dest, result)
             result["status"] = "pass" if code == 0 and not errors and not problems else "fail"
+            if action_plan:
+                result["action_plan"] = action_stage(model, fixture, findings, dest, timeout, safety)
         except Exception as exc:
             result["error"] = str(exc)
             if findings.exists():
@@ -341,10 +435,14 @@ def main():
     ap.add_argument('--batch-size', type=int, default=5, help='Fresh primary session per batch (1–5); 0 for legacy monolithic comparison')
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--resume", action="store_true", help="Continue saved reviews/verdicts; never retry a scored run")
+    ap.add_argument("--action-plan", action="store_true",
+                    help="After each scored review, a fresh session maps, writes fix steps and the action plan")
+    ap.add_argument("--pilot", action="store_true",
+                    help="Allow fewer than three runs; results are labelled pilot, not qualification evidence")
     ap.add_argument("--summarize-only", action="store_true", help="Rescore saved artifacts against current keys; no model calls")
     args = ap.parse_args()
-    if args.runs < 3 or args.jobs < 1:
-        ap.error("qualification requires at least three runs and one job")
+    if args.jobs < 1 or (args.runs < 3 and not args.pilot) or args.runs < 1:
+        ap.error("qualification requires at least three runs and one job (use --pilot for fewer)")
     if not 0 <= args.batch_size <= 5:
         ap.error('--batch-size must be 0 through 5')
     if any(not (ROOT/'evals/fixtures'/f).is_dir() or not (ROOT/'evals/expected'/f'{f}.yaml').is_file() for f in args.fixtures):
@@ -373,7 +471,7 @@ def main():
         return 0 if all(summary["qualified"].values()) else 1
     args.out.mkdir(parents=True, exist_ok=args.resume)
     campaign = {'models':args.models,'fixtures':args.fixtures,'runs':args.runs,'batch_size':args.batch_size,
-                'skill_tree_sha256':tree_hash(SCRIPTS.parent),
+                'skill_tree_sha256':tree_hash(SCRIPTS.parent),'action_plan':args.action_plan,'pilot':args.pilot,'tools_tree_sha256':tree_hash(TOOLS),
                 'fixture_sha256':{f:tree_hash(ROOT/'evals/fixtures'/f) for f in args.fixtures}}
     metadata = args.out/'campaign.json'
     if metadata.exists():
@@ -386,7 +484,7 @@ def main():
         for fixture in args.fixtures:
             shutil.copyfile(ROOT/'evals/expected'/f'{fixture}.yaml',keys/f'{fixture}.yaml')
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        tasks = [pool.submit(run_one, model, fixture, index, args.out, args.timeout, args.resume, args.batch_size)
+        tasks = [pool.submit(run_one, model, fixture, index, args.out, args.timeout, args.resume, args.batch_size, args.action_plan)
                  for index in range(1, args.runs + 1) for fixture in args.fixtures for model in args.models]
         results = [task.result() for task in tasks]
     summary = summarize(results, args.models, args.fixtures, args.runs)

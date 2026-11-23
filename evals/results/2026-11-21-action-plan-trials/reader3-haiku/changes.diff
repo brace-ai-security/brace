@@ -1,0 +1,363 @@
+diff --git a/migrations/002_approval_scope.sql b/migrations/002_approval_scope.sql
+new file mode 100644
+index 0000000..98b3c40
+--- /dev/null
++++ b/migrations/002_approval_scope.sql
+@@ -0,0 +1,2 @@
++ALTER TABLE approvals.grants ADD COLUMN scope text NOT NULL DEFAULT 'unset';
++ALTER TABLE approvals.grants ALTER COLUMN scope DROP DEFAULT;
+diff --git a/src/agent.py b/src/agent.py
+index cdeefaf..97e3894 100644
+--- a/src/agent.py
++++ b/src/agent.py
+@@ -10,12 +10,13 @@ from datetime import date
+ from typing import Any
+ 
+ from anthropic import AsyncAnthropic
++import httpx
+ from opentelemetry import trace
+ 
+ from .approvals import ApprovalInvalid, ApprovalStore
+ from .audit import AuditWriter, RunContext
+ from .budgets import BudgetExceeded, QuotaStore, RunBudget
+-from .gateway_client import GatewayClient, ToolDenied, ToolError
++from .gateway_client import GatewayClient, GatewayUnavailable, ToolDenied, ToolError
+ from .killswitch import StopControl
+ from .redact import redact
+ from .retrieval import PolicyIndex
+@@ -111,7 +112,7 @@ class Agent:
+                                     decision="deny", reason=exc.reason, args=args)
+             return _tool_result(tool_use_id, f"Invalid arguments: {exc.reason}", error=True)
+         if spec.approval == "subject":
+-            approval_id, text = await self.approvals.request(ctx, spec.qualified, target, args, tool_use_id)
++            approval_id, text = await self.approvals.request(ctx, spec.qualified, target, args, tool_use_id, spec.scope)
+             await self.audit.record(ctx, "approval_requested", step_id=step_id, tool=spec.qualified, target=target,
+                                     decision="hold", approval_id=approval_id, args=args)
+             state.status = "awaiting_approval"
+@@ -132,7 +133,7 @@ class Agent:
+                 args = validate_tool_args(spec, pending["args"])
+                 target = spec.target(ctx.subject)
+                 await self._recheck_state(ctx, state, spec, args)
+-                grant = await self.approvals.consume(ctx, approval_id, spec.qualified, target, args)
++                grant = await self.approvals.consume(ctx, approval_id, spec.qualified, target, args, spec.scope)
+             except (ApprovalInvalid, ValidationRejected, ToolDenied, ToolError) as exc:
+                 await self.audit.record(ctx, "authz_decision", step_id=step_id, tool=pending["operation"],
+                                         decision="deny", reason=str(exc), approval_id=approval_id)
+@@ -161,6 +162,7 @@ class Agent:
+     async def _execute(self, ctx: RunContext, state: RunState, step_id: str, tool_use_id: str, spec: ToolSpec,
+                        target: str, args: dict[str, Any], approval_id: str | None) -> dict[str, Any]:
+         operation_id = approval_id or str(uuid.uuid4())
++        await self.audit.record(ctx, "tool_call_sent", step_id=step_id, tool=spec.qualified, target=target, approval_id=approval_id, result={"operation_id": operation_id})
+         with tracer.start_as_current_span(f"execute_tool {spec.qualified}", attributes={"gen_ai.tool.name": spec.name}):
+             try:
+                 if spec.kind == "local":
+@@ -174,7 +176,11 @@ class Agent:
+                             await self.audit.record(ctx, "content_held", step_id=step_id, tool=spec.qualified,
+                                                     decision="hold", reason=exc.reason, result={"chunk_id": chunk["chunk_id"]})
+                 else:
+-                    raw = await self.gateway.call(spec, args, ctx, state.subject_token, operation_id=operation_id)
++                    async def note_fallback(route: str) -> None:
++                        await self.audit.record(ctx, "gateway_fallback", step_id=step_id, tool=spec.qualified, target=target,
++                                                decision="retry", reason=route, approval_id=approval_id)
++
++                    raw = await self.gateway.call(spec, args, ctx, state.subject_token, operation_id=operation_id, on_fallback=note_fallback)
+                     clean = validate_tool_output(spec, raw, self.cfg["limits"]["max_tool_output_bytes"])
+             except ToolDenied as exc:
+                 await self.audit.record(ctx, "tool_denied", step_id=step_id, tool=spec.qualified, target=target,
+@@ -190,6 +196,11 @@ class Agent:
+                 await self.audit.record(ctx, "content_held", step_id=step_id, tool=spec.qualified, target=target,
+                                         decision="hold", reason=exc.reason, approval_id=approval_id)
+                 return _tool_result(tool_use_id, "The tool returned data that could not be used.", error=True)
++            except (GatewayUnavailable, httpx.HTTPError) as exc:
++                await self.audit.record(ctx, "tool_error", step_id=step_id, tool=spec.qualified, target=target,
++                                        decision="error", reason=type(exc).__name__, approval_id=approval_id,
++                                        args=args, result={"operation_id": operation_id})
++                return _tool_result(tool_use_id, f"{spec.name} is unavailable right now.", error=True)
+         await self.audit.record(ctx, "tool_result", step_id=step_id, tool=spec.qualified, target=target,
+                                 decision="ok", approval_id=approval_id, args=args, result=clean)
+         envelope = {"source": spec.qualified, "trust": "untrusted_data", "data": clean}
+diff --git a/src/approvals.py b/src/approvals.py
+index dc6f618..bbb0012 100644
+--- a/src/approvals.py
++++ b/src/approvals.py
+@@ -40,16 +40,16 @@ class ApprovalStore:
+         self._pool = pool
+         self._ttl = timedelta(seconds=ttl_seconds)
+ 
+-    async def request(self, ctx: RunContext, operation: str, target: str, args: dict[str, Any], tool_use_id: str) -> tuple[str, str]:
++    async def request(self, ctx: RunContext, operation: str, target: str, args: dict[str, Any], tool_use_id: str, scope: str) -> tuple[str, str]:
+         approval_id = str(uuid.uuid4())
+         text = describe(operation, target, args)
+         await self._pool.execute(
+             """INSERT INTO approvals.grants
+                  (approval_id, run_id, agent_instance_id, subject, operation, target, args_sha256, args,
+-                  tool_use_id, description, requested_at, expires_at)
+-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, now(), now() + $11)""",
++                  tool_use_id, description, requested_at, expires_at, scope)
++               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, now(), now() + $11, $12)""",
+             approval_id, ctx.run_id, ctx.agent_instance_id, ctx.subject, operation, target,
+-            args_digest(args), json.dumps(args), tool_use_id, text, self._ttl,
++            args_digest(args), json.dumps(args), tool_use_id, text, self._ttl, scope,
+         )
+         return approval_id, text
+ 
+@@ -64,7 +64,7 @@ class ApprovalStore:
+         if row is None:
+             raise ApprovalInvalid("not found, expired, already decided, or approver lacks authority")
+ 
+-    async def consume(self, ctx: RunContext, approval_id: str, operation: str, target: str, args: dict[str, Any]) -> dict[str, Any]:
++    async def consume(self, ctx: RunContext, approval_id: str, operation: str, target: str, args: dict[str, Any], scope: str) -> dict[str, Any]:
+         """Atomically mark the approval used. Every binding is re-checked in the same statement."""
+         row = await self._pool.fetchrow(
+             """UPDATE approvals.grants SET used_at = now()
+@@ -78,8 +78,9 @@ class ApprovalStore:
+                   AND operation = $4
+                   AND target = $5
+                   AND args_sha256 = $6
++                  AND scope = $7
+                 RETURNING approval_id, approved_by, approved_at, expires_at""",
+-            approval_id, ctx.agent_instance_id, ctx.subject, operation, target, args_digest(args),
++            approval_id, ctx.agent_instance_id, ctx.subject, operation, target, args_digest(args), scope,
+         )
+         if row is None:
+             raise ApprovalInvalid("approval does not match this action, was used, or expired")
+diff --git a/src/gateway_client.py b/src/gateway_client.py
+index 547447d..5632282 100644
+--- a/src/gateway_client.py
++++ b/src/gateway_client.py
+@@ -3,7 +3,7 @@ from __future__ import annotations
+ 
+ import logging
+ import uuid
+-from typing import Any
++from typing import Any, Awaitable, Callable
+ 
+ import httpx
+ from opentelemetry.propagate import inject
+@@ -41,7 +41,8 @@ class GatewayClient:
+         self._creds = creds
+ 
+     async def call(
+-        self, spec: ToolSpec, args: dict[str, Any], ctx: RunContext, subject_token: str, *, operation_id: str
++        self, spec: ToolSpec, args: dict[str, Any], ctx: RunContext, subject_token: str, *, operation_id: str,
++        on_fallback: Callable[[str], Awaitable[None]] | None = None,
+     ) -> dict[str, Any]:
+         try:
+             token = await self._creds.token(
+@@ -52,6 +53,8 @@ class GatewayClient:
+             if not spec.direct_route:
+                 raise
+             log.warning("gateway unavailable, using direct route", extra={"tool": spec.qualified})
++            if on_fallback is not None:
++                await on_fallback("direct_route")
+             token = await self._creds.token(
+                 audience=spec.direct_route["audience"], scope=spec.scope,
+                 subject_token=subject_token, subject=ctx.subject,
+diff --git a/src/main.py b/src/main.py
+index a18add3..86ea320 100644
+--- a/src/main.py
++++ b/src/main.py
+@@ -169,7 +169,7 @@ async def startup() -> None:
+     approvals = ApprovalStore(pool, CFG["approvals"]["ttl_seconds"])
+     stop = StopControl(pool, CFG["stop"]["poll_seconds"])
+     agent = Agent(
+-        CFG, registry, AsyncAnthropic(max_retries=1), GatewayClient(mtls, CredentialBroker(mtls)),
++        CFG, registry, AsyncAnthropic(max_retries=0), GatewayClient(mtls, CredentialBroker(mtls)),
+         PolicyIndex(pool, CFG["retrieval"]["top_k"], CFG["retrieval"]["cache_ttl_seconds"]),
+         approvals, QuotaStore(pool, CFG["budgets"]["quotas"]), audit, stop,
+     )
+diff --git a/tests/test_b06_approval_scope.py b/tests/test_b06_approval_scope.py
+new file mode 100644
+index 0000000..153c969
+--- /dev/null
++++ b/tests/test_b06_approval_scope.py
+@@ -0,0 +1,85 @@
++import asyncio
++
++from src.agent import Agent
++from src.approvals import ApprovalStore
++from src.audit import RunContext
++from src.tools import ToolSpec
++
++CTX = RunContext(run_id="r1", agent_instance_id="pod/r1", agent_type_id="hr", tenant="acme", subject="e1",
++                 accountable_party="a", operational_owner="o", agent_principal="p")
++
++
++class FakePool:
++    def __init__(self):
++        self.executed, self.fetched = [], []
++
++    async def execute(self, sql, *args):
++        self.executed.append((sql, args))
++
++    async def fetchrow(self, sql, *args):
++        self.fetched.append((sql, args))
++        return {"approval_id": "a1", "approved_by": "e1", "approved_at": None, "expires_at": None}
++
++
++def test_request_stores_scope():
++    pool = FakePool()
++    store = ApprovalStore(pool, 600)
++    asyncio.run(store.request(CTX, "hris/file_leave_request", "employee:e1",
++                              {"leave_type": "annual", "start_date": "2026-01-01", "end_date": "2026-01-02"},
++                              "tu1", "hris.leave.request"))
++    sql, args = pool.executed[0]
++    assert "scope" in sql
++    assert "hris.leave.request" in args
++
++
++def test_consume_compares_scope():
++    pool = FakePool()
++    store = ApprovalStore(pool, 600)
++    asyncio.run(store.consume(CTX, "a1", "hris/file_leave_request", "employee:e1", {"x": 1}, "hris.leave.request"))
++    sql, args = pool.fetched[0]
++    assert "AND scope = $7" in sql
++    assert args[-1] == "hris.leave.request"
++
++
++def test_agent_passes_spec_scope_to_consume(monkeypatch):
++    seen = {}
++
++    class FakeApprovals:
++        async def pending(self, approval_id):
++            return {"run_id": "r1", "operation": "hris/file_leave_request", "args": {"leave_type": "unpaid"},
++                    "tool_use_id": "tu1"}
++
++        async def consume(self, ctx, approval_id, operation, target, args, scope):
++            seen["scope"] = scope
++            return {"approved_by": "e1", "approved_at": __import__("datetime").datetime.now()}
++
++    class FakeStop:
++        async def raise_if_stopped(self, ctx):
++            return None
++
++    class FakeAudit:
++        async def record(self, *a, **k):
++            return "evt"
++
++    spec = ToolSpec(name="file_leave_request", kind="mcp", qualified="hris/file_leave_request", reason="r",
++                    scope="hris.leave.request", approval="subject", input_schema={}, target_template="employee:{subject}")
++
++    class FakeRegistry:
++        def by_qualified(self, q):
++            return spec
++
++    agent = Agent.__new__(Agent)
++    agent.approvals, agent.stop, agent.audit, agent.registry = FakeApprovals(), FakeStop(), FakeAudit(), FakeRegistry()
++
++    async def fake_execute(*a, **k):
++        return {"type": "tool_result"}
++
++    async def fake_run(ctx, state):
++        return state
++
++    agent._execute, agent.run = fake_execute, fake_run
++    import src.agent as mod
++    monkeypatch.setattr(mod, "validate_tool_args", lambda s, a: a)
++    state = type("S", (), {"messages": [], "status": "", "pending_approval": 1, "last_step": None})()
++    asyncio.run(agent.resume_with_approval(CTX, state, "a1"))
++    assert seen["scope"] == "hris.leave.request"
+diff --git a/tests/test_r13_audit_steps.py b/tests/test_r13_audit_steps.py
+new file mode 100644
+index 0000000..1c6a14c
+--- /dev/null
++++ b/tests/test_r13_audit_steps.py
+@@ -0,0 +1,98 @@
++import asyncio
++import pathlib
++
++import httpx
++
++from src.agent import Agent
++from src.audit import RunContext
++from src.gateway_client import GatewayClient, GatewayUnavailable
++from src.tools import ToolSpec
++
++CTX = RunContext(run_id="r1", agent_instance_id="pod/r1", agent_type_id="hr", tenant="acme", subject="e1",
++                 accountable_party="a", operational_owner="o", agent_principal="p")
++
++
++def make_spec(direct_route=None):
++    return ToolSpec(name="escalate_to_human", kind="mcp", qualified="helpdesk/create_ticket", reason="r",
++                    scope="helpdesk.ticket.create", approval="subject", input_schema={}, server="helpdesk",
++                    target_template="queue:hr-advisors", direct_route=direct_route)
++
++
++class FakeAudit:
++    def __init__(self):
++        self.events = []
++
++    async def record(self, ctx, event_type, **kw):
++        self.events.append((event_type, kw))
++        return "evt"
++
++
++def test_gateway_unavailable_is_audited():
++    class DownGateway:
++        async def call(self, *a, **k):
++            raise GatewayUnavailable("down")
++
++    agent = Agent.__new__(Agent)
++    agent.audit, agent.gateway = FakeAudit(), DownGateway()
++    agent.cfg = {"limits": {"max_tool_output_bytes": 1000}}
++    args = {"summary": "x" * 12, "category": "leave"}
++    result = asyncio.run(agent._execute(CTX, type("S", (), {"subject_token": "t"})(), "s1", "tu1", make_spec(),
++                                        "queue:hr-advisors", args, approval_id=None))
++    assert result["is_error"] is True
++    types = [e[0] for e in agent.audit.events]
++    assert "tool_error" in types
++    err = dict(agent.audit.events)["tool_error"]
++    assert err["tool"] == "helpdesk/create_ticket" and err["args"] == args
++
++
++def test_operation_id_recorded_before_send():
++    class DownGateway:
++        async def call(self, *a, **k):
++            raise GatewayUnavailable("down")
++
++    agent = Agent.__new__(Agent)
++    agent.audit, agent.gateway = FakeAudit(), DownGateway()
++    agent.cfg = {"limits": {"max_tool_output_bytes": 1000}}
++    asyncio.run(agent._execute(CTX, type("S", (), {"subject_token": "t"})(), "s1", "tu1", make_spec(),
++                               "queue:hr-advisors", {}, approval_id=None))
++    first = agent.audit.events[0]
++    assert first[0] == "tool_call_sent"
++    assert first[1]["result"]["operation_id"]
++
++
++def test_direct_route_fallback_calls_hook():
++    class Creds:
++        async def token(self, **kw):
++            return "tok"
++
++    class Resp:
++        status_code = 200
++
++        def json(self):
++            return {"result": {"structuredContent": {"ticket_id": "HR-000001"}}}
++
++    class Http:
++        def __init__(self):
++            self.n = 0
++
++        async def post(self, url, **kw):
++            self.n += 1
++            if self.n == 1:
++                raise httpx.ConnectError("down")
++            return Resp()
++
++    seen = []
++
++    async def hook(route):
++        seen.append(route)
++
++    spec = make_spec({"endpoint": "https://h/mcp", "audience": "helpdesk-mcp"})
++    gw = GatewayClient(Http(), Creds())
++    out = asyncio.run(gw.call(spec, {}, CTX, "subj", operation_id="op1", on_fallback=hook))
++    assert out["ticket_id"] == "HR-000001"
++    assert seen == ["direct_route"]
++
++
++def test_model_client_does_not_retry_silently():
++    text = pathlib.Path("src/main.py").read_text()
++    assert "AsyncAnthropic(max_retries=0)" in text

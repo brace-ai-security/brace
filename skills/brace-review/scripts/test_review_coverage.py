@@ -103,3 +103,11 @@ def test_quote_cannot_be_null_or_escape_repo(tmp_path):
     repo=tmp_path/'repo';repo.mkdir();(tmp_path/'outside.py').write_text('limit = 10\n')
     assert not validator.quote_found(repo,'../outside.py:1','limit = 10')
     assert not validator.quote_found(repo,'../outside.py:1',None)
+
+
+def test_tool_registration_ignores_non_tool_add_calls():
+    import review_coverage as rc
+    pat = next(v for v in vars(rc).values() if isinstance(v, dict) and 'tool_registration' in v)['tool_registration']
+    assert pat.search('this.add({ ...t })') and pat.search('tools.add(f)') and pat.search('server.add_tool(x)')
+    assert not pat.search('self.quota.add(self.principal, usd)') and not pat.search('_disabled.add(q)')
+

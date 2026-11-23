@@ -1,0 +1,184 @@
+diff --git a/config/tools.yaml b/config/tools.yaml
+index a9360bd..b094fa4 100644
+--- a/config/tools.yaml
++++ b/config/tools.yaml
+@@ -88,9 +88,6 @@ tools:
+     approval: subject
+     target: "queue:hr-advisors"
+     fingerprint: "sha256:3e9b71f0c2d84a6e5b17f9c03d2a8e46b1f5c07d93a2e68b4c1d0f7a5e3b9c28"
+-    direct_route:
+-      endpoint: https://helpdesk-mcp.helpdesk.svc.cluster.local:8443/mcp
+-      audience: helpdesk-mcp
+     input_schema:
+       type: object
+       properties:
+diff --git a/k8s/networkpolicy.yaml b/k8s/networkpolicy.yaml
+index 118d761..cdb62d7 100644
+--- a/k8s/networkpolicy.yaml
++++ b/k8s/networkpolicy.yaml
+@@ -45,9 +45,6 @@ spec:
+     - toEndpoints:
+         - matchLabels: {"k8s:io.kubernetes.pod.namespace": observability, app: otel-collector}
+       toPorts: [{ports: [{port: "4317", protocol: TCP}]}]
+-    - toEndpoints:
+-        - matchLabels: {"k8s:io.kubernetes.pod.namespace": helpdesk, app: helpdesk-mcp}
+-      toPorts: [{ports: [{port: "8443", protocol: TCP}]}]
+   egressDeny:
+     - toCIDR: [169.254.169.254/32, 169.254.170.2/32, 100.100.100.200/32]
+     - toCIDRSet:
+diff --git a/src/approvals.py b/src/approvals.py
+index dc6f618..a53ee75 100644
+--- a/src/approvals.py
++++ b/src/approvals.py
+@@ -28,8 +28,11 @@ def args_digest(args: dict[str, Any]) -> str:
+ 
+ def describe(operation: str, target: str, args: dict[str, Any]) -> str:
+     if operation == "hris/file_leave_request":
+-        return (f"Submit a {args['leave_type']} leave request from {args['start_date']} to {args['end_date']} "
++        text = (f"Submit a {args['leave_type']} leave request from {args['start_date']} to {args['end_date']} "
+                 f"for {target}. Your manager will be asked to approve it in HRIS.")
++        if args.get("note"):
++            text += f" Your note to the manager: \"{args['note']}\""
++        return text
+     if operation == "helpdesk/create_ticket":
+         return f"Send this summary to an HR advisor ({args['category']}):\n\n{args['summary']}"
+     raise ValueError(operation)
+diff --git a/src/gateway_client.py b/src/gateway_client.py
+index 547447d..939b8c5 100644
+--- a/src/gateway_client.py
++++ b/src/gateway_client.py
+@@ -43,20 +43,8 @@ class GatewayClient:
+     async def call(
+         self, spec: ToolSpec, args: dict[str, Any], ctx: RunContext, subject_token: str, *, operation_id: str
+     ) -> dict[str, Any]:
+-        try:
+-            token = await self._creds.token(
+-                audience=GATEWAY_AUDIENCE, scope=spec.scope, subject_token=subject_token, subject=ctx.subject
+-            )
+-            return await self._post(GATEWAY_URL, token, spec, args, ctx, operation_id)
+-        except GatewayUnavailable:
+-            if not spec.direct_route:
+-                raise
+-            log.warning("gateway unavailable, using direct route", extra={"tool": spec.qualified})
+-            token = await self._creds.token(
+-                audience=spec.direct_route["audience"], scope=spec.scope,
+-                subject_token=subject_token, subject=ctx.subject,
+-            )
+-            return await self._post(spec.direct_route["endpoint"], token, spec, args, ctx, operation_id)
++        token = await self._creds.token(audience=GATEWAY_AUDIENCE, scope=spec.scope, subject_token=subject_token, subject=ctx.subject)
++        return await self._post(GATEWAY_URL, token, spec, args, ctx, operation_id)
+ 
+     async def _post(
+         self, url: str, token: str, spec: ToolSpec, args: dict[str, Any], ctx: RunContext, operation_id: str
+diff --git a/src/retrieval.py b/src/retrieval.py
+index b0c7571..3c2ddd5 100644
+--- a/src/retrieval.py
++++ b/src/retrieval.py
+@@ -37,13 +37,13 @@ class PolicyIndex:
+         # Bumped by ingest on every add, expiry, quarantine or permission change.
+         return await self._pool.fetchval("SELECT version FROM retrieval.index_state WHERE id = 1")
+ 
+-    def _key(self, query: str) -> str:
++    def _key(self, query: str, employee_id: str) -> str:
+         normalized = " ".join(query.lower().split())
+-        return hashlib.sha256(f"{self._top_k}|{normalized}".encode()).hexdigest()
++        return hashlib.sha256(f"{self._top_k}|{employee_id}|{normalized}".encode()).hexdigest()
+ 
+     async def search(self, query: str, employee_id: str) -> list[dict[str, Any]]:
+         version = await self._index_version()
+-        key = self._key(query)
++        key = self._key(query, employee_id)
+         hit = self._cache.get(key)
+         if hit and hit[1] == version and time.monotonic() - hit[0] < self._ttl:
+             return hit[2]
+diff --git a/tests/test_approval_text.py b/tests/test_approval_text.py
+new file mode 100644
+index 0000000..9fb600a
+--- /dev/null
++++ b/tests/test_approval_text.py
+@@ -0,0 +1,13 @@
++from src.approvals import describe
++
++
++def test_leave_approval_text_shows_the_note():
++    args = {"leave_type": "annual", "start_date": "2026-02-02", "end_date": "2026-02-03",
++            "note": "Please also move my review"}
++    text = describe("hris/file_leave_request", "employee:e1", args)
++    assert "Please also move my review" in text
++
++
++def test_leave_approval_text_without_note_still_works():
++    args = {"leave_type": "annual", "start_date": "2026-02-02", "end_date": "2026-02-03"}
++    assert "annual" in describe("hris/file_leave_request", "employee:e1", args)
+diff --git a/tests/test_direct_route.py b/tests/test_direct_route.py
+new file mode 100644
+index 0000000..e703dd0
+--- /dev/null
++++ b/tests/test_direct_route.py
+@@ -0,0 +1,35 @@
++import asyncio
++from types import SimpleNamespace
++
++import httpx
++import pytest
++
++from src.gateway_client import GatewayClient, GatewayUnavailable
++from src.tools import ToolRegistry
++
++
++class FakeCreds:
++    async def token(self, **kwargs):
++        return "token"
++
++
++class GatewayDown:
++    def __init__(self):
++        self.urls = []
++
++    async def post(self, url, **kwargs):
++        self.urls.append(url)
++        return httpx.Response(503, text="down")
++
++
++def test_gateway_outage_does_not_use_direct_route():
++    spec = ToolRegistry.from_config().get("escalate_to_human")
++    assert spec.direct_route is None
++    client = GatewayDown()
++    ctx = SimpleNamespace(subject="e1", agent_instance_id="i1", agent_type_id="t1")
++    gateway = GatewayClient(client, FakeCreds())
++    args = {"summary": "I need help with payroll", "category": "payroll"}
++    with pytest.raises(GatewayUnavailable):
++        asyncio.run(gateway.call(spec, args, ctx, "subject-token", operation_id="op1"))
++    assert len(client.urls) == 1
++    assert "hr-tool-gateway" in client.urls[0]
+diff --git a/tests/test_retrieval_cache.py b/tests/test_retrieval_cache.py
+new file mode 100644
+index 0000000..060baac
+--- /dev/null
++++ b/tests/test_retrieval_cache.py
+@@ -0,0 +1,25 @@
++import asyncio
++
++from src.retrieval import PolicyIndex
++
++
++class FakePool:
++    def __init__(self):
++        self.searched_for = []
++
++    async def fetchval(self, *args):
++        return "v1"
++
++    async def fetch(self, sql, query, employee_id, top_k):
++        self.searched_for.append(employee_id)
++        return [{"chunk_id": f"private-{employee_id}", "source": "s", "trust": "reviewed", "text": "t", "rank": 1.0}]
++
++
++def test_cache_is_not_shared_between_employees():
++    pool = FakePool()
++    index = PolicyIndex(pool, top_k=5, cache_ttl=900)
++    first = asyncio.run(index.search("parental leave letter", "alice"))
++    second = asyncio.run(index.search("parental leave letter", "bob"))
++    assert first[0]["chunk_id"] == "private-alice"
++    assert second[0]["chunk_id"] == "private-bob"
++    assert pool.searched_for == ["alice", "bob"]

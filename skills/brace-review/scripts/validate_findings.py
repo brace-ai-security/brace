@@ -13,6 +13,12 @@ Usage:
   --conservative   Also turn every likely_pass into needs_evidence. Use with small
                    models: the review then only finds gaps and can't suggest a pass.
   --aspect X       Check only one aspect's items (for files made with new_findings.py --aspect).
+  --topology FILE  A CycloneDX topology (tools/brace/topology.py). Every finding's
+                   optional `components` must name bom-refs in it.
+
+Optional action fields on a finding: `components` (list of bom-refs), `fix`
+({"steps": [...], "done_when": "...", "effort": "small|medium|large"}) and
+`assignee` (a person, filled in by people). Their shape is always checked.
 
 Exit 0 if valid, 1 if not, 2 on bad usage.
 """
@@ -304,7 +310,66 @@ def prescan_rules(doc, seen, repo):
 MAX_UNKNOWN = 0.5
 
 
-def validate(doc, table, repo, ids=IDS):
+EFFORT = {"small", "medium", "large"}
+
+
+def topology_refs(path):
+    """All bom-refs in a CycloneDX topology file."""
+    bom = json.loads(Path(path).read_text())
+    refs = {bom.get("metadata", {}).get("component", {}).get("bom-ref")}
+    stack = [*bom.get("components", []), *bom.get("services", [])]
+    while stack:
+        n = stack.pop()
+        refs.add(n.get("bom-ref"))
+        stack += n.get("services", [])
+    return refs - {None}
+
+
+def action_fields(item, f, topo=None):
+    """Shape of the optional components/fix/assignee fields."""
+    errors = []
+    comps = f.get("components")
+    if comps is not None:
+        if not isinstance(comps, list) or not all(isinstance(c, str) and c for c in comps):
+            errors.append(f"{item}: components must be a list of bom-ref strings")
+        elif topo is not None:
+            errors += [f"{item}: component {c!r} is not in the topology" for c in comps if c not in topo]
+    fix = f.get("fix")
+    if fix is not None:
+        if not isinstance(fix, dict):
+            errors.append(f"{item}: fix must be an object with steps and done_when")
+        else:
+            steps = fix.get("steps")
+            if not isinstance(steps, list) or not steps or not all(isinstance(x, str) and x.strip() for x in steps):
+                errors.append(f"{item}: fix.steps must be a non-empty list of plain sentences")
+            t = fix.get("test")
+            if t is not None and (not isinstance(t, dict) or not isinstance(t.get("code"), str)
+                                  or not isinstance(t.get("file"), str)):
+                errors.append(f"{item}: fix.test must be an object with file and code (and optional run)")
+            if not isinstance(fix.get("problem", ""), str):
+                errors.append(f"{item}: fix.problem must be a sentence")
+            if not isinstance(fix.get("done_when", ""), str):
+                errors.append(f"{item}: fix.done_when must be a sentence")
+            if fix.get("effort") is not None and fix["effort"] not in EFFORT:
+                errors.append(f"{item}: fix.effort must be one of {sorted(EFFORT)}")
+            if f.get("rating") in ("likely_pass", "na_candidate") and steps:
+                errors.append(f"{item}: a {f['rating']} has nothing to fix; remove fix")
+    for c in f.get("checks") or []:
+        for kind in ("coverage", "deviations"):
+            for row in (c.get(kind) or []) if isinstance(c, dict) else []:
+                if not isinstance(row, dict) or "component" not in row:
+                    continue
+                ref = row["component"]
+                if not isinstance(ref, str) or not ref:
+                    errors.append(f"{item}: {c.get('id')} {kind} component must be a bom-ref string")
+                elif topo is not None and ref not in topo:
+                    errors.append(f"{item}: {c.get('id')} {kind} component {ref!r} is not in the topology")
+    if f.get("assignee") not in (None, "") and not isinstance(f.get("assignee"), str):
+        errors.append(f"{item}: assignee must be a name or null")
+    return errors
+
+
+def validate(doc, table, repo, ids=IDS, topo=None):
     if not isinstance(doc, dict):
         return ["The file must contain a JSON object."]
     errors = [f"Missing top-level field: {k}" for k in sorted(TOP - set(doc))]
@@ -325,6 +390,7 @@ def validate(doc, table, repo, ids=IDS):
         if rating not in RATINGS:
             errors.append(f"{item}: rating 'pass' isn't allowed; the best a review can give is likely_pass"
                           if rating == "pass" else f"{item}: rating must be one of {sorted(RATINGS)}")
+        errors += action_fields(item, f, topo)
         if f.get("confidence") not in CONFIDENCE:
             errors.append(f"{item}: confidence must be one of {sorted(CONFIDENCE)}")
         if f.get("lead_role") not in ROLES:
@@ -369,6 +435,7 @@ def main():
     ap.add_argument("--conservative", action="store_true")
     ap.add_argument("--aspect", choices=list("BRACE"))
     ap.add_argument("--batch", help="Validate only these comma-separated completed item IDs")
+    ap.add_argument("--topology", help="CycloneDX topology whose bom-refs findings may name")
     ap.add_argument("--before-challenges", action="store_true", help="Suppress only expected unchallenged-rating errors")
     args = ap.parse_args()
     path = Path(args.findings)
@@ -391,7 +458,7 @@ def main():
         if not ids or any(i not in IDS for i in ids) or len(ids) != len(set(ids)):
             ap.error('--batch must contain unique checklist IDs')
         doc = {**doc, 'findings': [f for f in doc['findings'] if f['item'] in ids]}
-    errors = validate(doc, table, repo, ids)
+    errors = validate(doc, table, repo, ids, topology_refs(args.topology) if args.topology else None)
     if args.before_challenges:
         errors = [e for e in errors if 'likely_pass needs a challenge that upheld it' not in e
                   and 'G1/G2 N/A needs a fresh challenge establishing absence' not in e]

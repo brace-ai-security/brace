@@ -1,0 +1,221 @@
+{
+  "verdict": "failed",
+  "checks": [
+    {
+      "id": "B07.1",
+      "result": "holds",
+      "evidence": "agent/config/agent.yaml:22",
+      "quote": "max_tool_calls_per_minute: 20",
+      "note": "all six limits have finite values",
+      "coverage": [
+        {
+          "subject": "loop count",
+          "status": "enforced",
+          "evidence": "agent/config/agent.yaml:18",
+          "quote": "max_steps: 12",
+          "note": "check_step raises at cap; while True is capped"
+        },
+        {
+          "subject": "run time",
+          "status": "enforced",
+          "evidence": "agent/config/agent.yaml:19",
+          "quote": "max_wall_seconds: 90",
+          "note": "checked per step and passed as request timeout"
+        },
+        {
+          "subject": "tokens",
+          "status": "enforced",
+          "evidence": "agent/config/agent.yaml:20",
+          "quote": "max_total_tokens: 60000",
+          "note": "plus max_output_tokens 1024"
+        },
+        {
+          "subject": "cost",
+          "status": "enforced",
+          "evidence": "agent/config/agent.yaml:21",
+          "quote": "max_cost_usd: 0.40",
+          "note": "pricing configured"
+        },
+        {
+          "subject": "tool-call rate",
+          "status": "enforced",
+          "evidence": "agent/config/agent.yaml:22",
+          "quote": "max_tool_calls_per_minute: 20",
+          "note": "per-run only"
+        },
+        {
+          "subject": "sub-agents",
+          "status": "enforced",
+          "evidence": "agent/config/agent.yaml:23",
+          "quote": "max_subagents: 0",
+          "note": "0 means none allowed; no spawn code exists in agent/src"
+        }
+      ],
+      "deviations": [],
+      "attempts": []
+    },
+    {
+      "id": "B07.2",
+      "result": "fails",
+      "evidence": "agent/src/main.py:172, agent/src/gateway_client.py:59",
+      "quote": "AsyncAnthropic(max_retries=1)\nreturn await self._post(spec.direct_route[\"endpoint\"], token, spec, args, ctx, operation_id)",
+      "note": "SDK retries, the resume recheck call and the direct-route retry escape accounting",
+      "coverage": [
+        {
+          "subject": "model_call main loop",
+          "status": "enforced",
+          "evidence": "agent/src/agent.py:67",
+          "quote": "state.budget.check_step()",
+          "note": "checked before each call; overshoot bounded by one call (1024 out + bounded context)"
+        },
+        {
+          "subject": "model_call quota record",
+          "status": "enforced",
+          "evidence": "agent/src/agent.py:82",
+          "quote": "await self.quotas.record_usage(ctx, tokens, cost)",
+          "note": "raises BudgetExceeded -> stopped"
+        },
+        {
+          "subject": "model_call SDK retry",
+          "status": "missing",
+          "evidence": "agent/src/main.py:172",
+          "quote": "AsyncAnthropic(max_retries=1)",
+          "note": "SDK retry resends the request invisibly; only the final response usage is recorded"
+        },
+        {
+          "subject": "tool_call proposed",
+          "status": "enforced",
+          "evidence": "agent/src/agent.py:106",
+          "quote": "state.budget.check_tool_call()",
+          "note": "per-run limiter"
+        },
+        {
+          "subject": "tool_call recheck on resume",
+          "status": "missing",
+          "evidence": "agent/src/agent.py:154",
+          "quote": "bal = await self.gateway.call(balance_spec, {\"leave_type\": args[\"leave_type\"]}, ctx, state.subject_token,",
+          "note": "extra gateway call never passes check_tool_call"
+        },
+        {
+          "subject": "tool_call direct-route retry",
+          "status": "missing",
+          "evidence": "agent/src/gateway_client.py:59",
+          "quote": "return await self._post(spec.direct_route[\"endpoint\"], token, spec, args, ctx, operation_id)",
+          "note": "second POST uncounted and bypasses the gateway, which README says applies rate limits"
+        }
+      ],
+      "deviations": [
+        "uncounted retries",
+        "unmetered recheck tool call"
+      ],
+      "attempts": [
+        {
+          "category": "unmetered_call",
+          "input": "gateway returns 503 for escalate_to_human",
+          "trace": "call() catches GatewayUnavailable and posts to direct_route endpoint",
+          "outcome": "accepted",
+          "evidence": "agent/src/gateway_client.py:59",
+          "quote": "return await self._post(spec.direct_route[\"endpoint\"], token, spec, args, ctx, operation_id)"
+        },
+        {
+          "category": "limit_boundary",
+          "input": "run at 59,999 tokens",
+          "trace": "check_step passes, one more call overshoots by at most one call",
+          "outcome": "blocked",
+          "evidence": "agent/src/budgets.py:35",
+          "quote": "if self.tokens >= self.cfg[\"max_total_tokens\"]:"
+        }
+      ],
+      "violates": [
+        "Enforce limits outside the model",
+        "tool-call rate"
+      ]
+    },
+    {
+      "id": "B07.3",
+      "result": "holds",
+      "evidence": "agent/config/agent.yaml:23",
+      "quote": "max_subagents: 0",
+      "note": "no sub-agent spawning exists",
+      "coverage": [
+        {
+          "subject": "sub-agent spawn",
+          "status": "not_applicable",
+          "evidence": "agent/config/agent.yaml:23",
+          "quote": "max_subagents: 0",
+          "note": "no spawn/handoff code in agent/src; no children can exist"
+        }
+      ],
+      "deviations": [],
+      "attempts": []
+    },
+    {
+      "id": "B07.4",
+      "result": "fails",
+      "evidence": "agent/src/budgets.py:28",
+      "quote": "tool_calls: deque = field(default_factory=deque)",
+      "note": "tool-call rate is not quota'd per user/tenant/fleet across runs; spend is",
+      "coverage": [
+        {
+          "subject": "user/tenant/fleet spend+runs",
+          "status": "enforced",
+          "evidence": "agent/src/budgets.py:104",
+          "quote": "async def reserve_run(self, ctx: RunContext) -> None:",
+          "note": "persistent Postgres counters, atomic reserve; usage recorded after each call, overshoot finite"
+        },
+        {
+          "subject": "cross-run tool-call rate",
+          "status": "missing",
+          "evidence": "agent/src/budgets.py:28",
+          "quote": "tool_calls: deque = field(default_factory=deque)",
+          "note": "tool-call rate is an in-memory per-run deque; quota.usage has only runs/tokens/cost_usd"
+        },
+        {
+          "subject": "direct route",
+          "status": "missing",
+          "evidence": "agent/config/tools.yaml:91",
+          "quote": "direct_route:",
+          "note": "bypasses the gateway, so tool calls on this path have no rate counting in the repo"
+        }
+      ],
+      "deviations": [
+        "no cross-run tool-call rate quota"
+      ],
+      "attempts": [
+        {
+          "category": "multiple_runs",
+          "input": "many small runs by one user each making up to 20 tool calls/min",
+          "trace": "each run gets a fresh deque; no persisted tool counter",
+          "outcome": "accepted",
+          "evidence": "agent/src/agent.py:52",
+          "quote": "budget = RunBudget(self.cfg[\"budgets\"][\"run\"], self.cfg[\"pricing\"])"
+        },
+        {
+          "category": "spend_before_check",
+          "input": "concurrent runs all pass reserve_run",
+          "trace": "tokens recorded after each call, stop on exceed; overshoot bounded by in-flight calls",
+          "outcome": "blocked",
+          "evidence": "agent/src/budgets.py:122",
+          "quote": "if row[\"tokens\"] >= q[\"max_tokens\"] or row[\"cost_usd\"] >= q[\"max_cost_usd\"]:"
+        }
+      ],
+      "violates": [
+        "rate quotas",
+        "per user or service",
+        "across the whole fleet"
+      ]
+    }
+  ],
+  "applicability": "present",
+  "evidence": "agent/src/agent.py:70",
+  "quote": "resp = await self.llm.messages.create(",
+  "note": "The agent makes model and tool calls, so the requirement applies; B07.2 and B07.4 fail on uncounted retries and no cross-run tool-rate quota.",
+  "search_explanation": "Read agent.py, budgets.py, main.py, gateway_client.py, retrieval.py, agent.yaml, tools.yaml, README and migration; grepped for spawn/subagent/retry/quota/rate across the repo.",
+  "violates": [
+    "Enforce limits outside the model",
+    "tool-call rate",
+    "rate quotas",
+    "per user or service",
+    "across the whole fleet"
+  ]
+}

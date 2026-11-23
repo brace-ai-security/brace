@@ -1,0 +1,333 @@
+# BRACE Configuration (C) heuristics for code review.
+# Hand-written. Each entry says what code and config can and cannot show for one checklist item.
+
+C01:
+  provable_from_code: "partly"
+  look_for:
+    - "A release manifest file listing container digest, harness version, system prompt and rules files, built-in tools, MCP servers, permission scopes, memory and retrieval settings, identity bindings, network rules, execution budgets, and security-policy versions."
+    - "A separate model record for each model role (main, sub-agent, judge, embedding, reranker) with provider, requested model ID, exact version or checkpoint, and adapter or fine-tune version."
+    - "Each requested model ID marked as pinned snapshot or changeable alias, with the provider doc and date cited."
+    - "For self-run training: job ID, base-model version, training code and config version, dataset version, and output digest."
+    - "Owners named per artifact, and immutable references (digests, commit SHAs) where they exist; optionally a CycloneDX ML-BOM or SPDX 3.0 AI profile."
+  red_flags:
+    - "Only an app version number or git tag identifies the release."
+    - "Helper models (embedding, reranker, judge) are missing from the manifest."
+    - "Provider alias written into a training job or version field, or made-up version values where the provider shares none."
+    - "MCP servers, egress rules, or budgets are configured but not listed in the manifest."
+    - "Model ID recorded with no pinned-or-alias label."
+  where_to_look:
+    - ".brace/manifest.yaml, release manifests, SBOM/ML-BOM files (`*.cdx.json`, `bom.json`)"
+    - "model config files and env vars that set model IDs"
+    - "*.mcp.json, agent config, k8s NetworkPolicy, Helm values"
+    - "training pipeline configs and model registry references"
+  needs_runtime_evidence: "Code shows what the manifest declares. Proving it matches the deployment needs the C01 recipe: export deployed artifacts and settings and diff them field by field, and follow training outputs to the served checkpoint."
+  na_when: "never"
+  must_show:
+    - id: C01.1
+      check: "A release manifest file lists the container, harness, system prompt, rules files, model, built-in tools, MCP servers, permission scopes, memory and retrieval settings, identity bindings, network rules, execution budgets, and security-policy versions."
+      verify: "1) Find the release manifest (`.brace/manifest.yaml`, release manifest, ML-BOM). 2) Check each category: container, harness, system prompt, rules files, model, built-in tools, MCP servers, permission scopes, memory and retrieval, identity bindings, network rules, budgets, security-policy versions. 3) Compare with what config sets up (`*.mcp.json`, NetworkPolicy). 4) Answer no if any category is missing or configured items are left out."
+      doc_ok: true
+    - id: C01.2
+      check: "The manifest has a separate model record for every model (main, sub-agent, and helper models such as embedding models and rerankers), each with provider, model ID, exact version or checkpoint, and adapter or fine-tune version."
+      verify: "1) Search code for every model used: main, sub-agent, embedding, reranker, judge. 2) Check the manifest has a separate record for each. 3) Check each record has provider, model ID, exact version or checkpoint, and adapter or fine-tune version. 4) Answer no if any model in code has no record, or a record is missing a field."
+      doc_ok: true
+    - id: C01.3
+      check: "Each requested model ID is labeled as a pinned snapshot or a changeable alias, with the provider doc and date used."
+      verify: "1) Open each model record in the manifest. 2) Check it has a pinned-or-alias label, the provider doc used, and a date. 3) Answer no if any record lacks one of these, or labels an undated or `-latest` name as pinned."
+    - id: C01.4
+      check: "Each artifact has a named owner and a reference that can't change (digest or commit) where one exists, not a mutable tag or the app's release number."
+      verify: "1) For each manifest artifact, check for a named owner. 2) Check its reference is a digest (`sha256:`) or commit SHA where one exists. 3) Answer no if any artifact has no owner, or uses a mutable tag (`:latest`, branch name) or the app release number where a digest or commit was available."
+    - id: C01.5
+      check: "For training the team runs itself, the manifest records the training job ID, base-model version, training code and config version, dataset version, and output digest."
+      verify: "1) Search for training or fine-tuning code (training jobs, `Trainer`, fine-tune API calls, pipeline configs). 2) If found, check the manifest records job ID, base-model version, training code and config version, dataset version, and output digest. 3) Answer no if training runs here and any field is missing. Answer unknown if training may run in another repo."
+  not_covered:
+    - problem: "Running setup not checked against the approved manifest"
+      owner: C03
+    - problem: "Manifest changes made without a reviewed diff and named author"
+      owner: C02
+    - problem: "Running config drifting from the approved baseline unnoticed"
+      owner: C04
+    - problem: "Agent-type-id not computed as a hash of its identity inputs"
+      owner: A03
+
+C02:
+  provable_from_code: "partly"
+  look_for:
+    - "Branch protection and CODEOWNERS requiring review on prompts, tool configs, manifest, and policy files."
+    - "Production config deploys only through CI/CD (GitOps, pipeline approvals), not manual edits."
+    - "IAM or RBAC that limits who can change production config, prompts, and network policy."
+    - "A documented emergency-change path that records owner, reason, end date, and follow-up review."
+  red_flags:
+    - "Prompts or tool lists loaded from a database, admin UI, or feature-flag service that anyone with app access can edit without review."
+    - "CODEOWNERS or required reviews missing for prompt, policy, or MCP config paths."
+    - "Deploy scripts or `kubectl apply` run from laptops with broad production credentials."
+    - "Break-glass access with no expiry or no follow-up record."
+  where_to_look:
+    - "CODEOWNERS, branch protection settings, `.github/workflows` or other CI configs"
+    - "prompt storage (files vs database vs remote prompt registry)"
+    - "IAM/RBAC for deploy roles; GitOps config (Argo CD, Flux)"
+    - "change-management or break-glass docs"
+  needs_runtime_evidence: "Needs the C02 recipe: try changing a prompt, tool, and network policy with a role lacking release permission and see each denied, and review real normal and emergency change records."
+  na_when: "never"
+  must_show:
+    - id: C02.1
+      check: "The manifest, prompts, tool config, and policy files live in version control, and merges require review by someone other than the named author."
+      verify: "1) Check the manifest, prompts, tool config, and policy files are tracked in git, not loaded at runtime from an untracked path or remote URL. 2) Look for branch protection or ruleset config requiring approving review, and CODEOWNERS covering those paths. 3) Answer no if any of these files is untracked or not covered. Answer unknown if review rules are set only in the hosting service."
+    - id: C02.2
+      check: "Only named roles in config (CODEOWNERS, IAM, or protected CI environments) can change production configuration."
+      verify: "1) Open CODEOWNERS, IAM policies, and CI environment config (protected `environment:` entries). 2) Check production config paths and deploy jobs are limited to named roles. 3) Answer no if a catch-all `*` owner, a broad group, or the agent's own credentials can change production config, or a deploy job skips the protected environment."
+    - id: C02.3
+      check: "An emergency change path exists that records an owner, a reason, an end date, and a follow-up review."
+      verify: "1) Search for an emergency or break-glass path (runbook, workflow, CLI). 2) Check it records owner, reason, end date, and follow-up review. 3) Answer no if any of the four is missing, or the path bypasses review with no record. Answer unknown if the procedure lives outside this repo."
+  not_covered:
+    - problem: "Running config drifting from the approved baseline unnoticed"
+      owner: C04
+    - problem: "Release candidate not re-tested against attack cases"
+      owner: C06
+    - problem: "No tested rollback to an approved setup"
+      owner: C07
+
+C03:
+  provable_from_code: "partly"
+  look_for:
+    - "A deploy-time or startup check that compares running artifacts (image digest, prompt hash, model ID, tool config, weights digest) with the approved manifest and fails on mismatch."
+    - "The emitted `agent.type.id` is computed from the artifacts actually loaded, not read from a static config value."
+    - "Admission control that verifies image signatures and digests (for example Sigstore policy-controller, Kyverno, Gatekeeper)."
+    - "Self-hosted weights and adapters checked against digest and signature before load."
+  red_flags:
+    - "`agent.type.id` is a constant in config or env that stays the same when the prompt or model changes."
+    - "Prompts or tool definitions fetched at runtime from a mutable source with no hash check."
+    - "Images deployed by mutable tag with no digest verification."
+    - "The only check is the agent reporting its own ID."
+  where_to_look:
+    - "startup and bootstrap code in the harness"
+    - "CI/CD deploy steps and admission policies"
+    - "model loading code for self-hosted weights"
+    - "prompt and tool config loaders"
+  needs_runtime_evidence: "Needs the C03 recipe: observe runtime artifact references independently, compare to the manifest and emitted ID, and swap a prompt, model, weights file, or tool setup in a test deployment to show the mismatch is caught."
+  na_when: "never"
+  must_show:
+    - id: C03.1
+      check: "Identity-defining artifacts are referenced in deployment config by digest or a version that can't change, not by mutable tags."
+      verify: "1) Open deployment config: Kubernetes manifests, Helm values, Terraform, compose files. 2) Check images use `@sha256:` and prompts, models, and weights use fixed versions. 3) Follow variables and defaults to the final value. 4) Answer no if any reference is a tag like `:latest`, a branch, a model alias, or a default that falls back to one."
+    - id: C03.2
+      check: "A process outside the agent observes the running artifacts (image digest, prompt, model, tool setup) and compares them with the approved manifest, rather than trusting what the agent reports."
+      verify: "1) Find a process outside the agent (admission controller, CI check, sidecar, scheduled job) that reads running artifacts. 2) Check it observes image digest, prompt, model, and tool setup itself and compares each with the approved manifest. 3) Answer no if it trusts values the agent reports, or compares a value with itself. Answer unknown if it would run in a platform outside this repo."
+    - id: C03.3
+      check: "The emitted agent-type-id is computed from the observed running artifacts, so a changed prompt, model, weights file, or tool setup produces a different ID instead of the approved one."
+      verify: "1) Find where the emitted `agent.type.id` comes from. 2) Check it is computed from the observed running artifacts at start or deploy. 3) Answer no if it is a constant, an env var or config value set at build, or copied from the approved manifest, so a changed prompt, model, weights file, or tool setup would still emit the approved ID."
+    - id: C03.4
+      check: "Self-hosted weights and adapters are checked by digest and signature at load or deploy."
+      verify: "1) Find where self-hosted weights and adapters are loaded or deployed (`from_pretrained`, `torch.load`, `safetensors`, download steps). 2) Check a digest compare and a signature check run before use. 3) Answer no if either is missing, wrapped in `try/except` that continues, or a second load path skips it. If only hosted models are used, answer yes citing the config that shows that."
+    - id: C03.5
+      check: "A mismatch blocks or quarantines the deployment, not only logs it."
+      verify: "1) Find the code that handles a manifest or digest mismatch. 2) Check it blocks or quarantines: non-zero exit, admission deny, refusal to start, scale to zero. 3) Answer no if the mismatch branch only logs, warns, or emits a metric and continues, or an error in the check lets deployment proceed."
+  not_covered:
+    - problem: "Manifest missing helper models, budgets, or other components"
+      owner: C01
+    - problem: "Hosted model changing behind a fixed name"
+      owner: C05
+    - problem: "Agent-type-id not computed as a hash of its identity inputs"
+      owner: A03
+    - problem: "Container image not signature-checked at admission"
+      owner: B10
+
+C04:
+  provable_from_code: "partly"
+  look_for:
+    - "A drift detector that compares running images, harness settings, prompts, MCP server lists, permissions, network policies, and self-hosted weights against a baseline per agent."
+    - "GitOps self-heal or drift alerts (for example Argo CD out-of-sync alerts, Terraform drift checks, cloud config rules)."
+    - "Alert rules that route drift to a named response: block, quarantine, or rollback, with a time target."
+    - "Runtime hashing of prompts and MCP config compared with the manifest on a schedule."
+  red_flags:
+    - "Drift checks cover infrastructure only, not prompts, MCP server lists, or tool config."
+    - "Drift alerts exist but have no owner, no response action, or no time target."
+    - "MCP servers can be added at runtime (user-editable config, dynamic discovery) with no baseline comparison."
+    - "Egress policy managed outside version control."
+  where_to_look:
+    - "GitOps and IaC drift settings"
+    - "monitoring and alert rules"
+    - "*.mcp.json and runtime config reload code"
+    - "k8s NetworkPolicy, egress proxy config"
+  needs_runtime_evidence: "Needs the C04 drill: change the prompt, MCP server list, and egress policy one at a time outside the baseline and measure detection and response time."
+  na_when: "never"
+  must_show:
+    - id: C04.1
+      check: "A drift check compares running images, harness settings, prompts, MCP server lists, permissions, network policies, and self-hosted model weights against the approved baseline, with each of these covered."
+      verify: "1) Find the drift check job or tool. 2) List what it compares: images, harness settings, prompts, MCP server lists, permissions, network policies, self-hosted weights. 3) Check each is compared with the approved baseline, not with the live state itself. 4) Answer no if any category is missing or excluded. Answer unknown if drift detection runs in an outside platform."
+    - id: C04.2
+      check: "The drift check runs per agent deployment, on a schedule or on change events."
+      verify: "1) Find what triggers the drift check: cron or CI schedule, admission webhook, or change events. 2) Check it runs for each agent deployment, not once for the fleet or only by hand. 3) Answer no if it is manual-only or covers only some deployments. Answer unknown if scheduling is set outside this repo."
+    - id: C04.3
+      check: "Detected drift triggers an alert and a set response (block, quarantine, or rollback) defined in config, with a time limit."
+      verify: "1) Open the drift check's result handling. 2) Check drift raises an alert and triggers a response set in config: block, quarantine, or rollback. 3) Check a time limit is set. 4) Answer no if drift only logs, the response or time limit is missing, or a check error is treated as no drift."
+  not_covered:
+    - problem: "Hosted model changing behind a fixed name"
+      owner: C05
+    - problem: "A tool server changing its description or schema after approval"
+      owner: E03
+    - problem: "Who may change production config, and emergency change records"
+      owner: C02
+    - problem: "Manifest missing components that define the release"
+      owner: C01
+
+C05:
+  provable_from_code: "partly"
+  look_for:
+    - "Lockfiles with exact versions or hashes for dependencies (`package-lock.json`, `poetry.lock`, `uv.lock`, `go.sum`)."
+    - "Model IDs pinned to dated or snapshot versions where the provider offers them; requested and served model versions both logged."
+    - "Weights, adapters, and datasets you host are signature-checked against an approved signer (for example OpenSSF Model Signing) before load."
+    - "Safe formats (for example safetensors) required; pickle-based loads blocked unless there is an approved exception and scan."
+    - "Promotion gates that link a changed training run, dataset, or training config to the produced model and its test results; scheduled re-tests for aliases."
+  red_flags:
+    - "Model alias like `-latest` or an unversioned family name in production config."
+    - "`torch.load`, `pickle.load`, or `trust_remote_code=True` on weights with no signature check or exception record."
+    - "Dependencies with ranges (`^`, `~`, `>=`) and no lockfile."
+    - "Weights or adapters downloaded at startup from a hub by name with no revision or digest pin."
+    - "Response metadata with the served model version is discarded."
+  where_to_look:
+    - "lockfiles and dependency manifests"
+    - "model config and env vars for model IDs"
+    - "model and adapter loading code"
+    - "training pipelines and promotion workflows"
+  needs_runtime_evidence: "Code shows pinning and load checks. The C05 recipe proves a swapped checkpoint triggers review, changed or unsigned weights are refused, and the provider notice or re-test process runs. Hidden provider changes behind a fixed ID can't be proven from code."
+  na_when: "never"
+  must_show:
+    - id: C05.1
+      check: "Dependency versions are pinned with exact versions or hashes in lockfiles, with no ranges or floating tags."
+      verify: "1) Open every dependency file and lockfile (`requirements*.txt`, `poetry.lock`, `package-lock.json`, `go.sum`) plus Dockerfile `FROM` and install lines. 2) Look for ranges (`^`, `~`, `>=`, `*`), missing lockfiles, and floating tags. 3) Answer no if any dependency is unpinned, including install commands in Dockerfiles or CI scripts that bypass the lockfile."
+    - id: C05.2
+      check: "Model IDs in config are pinned snapshots (plus checkpoint, weights, and adapter versions where supported), not aliases such as 'latest'."
+      verify: "1) Find every model ID in config, env files, and code defaults. 2) Follow env vars to their fallback value. 3) Answer no if any is an alias (`-latest`, undated name), falls back to one when unset, or leaves out the checkpoint, weights, or adapter version where one is used and the provider supports pinning it."
+    - id: C05.3
+      check: "Self-hosted weights, adapters, and datasets have their signatures checked against an approved signer before loading, and loading stops if the check fails."
+      verify: "1) Find load paths for self-hosted weights, adapters, and datasets. 2) Check a signature check against an approved signer (for example OpenSSF Model Signing, `cosign verify` with a pinned identity) runs before loading. 3) Answer no if any path skips it, any signer is accepted, or a failure is caught and loading continues. If nothing is self-hosted, answer yes citing the config that shows that."
+    - id: C05.4
+      check: "Pickle-based model formats are refused at load unless an approved exception and scan are recorded."
+      verify: "1) Search for pickle-capable loads: `pickle.load`, `torch.load`, `joblib.load`, `.pkl`, `.pt`, `.bin` files. 2) Check the loader refuses these formats unless an approved exception and scan are recorded. 3) Answer no if any pickle-based load runs without that check."
+    - id: C05.5
+      check: "The model version the provider or runtime reports serving is recorded separately from the requested model name."
+      verify: "1) Find model call sites and their response handling. 2) Check the served version from the response or runtime (for example the response `model` field) is stored in its own field. 3) Answer no if only the requested name is recorded, or the served field is filled with the requested value."
+  not_covered:
+    - problem: "Tool or MCP server approved without reviewing publisher, permissions, or vulnerabilities"
+      owner: E02
+    - problem: "Container image not pinned by digest or signature-checked"
+      owner: B10
+    - problem: "Rollback setup naming a hosted model that is retired"
+      owner: C07
+
+C06:
+  provable_from_code: "partly"
+  look_for:
+    - "A release test suite in CI that runs allowed tasks plus attack cases: destructive-action denial, access limits, injection containment, audit attribution, and stopping."
+    - "Retrieval, memory, and checker tests where those features exist; monitoring-evasion and stop-path tests if misalignment is in scope."
+    - "Pass criteria defined in advance in config or test code."
+    - "The release pipeline blocks promotion on any blocking failure and stores results keyed to the candidate manifest and model IDs."
+  red_flags:
+    - "Eval jobs marked `continue-on-error` or allowed to fail without blocking deploy."
+    - "Only happy-path or quality evals; no attack or denial cases."
+    - "Tests run against a mocked model or a different model ID than the release candidate."
+    - "Results not stored or not tied to a specific manifest."
+  where_to_look:
+    - "CI workflows and release pipelines"
+    - "eval and test directories (red-team suites, promptfoo, inspect, pytest suites)"
+    - "release gate scripts"
+  needs_runtime_evidence: "Needs the C06 run: suite version, candidate manifest and model IDs, results, and the gate decision for the exact release candidate."
+  na_when: "never"
+  must_show:
+    - id: C06.1
+      check: "A CI release gate runs the test suite against the exact candidate (manifest digest and model IDs), with pass criteria set before the run, and blocks promotion on any blocking failure."
+      verify: "1) Open the CI workflow for release or promotion. 2) Check it runs the suite against the candidate's manifest digest and model IDs, with pass criteria in config before the run. 3) Check promotion depends on it. 4) Answer no if the job uses `continue-on-error`, `|| true`, or allowed failures, tests a different build, or promotion can run without it."
+    - id: C06.2
+      check: "The suite includes cases for destructive-action denial, access limits, injection containment, audit attribution, and stopping, plus retrieval, memory, and checker tests where these apply."
+      verify: "1) List the test cases in the release suite. 2) Check each category exists: destructive-action denial, access limits, injection containment, audit attribution, stopping, plus retrieval, memory, and checker tests where those features exist. 3) Answer no if any category is missing or its tests are skipped (`skip`, `xfail`, excluded markers)."
+    - id: C06.3
+      check: "Test results are stored linked to the exact candidate manifest."
+      verify: "1) Find where CI stores test results (artifacts, uploads, database). 2) Check each result is tagged with the candidate's manifest digest or type ID. 3) Answer no if results stay only in CI logs, are tagged only by branch or build number, or are not stored."
+  not_covered:
+    - problem: "Running config drifting from the approved baseline unnoticed"
+      owner: C04
+    - problem: "No tested rollback to an approved setup"
+      owner: C07
+    - problem: "Config changes made without a reviewed diff and named author"
+      owner: C02
+
+C07:
+  provable_from_code: "partly"
+  look_for:
+    - "A documented rollback procedure and an approved previous release kept available (prior image digests, prior manifest)."
+    - "Rollback steps that handle credentials, memory and index state, checkpoints, and queued work."
+    - "Revocations stored outside the release artifact so a rollback does not restore them."
+    - "Retirement dates recorded for each hosted model the recovery release names."
+  red_flags:
+    - "Rollback redeploys an old manifest that includes credentials or permissions since revoked."
+    - "Queued jobs replay automatically after rollback with no check for already-done side effects."
+    - "Recovery release names a hosted model with no check that it is still offered."
+    - "No retained artifact for the previous release (images overwritten by tag)."
+  where_to_look:
+    - "runbooks and rollback scripts"
+    - "deploy pipeline rollback stages, Helm history, GitOps revisions"
+    - "queue and memory/index migration code"
+    - "secret and credential management config"
+  needs_runtime_evidence: "Needs the C07 drill: upgrade, create pending work and a revoked credential, roll back, and confirm the credential stays revoked and state and queues match the procedure."
+  na_when: "never"
+  must_show:
+    - id: C07.1
+      check: "An approved recovery setup is defined with references that can't change, and a rollback procedure or pipeline exists in code."
+      verify: "1) Find the recovery setup: a pinned earlier manifest or release record. 2) Check its references are digests or fixed versions. 3) Find a rollback script, pipeline, or runbook in the repo. 4) Answer no if references are tags or aliases, or no rollback procedure exists."
+    - id: C07.2
+      check: "Credentials and permission grants are managed apart from the rolled-back artifacts, so a rollback does not restore revoked access."
+      verify: "1) Open the rollback procedure. 2) Check what it restores. 3) Answer no if it re-applies IAM policies, RoleBindings, secrets, or API keys from the old release, so revoked access comes back. Answer unknown if credentials are managed in another system and the repo does not show how."
+    - id: C07.3
+      check: "The rollback procedure handles memory and index state, checkpoints, and queued work explicitly (drain, migrate, or discard), so unsafe side effects are not replayed."
+      verify: "1) Open the rollback procedure. 2) Look for explicit steps for memory and index state, checkpoints, and queued work: drain, migrate, or discard. 3) Answer no if any of these is not handled, or queued work is replayed as-is."
+    - id: C07.4
+      check: "Each hosted model named in the recovery setup has a recorded retirement date."
+      verify: "1) List the hosted models named in the recovery setup. 2) Check each has a recorded retirement date. 3) Answer no if any hosted model lacks one."
+      doc_ok: true
+  not_covered:
+    - problem: "Changed or tampered checkpoints accepted, or unsafe replay of actions"
+      owner: R14
+    - problem: "Hosted model changing behind a fixed name"
+      owner: C05
+    - problem: "Stop doesn't halt running work or open tool streams within a set time"
+      owner: R11
+
+C08:
+  provable_from_code: "partly"
+  look_for:
+    - "Traces carry `agent.type.id` linking to a stored manifest, `agent.context.size` per decision, and `agent.parent.prompt` (or its hash reference) for sub-agents."
+    - "Manifest archive keyed by type ID with retention at least as long as the audit retention period."
+    - "Storage policies (bucket lifecycle, log retention settings) that match the required retention."
+    - "Access controls on sensitive artifacts such as prompts and parent prompts."
+  red_flags:
+    - "`agent.context.size` missing, or emitted as zero when unknown."
+    - "Manifests or prompts kept for less time than traces, so old traces can't be resolved."
+    - "Trace retention set to a short default (for example 7 or 30 days) with no longer audit export."
+    - "Sensitive prompt artifacts readable by everyone with log access."
+  where_to_look:
+    - "OpenTelemetry instrumentation and exporter config"
+    - "log and trace backend retention settings, bucket lifecycle rules"
+    - "manifest storage and artifact registry config"
+  needs_runtime_evidence: "Needs the C08 recipe: from a past trace, pull the manifest, model records, context sizes, and parent prompts with the incident-response role, and confirm retention settings."
+  na_when: "never"
+  must_show:
+    - id: C08.1
+      check: "Each trace or audit record carries the agent-type-id or manifest reference that resolves to the stored release manifest."
+      verify: "1) Open the trace or audit record writer. 2) Check every record carries `agent.type.id` or a manifest reference. 3) Check that value is the key of a stored manifest. 4) Answer no if the field is missing on some paths (errors, background jobs) or holds a value that resolves to no stored manifest."
+    - id: C08.2
+      check: "The context size at each model decision is recorded in the trace."
+      verify: "1) Find model call sites and their spans. 2) Look for the context size recorded per call (for example `gen_ai.usage.input_tokens` or a context-length attribute). 3) Answer no if it is missing on any model call path, including retries and sub-agents."
+    - id: C08.3
+      check: "Prompts passed from a parent to a sub-agent are stored and linked from the trace."
+      verify: "1) Find sub-agent spawn code. 2) Check the parent's prompt is stored and the trace holds a link to it (ID, hash, or URI). 3) Answer no if the prompt is not stored, prompt capture is off, or the trace has no link."
+    - id: C08.4
+      check: "Storage config keeps manifests, traces, and these links for at least the audit retention period, and limits access to sensitive artifacts by role."
+      verify: "1) Find storage config for manifests, traces, and prompt links: bucket lifecycle rules, log retention, TTLs. 2) Check retention covers the audit period for all of them. 3) Check IAM limits sensitive artifacts by role. 4) Answer no if any has a shorter TTL, no retention, or broad read access. Answer unknown if storage is configured outside this repo."
+  not_covered:
+    - problem: "Context size not measured or logged for each action decision"
+      owner: R07
+    - problem: "Action records missing any of the six identity fields"
+      owner: A02
+    - problem: "Manifest missing components that define the release"
+      owner: C01

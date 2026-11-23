@@ -1,0 +1,491 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-11-21T11:56:13Z",
+  "scope": "Batch review of R04-R08 only (HR helpdesk agent, Python/Starlette, Postgres). Read src/retrieval.py, agent.py, audit.py, main.py, gateway_client.py, validation.py, config/agent.yaml, migrations/001_init.sql, release/manifest.yaml. Pre-scan had 0 hits. Inventory (brace-inventory.json) lists one model call (agent.py:70), audit writes, and no helper model calls; all audit sites were read. Not found in repo: the hr-docs-ingest job, security detection/alert rules, and any cross-run memory store. Controls outside the repo are rated unknown. Not done in this batch: topology map, falsification attempts, fresh challenges. Code was not run.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "R04",
+      "gate": "G2",
+      "title": "Retrieval-corpus integrity",
+      "requirement": "The retrieval corpus is the set of documents the agent searches for context. Its index stores those documents, or smaller passages called chunks, in a search engine or vector database. Limit which identities and sources can add or change content there. For each chunk, keep its source, when it was added, its trust level, and its access permissions. Enforce the requesting tenant's access when searching. Test an unapproved attempt to add content and a search across tenants. Also test quarantining, expiring, and revoking access to seeded test documents. Confirm the affected chunks disappear from search results and caches within a stated time. See the [R04 recipe](CHECKLIST-VERIFICATION.md#r--run-time).",
+      "not_covered": [
+        {
+          "problem": "Memory entries poisoned or shared across tenants",
+          "owner": "R05"
+        },
+        {
+          "problem": "Agent credentials allowing another tenant's data at the API",
+          "owner": "B02"
+        },
+        {
+          "problem": "Retrieved chunks not checked for size, type, or hidden instructions",
+          "owner": "R01"
+        },
+        {
+          "problem": "Embedding or reranker model swapped without review",
+          "owner": "C05"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/retrieval.py",
+          "line": 42,
+          "note": "Cache key is top_k plus query only; employee_id is not part of it. search() at lines 47-49 returns a cached result without running the audience filter, so employee B can receive employee A's employee-audience chunks (offer letters) for the same query within the 900s TTL (config/agent.yaml:55)."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R04.1",
+          "check": "Only named identities and sources can add or change index content, and the ingestion path checks the writer.",
+          "verify": "1) Find index write paths (`upsert`, `add_documents`, `index`, ingestion jobs). 2) Check each verifies the writer identity or source against a named list. 3) Answer no if any write path, including the agent's own tools or an admin endpoint, accepts writes without that check.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "DB grants limit writes on retrieval.chunks to hr_docs_ingest (migrations/001_init.sql:102) and the agent role is SELECT only (line 86). The ingest job code and its writer/source allowlist are not in this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R04.2",
+          "check": "Each stored chunk has metadata for source, time added, trust level, and access permissions.",
+          "verify": "1) Find chunk write code and metadata fields. 2) Check source, time added, trust level, and access permissions are stored on every chunk. 3) Answer no if any field is missing, or set only on some ingestion paths.",
+          "met": "yes",
+          "evidence": "migrations/001_init.sql:72",
+          "quote": "trust text NOT NULL CHECK (trust IN ('reviewed', 'hr_authored')),",
+          "counter_search": "Searched the repo for other writers to retrieval.chunks; only grants at 86 and 102 exist, and the table definition enforces NOT NULL on source, added_at, trust, audience for every row.",
+          "note": "All four metadata fields are NOT NULL columns at table level, so every ingestion path must set them.",
+          "coverage": [
+            {
+              "subject": "retrieval.chunks.source",
+              "status": "enforced",
+              "evidence": "migrations/001_init.sql:70",
+              "quote": "chunk_id text PRIMARY KEY, doc_id text NOT NULL, source text NOT NULL,",
+              "note": "source is NOT NULL on every row on every stored chunk row at table level"
+            },
+            {
+              "subject": "retrieval.chunks.added_at",
+              "status": "enforced",
+              "evidence": "migrations/001_init.sql:71",
+              "quote": "added_at timestamptz NOT NULL DEFAULT now(), added_by text NOT NULL DEFAULT current_user,",
+              "note": "time added defaults to now(), NOT NULL on every stored chunk row at table level"
+            },
+            {
+              "subject": "retrieval.chunks.trust",
+              "status": "enforced",
+              "evidence": "migrations/001_init.sql:72",
+              "quote": "trust text NOT NULL CHECK (trust IN ('reviewed', 'hr_authored')),",
+              "note": "trust level required and constrained on every stored chunk row at table level"
+            },
+            {
+              "subject": "retrieval.chunks.audience/allowed_employees",
+              "status": "enforced",
+              "evidence": "migrations/001_init.sql:73",
+              "quote": "audience text NOT NULL CHECK (audience IN ('all', 'employee')),",
+              "note": "access audience required; allowed_employees defaults to empty array (line 74) on every stored chunk row at table level"
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R04.3",
+          "check": "Search applies the requesting tenant's access filter at query time, in the store or retrieval code, not after the model answers.",
+          "verify": "1) Find search calls (`similarity_search`, `query`, `search`, `filter=`, `where=`). 2) Check a tenant or access filter is applied in the store query, from the caller's identity. 3) Answer no if filtering happens after retrieval or in the prompt, the filter is optional, or the tenant comes from a model-supplied argument.",
+          "met": "no",
+          "evidence": "src/retrieval.py:42",
+          "quote": "return hashlib.sha256(f\"{self._top_k}|{normalized}\".encode()).hexdigest()",
+          "counter_search": "",
+          "note": "Cache key is top_k plus query only; employee_id is not part of it. search() at lines 47-49 returns a cached result without running the audience filter, so employee B can receive employee A's employee-audience chunks (offer letters) for the same query within the 900s TTL (config/agent.yaml:55).",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R04.4",
+          "check": "Code can quarantine, expire, and revoke chunks, and it also clears or invalidates search caches.",
+          "verify": "1) Find quarantine, expiry, and revoke code (`delete`, `quarantine`, `ttl`, `expires_at`). 2) Check search excludes those chunks and caches are cleared. 3) Answer no if any of the three operations is missing, or caches (query cache, embedding cache) are not invalidated.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "search excludes quarantined and expired chunks in SQL (retrieval.py:21-22) and caches are keyed to index_state.version (retrieval.py:48). The code that quarantines, expires or revokes and bumps the version is in the ingest job, which is not in this repo. A natural expiry does not bump the version, so a cached chunk can outlive expires_at by up to the 900s TTL.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/retrieval.py:48 Cache hit returns before the per-employee audience filter; cache key omits employee_id, so one employee's private chunks can be served to another."
+      ],
+      "violates": [
+        "Enforce the requesting tenant's access when searching."
+      ],
+      "also_affects": [],
+      "summary": "The search cache is keyed by query only, so one employee's private HR chunks can be returned to another employee.",
+      "next_step": "Add employee_id to the cache key in src/retrieval.py _key(), or skip the cache for audience 'employee' chunks; then test two employees with the same query.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R05",
+      "gate": "G3",
+      "title": "Memory isolation and write validation",
+      "requirement": "Separate memory by tenant, agent type, instance, and task as needed. Block access across those lines unless it is clearly approved. Check what gets written to memory. Test that one poisoned run can't quietly plant instructions in another run's memory. Don't move the agent's own output into trusted memory without review, and let unverified entries expire. Write checks must also cover content that arrives through ordinary queries, not just special write paths.",
+      "not_covered": [
+        {
+          "problem": "No record of who wrote a memory entry, or no way to remove it",
+          "owner": "R06"
+        },
+        {
+          "problem": "Retrieval search not filtered by the requesting tenant",
+          "owner": "R04"
+        },
+        {
+          "problem": "Agent credentials allowing another tenant's data at the API",
+          "owner": "B02"
+        },
+        {
+          "problem": "Rollback restoring old memory or index state unchecked",
+          "owner": "C07"
+        }
+      ],
+      "rating": "na_candidate",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/main.py",
+          "line": 122,
+          "note": "Only run state is kept, in-process by run_id for approval resume; no cross-run memory store found"
+        }
+      ],
+      "checks": [
+        {
+          "id": "R05.1",
+          "check": "Memory reads and writes are scoped by tenant, agent type, instance, and task as needed, and cross-scope access is denied unless explicitly allowed.",
+          "verify": "1) Find memory read and write code (`memory`, `store`, `namespace`, keys). 2) Check keys include tenant, agent type, instance, or task as needed. 3) Answer no if keys omit tenant, the scope comes from a model argument, or reads fall back to a shared or global namespace.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No cross-run memory found, so this check does not apply. Searched src/ for memory stores, saved summaries, user or session persistence; found none. Run state lives in the in-process _runs dict (src/main.py:122) keyed by run_id and is reused only to resume the same run after approval. release/manifest.yaml:63 states no cross-run memory, which is a claim only.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R05.2",
+          "check": "Every memory write, including content arriving through ordinary queries, passes validation before it is stored.",
+          "verify": "1) List every memory write path, including automatic saves from ordinary conversation. 2) Check each passes validation before storing. 3) Answer no if any path writes without validation, or validation errors are caught and the write continues.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No cross-run memory found, so this check does not apply. Searched src/ for memory stores, saved summaries, user or session persistence; found none. Run state lives in the in-process _runs dict (src/main.py:122) keyed by run_id and is reused only to resume the same run after approval. release/manifest.yaml:63 states no cross-run memory, which is a claim only.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R05.3",
+          "check": "The agent's own output cannot reach trusted or shared memory without a review step.",
+          "verify": "1) Find where agent output is written to shared or trusted memory. 2) Check a review step gates the write. 3) Answer no if agent output goes straight into shared or trusted memory, or the review flag defaults to approved.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No cross-run memory found, so this check does not apply. Searched src/ for memory stores, saved summaries, user or session persistence; found none. Run state lives in the in-process _runs dict (src/main.py:122) keyed by run_id and is reused only to resume the same run after approval. release/manifest.yaml:63 states no cross-run memory, which is a claim only.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R05.4",
+          "check": "Unverified entries have an expiry that is enforced.",
+          "verify": "1) Find how unverified entries are marked and expired (`ttl`, `expires_at`, cleanup jobs). 2) Check reads filter out expired entries. 3) Answer no if no expiry is set, it is set but never enforced on read or by a job, or the default is no expiry.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No cross-run memory found, so this check does not apply. Searched src/ for memory stores, saved summaries, user or session persistence; found none. Run state lives in the in-process _runs dict (src/main.py:122) keyed by run_id and is reused only to resume the same run after approval. release/manifest.yaml:63 states no cross-run memory, which is a claim only.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "No cross-run memory exists in the code; only per-run state kept in process.",
+      "next_step": "Governance to approve N/A after a fresh challenge confirms no persistent memory, including the _runs dict and approvals.grants args.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R06",
+      "gate": "G3",
+      "title": "Memory provenance and cleanup",
+      "requirement": "For any memory entry, look up who wrote it, when, for which task, from what input, and the context size at the time. Show that you can find, quarantine, and remove bad entries, and control their reuse in later sessions.",
+      "not_covered": [
+        {
+          "problem": "Memory not separated by tenant, agent type, instance, or task",
+          "owner": "R05"
+        },
+        {
+          "problem": "Poisoned retrieval documents not quarantined or expired",
+          "owner": "R04"
+        },
+        {
+          "problem": "Context size not logged for each action decision",
+          "owner": "R07"
+        },
+        {
+          "problem": "Prompt a parent gave a sub-agent not recorded",
+          "owner": "A06"
+        }
+      ],
+      "rating": "na_candidate",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "file": "src/main.py",
+          "line": 122,
+          "note": "Only run state is kept, in-process by run_id for approval resume; no cross-run memory store found"
+        }
+      ],
+      "checks": [
+        {
+          "id": "R06.1",
+          "check": "Each memory entry stores its writer, time, task, source input, and context size at write time.",
+          "verify": "1) Find the memory entry schema. 2) Check fields for writer, time, task, source input, and context size. 3) Answer no if any is missing, or set only on some write paths.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No cross-run memory found, so this check does not apply. Searched src/ for memory stores, saved summaries, user or session persistence; found none. Run state lives in the in-process _runs dict (src/main.py:122) keyed by run_id and is reused only to resume the same run after approval. release/manifest.yaml:63 states no cross-run memory, which is a claim only.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R06.2",
+          "check": "Derived entries such as summaries keep links to the entries they came from.",
+          "verify": "1) Find summary or derived-entry creation code. 2) Check it stores links to source entry IDs. 3) Answer no if derived entries keep no source links.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No cross-run memory found, so this check does not apply. Searched src/ for memory stores, saved summaries, user or session persistence; found none. Run state lives in the in-process _runs dict (src/main.py:122) keyed by run_id and is reused only to resume the same run after approval. release/manifest.yaml:63 states no cross-run memory, which is a claim only.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R06.3",
+          "check": "Code can find entries by source or writer and quarantine or delete them, along with derived entries and caches.",
+          "verify": "1) Find code that queries by source or writer and quarantines or deletes. 2) Check it also handles derived entries and caches. 3) Answer no if lookup by source or writer is impossible, or derived entries and caches are left in place.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No cross-run memory found, so this check does not apply. Searched src/ for memory stores, saved summaries, user or session persistence; found none. Run state lives in the in-process _runs dict (src/main.py:122) keyed by run_id and is reused only to resume the same run after approval. release/manifest.yaml:63 states no cross-run memory, which is a claim only.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R06.4",
+          "check": "Quarantined or deleted entries are excluded from retrieval in later sessions.",
+          "verify": "1) Find memory retrieval code. 2) Check it excludes quarantined or deleted entries in new sessions. 3) Answer no if retrieval ignores the quarantine flag, or a cache or index still returns removed entries.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No cross-run memory found, so this check does not apply. Searched src/ for memory stores, saved summaries, user or session persistence; found none. Run state lives in the in-process _runs dict (src/main.py:122) keyed by run_id and is reused only to resume the same run after approval. release/manifest.yaml:63 states no cross-run memory, which is a claim only.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "No cross-run memory exists in the code, so there are no entries to trace or clean up.",
+      "next_step": "Governance to approve N/A after a fresh challenge confirms no persistent memory.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R07",
+      "gate": "G2",
+      "title": "Decision-time context size",
+      "requirement": "For each action, log how full the model's context was when it decided, in tokens. Document how you count. Say whether each value was measured, estimated, or unavailable. Cover cached input, compaction (shrinking the context), and limits the provider hides. Per-call billing totals don't automatically equal context size. Use them only if your counting method shows they match. A missing value is a clear gap, never zero. Check that the value survives tool handoffs and can be searched next to the action's identity and result. See the [telemetry conventions](otel-conventions.md).",
+      "not_covered": [
+        {
+          "problem": "Behavior not compared across context-size ranges",
+          "owner": "R09"
+        },
+        {
+          "problem": "Token or cost limits not enforced outside the model",
+          "owner": "B07"
+        },
+        {
+          "problem": "Action records missing any of the six identity fields",
+          "owner": "A02"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/agent.py",
+          "line": 193,
+          "note": "Only the model_call record (agent.py:77-81) carries context_tokens. The tool action records (proposed_action line 100, authz_decision 110/120, approval_requested 115, approval_used 141, tool_result 193, tool_denied, tool_error, content_held) pass no context_tokens, though ctx_tokens was measured for the step that chose the action."
+        }
+      ],
+      "checks": [
+        {
+          "id": "R07.1",
+          "check": "Each action record includes the model's context size in tokens at decision time.",
+          "verify": "1) Inventory every model call, including classifiers and helpers, and every action/audit write. 2) Trace available decision-time context into each record. 3) Answer no when an available measure is dropped; NULL/unavailable is not permission to omit a value that exists. Do not exclude routing decisions or delegate start/result events merely by calling them lifecycle events.",
+          "met": "no",
+          "evidence": "src/agent.py:193",
+          "quote": "await self.audit.record(ctx, \"tool_result\", step_id=step_id, tool=spec.qualified, target=target,",
+          "counter_search": "",
+          "note": "Only the model_call record (agent.py:77-81) carries context_tokens. The tool action records (proposed_action line 100, authz_decision 110/120, approval_requested 115, approval_used 141, tool_result 193, tool_denied, tool_error, content_held) pass no context_tokens, though ctx_tokens was measured for the step that chose the action.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R07.2",
+          "check": "Each value is labeled measured, estimated, or unavailable, and a missing value is stored as unknown, never as zero.",
+          "verify": "1) Find where context size is recorded. 2) Check a label of measured, estimated, or unavailable, and how missing values are stored. 3) Answer no if there is no label, or a missing value defaults to `0` (`or 0`, `?? 0`, `.get(..., 0)`).",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "agent.py:79 sets only a measured label. No estimated or unavailable label path exists, and the cache fields default to 0 via 'or 0' at agent.py:76 (a missing component is counted as zero). Not enough to answer yes; no missing-total case exists as usage is required.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R07.3",
+          "check": "The count comes from a stated method that handles cached input and compaction, not a copied per-call billing total.",
+          "verify": "1) Find how context size is counted. 2) Check a stated method covers cached input and compaction. 3) Answer no if it copies `usage.input_tokens` or a billing total with no stated method that matches it, or ignores cache and compaction.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "agent.py:76-79 sums input, cache read and cache write tokens and labels the method in a string. No document describes the method, and no compaction handling exists (full messages list resent, agent.py:72). Counting method documentation is outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R07.4",
+          "check": "The value is carried across tool handoffs and stored with the action's identity, result, and trace ID.",
+          "verify": "1) Inventory parent-to-child calls, tool calls, child returns and their audit records. 2) Trace the producer, call arguments, callee and result record for each path. 3) Answer no when available parent or child context is dropped on either direction; correct logging inside one leaf tool is not proof of handoff coverage.",
+          "met": "no",
+          "evidence": "src/gateway_client.py:70",
+          "quote": "\"X-Agent-Instance\": ctx.agent_instance_id,",
+          "counter_search": "",
+          "note": "Gateway call headers (gateway_client.py:65-73) and audit.gateway_decisions (migrations/001_init.sql:20-25) carry no context size, so it is dropped at the tool handoff. Action rows other than model_call also omit it, so it cannot be searched next to the action's result.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/agent.py:193 tool_result and other action records omit context_tokens although ctx_tokens is measured at agent.py:76."
+      ],
+      "violates": [
+        "For each action, log how full the model's context was when it decided, in tokens."
+      ],
+      "also_affects": [],
+      "summary": "Only model_call records hold context size; tool action records and gateway decisions drop it.",
+      "next_step": "Pass ctx_tokens and its method into every action audit.record in src/agent.py, and send it to the gateway so gateway_decisions can store it.",
+      "lead_role": "agent_team"
+    },
+    {
+      "item": "R08",
+      "gate": "G3",
+      "title": "Security monitoring",
+      "requirement": "Keep security rules and baselines separate from answer-quality monitoring. Test encoded payloads, unexpected outbound traffic, writes outside scope, privilege escalation, and repeated denied calls. Check that alerts reach a named responder.",
+      "not_covered": [
+        {
+          "problem": "Chains of individually allowed actions going undetected",
+          "owner": "R09"
+        },
+        {
+          "problem": "No test of a second-model review against evasive behavior",
+          "owner": "R10"
+        },
+        {
+          "problem": "No drill for a compromised shared tool or agent type",
+          "owner": "E12"
+        },
+        {
+          "problem": "Rate and cost limits not enforced outside the model",
+          "owner": "B07"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "medium",
+      "evidence": [],
+      "checks": [
+        {
+          "id": "R08.1",
+          "check": "Security detection rules and baselines are defined separately from answer-quality monitoring.",
+          "verify": "1) Find detection rules and monitoring config (SIEM rules, alert config, eval dashboards). 2) Check security rules are separate from answer-quality metrics. 3) Answer no if only quality monitoring exists. Answer unknown if monitoring lives outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No SIEM, alert or detection rule files in the repo (searched for alert, siem, falco, prometheus, rules). Monitoring probably lives outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R08.2",
+          "check": "Rules exist for encoded payloads, unexpected outbound traffic, out-of-scope writes, privilege escalation, and repeated denied calls.",
+          "verify": "1) Read the security detection rules. 2) Check for encoded payloads, unexpected outbound traffic, out-of-scope writes, privilege escalation, and repeated denied calls. 3) Answer no if any is missing, or denied calls are never logged so the rule cannot fire.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "No detection rules in the repo. Denied calls are logged as tool_denied (src/agent.py:180) so a rule could match, but none exist here; rules for encoded payloads, outbound traffic, out-of-scope writes, privilege escalation and repeated denials were not found.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "R08.3",
+          "check": "Alerts from these rules route to a named responder or on-call target in config.",
+          "verify": "1) Find alert routing (PagerDuty, Opsgenie, alertmanager receivers, on-call config). 2) Check the security rules route to a named responder. 3) Answer no if alerts go only to a dashboard or log, or the receiver is empty. Answer unknown if routing lives outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "config/agent.yaml:4 names a pager (people-platform-oncall) for operations, but no alert routing to a named security responder is in the repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "The repo has no security detection rules or alert routing; they may live outside it.",
+      "next_step": "Collect the security detection rules and alert routing for the five event types and show a test alert reaching the security responder.",
+      "lead_role": "security"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

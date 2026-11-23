@@ -1,0 +1,270 @@
+{
+  "brace_checklist": "2026-10-01",
+  "repo": "",
+  "commit": null,
+  "reviewed_at": "2026-11-21T12:14:52Z",
+  "scope": "TODO: what was reviewed and what wasn't.",
+  "review_protocol": "coverage-first-v1",
+  "findings": [
+    {
+      "item": "E10",
+      "gate": "G1",
+      "title": "Audit across service boundaries",
+      "requirement": "Rebuild a run across the gateway, tool services, and delegated workers, with all six identity fields kept. Check that the agent can't erase or rewrite its audit history, either directly or by asking a more powerful tool or peer. Check that a vendor boundary doesn't leave any action untraceable to the agent and instance that did it.",
+      "not_covered": [
+        {
+          "problem": "Audit retention, access, redaction, or export rules missing",
+          "owner": "E11"
+        },
+        {
+          "problem": "Authorization decisions missing the policy version in the run record",
+          "owner": "R13"
+        },
+        {
+          "problem": "Instance or tenant labels taken from what the model supplies",
+          "owner": "A04"
+        },
+        {
+          "problem": "Recovery checkpoints not tamper-evident",
+          "owner": "R14"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "src/gateway.py",
+          "line": 137,
+          "note": "Gateway audit rows take trace from a caller header and accept 'missing'; type and instance are unverified caller hints (lines 138-139); no run_id or span. Direct-route fallback (gateway_client.py:59) bypasses the gateway so it writes no record at all."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E10.1",
+          "check": "The gateway, tool services, and delegated workers each write audit records with all six identity fields and the shared trace context.",
+          "verify": "1) Find audit writers in the gateway, tool services, and delegated workers. 2) Check each writes all six identity fields and the shared trace context. 3) Answer no if any component writes records without them or starts a new trace. Answer unknown if a component's code is outside this repo.",
+          "met": "no",
+          "evidence": "src/gateway.py:137",
+          "quote": "request.headers.get(\"traceparent\") or \"missing\"",
+          "counter_search": "",
+          "note": "Gateway audit rows take trace from a caller header and accept 'missing'; type and instance are unverified caller hints (lines 138-139); no run_id or span. Direct-route fallback (gateway_client.py:59) bypasses the gateway so it writes no record at all.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E10.2",
+          "check": "The agent's credentials have no permission to delete, update, or overwrite audit records (for example an append-only or WORM store with IAM denies).",
+          "verify": "1) Find the agent's IAM role or database grants and the audit store config. 2) Check the agent has no delete, update, or overwrite rights (`DeleteObject`, overwriting `PutObject`, `UPDATE`, `DELETE`, `TRUNCATE`) and the store is append-only or WORM (Object Lock). 3) Answer no if the agent's credentials can delete or rewrite records, or grant `*`. Answer unknown if these are set outside this repo.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "migrations/001_init.sql:81 grants hr_agent INSERT only on audit.events (no UPDATE/DELETE/TRUNCATE), and partition drops go through a separate hr_audit_maint role. But role creation, membership, table ownership and any WORM/Object Lock are set by the platform team outside this repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E10.3",
+          "check": "No tool or peer the agent can call is able to delete or rewrite audit records on its behalf, or such requests are held for approval under B05.",
+          "verify": "1) List the tools and peers the agent can call. 2) For each, check whether it can delete or rewrite audit records (database admin, log management, storage tools). 3) Answer no if any can and such requests are not held for approval under B05.",
+          "met": "yes",
+          "evidence": "config/tools.yaml:82",
+          "quote": "  escalate_to_human:",
+          "counter_search": "Listed all 4 tools and checked each schema for audit-delete/rewrite capability; none. max_subagents is 0 so no peers. Searched src and config for delete/update/truncate on audit: only the maintain_partitions function, run by the separate hr_audit_maint cronjob, not callable by the agent role (migrations:99-100).",
+          "note": "No tool the agent can call touches audit records.",
+          "coverage": [
+            {
+              "subject": "search_policies",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:18",
+              "quote": "  search_policies:",
+              "note": "Local handbook search; reads retrieval.chunks only, no audit access."
+            },
+            {
+              "subject": "get_leave_balance",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:30",
+              "quote": "  get_leave_balance:",
+              "note": "HRIS read with fixed leave_type enum schema; cannot reach audit tables."
+            },
+            {
+              "subject": "file_leave_request",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:55",
+              "quote": "  file_leave_request:",
+              "note": "HRIS write with fixed leave schema; cannot reach audit tables."
+            },
+            {
+              "subject": "escalate_to_human",
+              "status": "enforced",
+              "evidence": "config/tools.yaml:82",
+              "quote": "  escalate_to_human:",
+              "note": "Creates a helpdesk ticket with summary/category only; no audit operation."
+            },
+            {
+              "subject": "peers/sub-agents",
+              "status": "not_applicable",
+              "evidence": "config/agent.yaml:23",
+              "quote": "    max_subagents: 0",
+              "note": "No delegated workers or peers are allowed for the agent."
+            }
+          ],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E10.4",
+          "check": "Calls into vendor services are mapped from the gateway's verified identity and correlation ID to the vendor's job or receipt ID.",
+          "verify": "1) Find calls into vendor services. 2) Check the gateway stores its verified identity and correlation ID together with the vendor's job or receipt ID. 3) Answer no if the vendor ID is not stored, or stored without the link to identity and correlation ID.",
+          "met": "no",
+          "evidence": "src/gateway.py:190",
+          "quote": "await _log(request, claims, tool, \"allow\", \"ok\")",
+          "counter_search": "",
+          "note": "Gateway logs only 'ok'; the vendor result (request_id/ticket_id) from the MCP response is not stored with the gateway's verified identity and correlation ID. Direct-route calls are not logged by the gateway at all.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [
+        "src/gateway_client.py:59 Gateway outage or 503 makes escalate_to_human go straight to helpdesk-mcp (tools.yaml:91, networkpolicy.yaml:49 allows it), skipping gateway audit, stop flags and rate limits; action untraceable at the gateway."
+      ],
+      "violates": [
+        "all six identity fields kept"
+      ],
+      "also_affects": [],
+      "summary": "Gateway audit rows lack verified identity fields and trace, vendor IDs are not linked, and the direct route skips the gateway audit.",
+      "next_step": "Make gateway log verified fields and the vendor receipt ID, drop direct_route, and write allow records before forwarding.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E11",
+      "gate": "G2",
+      "title": "Protect shared evidence",
+      "requirement": "Set rules for how long audit records are kept, who can see them, what is redacted, how their integrity is checked, and how they are exported and restored. Test pulling up a past run, and test that missing records or a broken pipeline get noticed. Keep records long enough for investigations and for the law. For example, the EU AI Act requires providers and deployers of high-risk systems to keep automatically generated logs for at least six months (Articles 19 and 26). High-impact actions must fail closed when required audit capture isn't working.",
+      "not_covered": [
+        {
+          "problem": "Agent able to erase or rewrite its own audit history",
+          "owner": "E10"
+        },
+        {
+          "problem": "Run record missing denials, approvals, or results",
+          "owner": "R13"
+        },
+        {
+          "problem": "Secrets left in tool output, responses, or normal logs",
+          "owner": "R03"
+        }
+      ],
+      "rating": "gap",
+      "confidence": "high",
+      "evidence": [
+        {
+          "file": "k8s/audit-maintenance.yaml",
+          "line": 35,
+          "note": "KEEP_PARTITIONS=6 with PERIOD '1 week' (line 31) and a drop offset of keep+ahead+1 (migrations:41) keeps about six weeks, not the six months in README/manifest. Older partitions are dropped nightly with no archive."
+        }
+      ],
+      "checks": [
+        {
+          "id": "E11.1",
+          "check": "Audit retention is set in config to cover the investigation window and the legal minimum (for example at least six months for EU AI Act high-risk systems).",
+          "verify": "1) Find retention settings for audit storage: bucket lifecycle rules, log retention days, TTLs. 2) Check the value covers the investigation window and the legal minimum (for example six months for EU AI Act high-risk systems). 3) Answer no if retention is shorter or unset. Answer unknown if audit storage is configured outside this repo.",
+          "met": "no",
+          "evidence": "k8s/audit-maintenance.yaml:35",
+          "quote": "value: \"6\"",
+          "counter_search": "",
+          "note": "KEEP_PARTITIONS=6 with PERIOD '1 week' (line 31) and a drop offset of keep+ahead+1 (migrations:41) keeps about six weeks, not the six months in README/manifest. Older partitions are dropped nightly with no archive.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E11.2",
+          "check": "Access to audit records is limited by role, and redaction rules apply to sensitive fields.",
+          "verify": "1) Find IAM policies or ACLs on audit storage. 2) Check reads are limited by role. 3) Check redaction rules apply to sensitive fields. 4) Answer no if read access is broad (`*`, all engineers) or no redaction exists.",
+          "met": "unknown",
+          "evidence": "",
+          "quote": "",
+          "counter_search": "",
+          "note": "Redaction exists (src/audit.py:94 redact_obj on args/result) and migrations:97 grants SELECT to hr_audit_reader only, but who holds that role is set outside this repo. Regex redaction covers only listed patterns.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E11.3",
+          "check": "Integrity protection (hash chain, signatures, or WORM) plus sequence numbers or delivery receipts let missing records be detected, with an alert on gaps or pipeline failure.",
+          "verify": "1) Open the audit writer and store config. 2) Check for integrity protection (hash chain, signatures, or WORM) plus sequence numbers or delivery receipts. 3) Check an alert fires on gaps or pipeline failure. 4) Answer no if any piece is missing, or a hash is computed but never verified.",
+          "met": "no",
+          "evidence": "src/audit.py:85",
+          "quote": "event_id = str(uuid.uuid4())",
+          "counter_search": "",
+          "note": "Rows get random UUIDs: no hash chain, signature, sequence number or delivery receipt, and no alert on gaps or pipeline failure anywhere in repo.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        },
+        {
+          "id": "E11.4",
+          "check": "High-impact actions are blocked when required audit capture is down.",
+          "verify": "1) Find high-impact action paths. 2) Check they confirm audit capture is working before the action runs. 3) Answer no if audit write errors are caught and the action proceeds, or the audit record is written only after success.",
+          "met": "no",
+          "evidence": "src/gateway.py:198",
+          "quote": "return JSONResponse({\"error\": \"policy_unavailable\"}, status_code=503)",
+          "counter_search": "",
+          "note": "Gateway writes the allow record (line 190) only after the upstream action ran; if that log write fails the call returns 503 after the effect, and the client then retries via direct route. Agent-side pre-action records do fail closed.",
+          "coverage": [],
+          "deviations": [],
+          "attempts": []
+        }
+      ],
+      "red_flags_found": [],
+      "violates": [
+        "Keep records long enough for investigations and for the law"
+      ],
+      "also_affects": [],
+      "summary": "Audit retention is about six weeks rather than six months, there is no integrity or gap detection, and the gateway audits after acting.",
+      "next_step": "Raise KEEP_PARTITIONS to cover six months, add sequence/hash and gap alerts, write gateway audit before forwarding.",
+      "lead_role": "infrastructure"
+    },
+    {
+      "item": "E12",
+      "gate": "G3",
+      "title": "Fleet incident response",
+      "requirement": "Run a drill where a shared tool or agent type is compromised. Find the affected instances and tenants. Quarantine the dependency, revoke the access involved, stop affected work, and alert the named responders. Check that alerts about abuse across agents, and about budgets, reach the team that can act. Name who decides whether to report outside the organization and share information.",
+      "not_covered": [
+        {
+          "problem": "Kill switch for a single agent not drilled",
+          "owner": "R11"
+        },
+        {
+          "problem": "No owner named on each side of a shared control",
+          "owner": "E01"
+        },
+        {
+          "problem": "Tool or MCP server approved without vetting or pinning",
+          "owner": "E02"
+        },
+        {
+          "problem": "Budget and rate limits not enforced outside the model",
+          "owner": "B07"
+        }
+      ],
+      "rating": "needs_evidence",
+      "confidence": "low",
+      "evidence": [],
+      "checks": [],
+      "red_flags_found": [],
+      "violates": [],
+      "also_affects": [],
+      "summary": "No checks apply from code; runbook, alert routing, fleet impact query and outside-reporting owner are not in this repo.",
+      "next_step": "Run the E12 drill and keep the impact query, quarantine and revocation records, alert times and the named reporting decision-maker. Also note gateway stop query (gateway.py:99) ignores agent_type scope (see R11).",
+      "lead_role": "security"
+    }
+  ],
+  "injection_attempts": [],
+  "prescan_resolutions": {}
+}

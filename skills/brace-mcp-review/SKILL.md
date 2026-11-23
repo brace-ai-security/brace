@@ -103,7 +103,17 @@ focused MCP review, not completion of the full 53-item BRACE assessment.
      they need not become separate findings. Report a control's demonstrated extent
      rather than filling the report with generic security properties;
    - proposed controlled tests with expected allowed and denied outcomes, plus
-     an owner. Do not execute them merely because this review suggested them.
+     an owner. Do not execute them merely because this review suggested them;
+   - for each finding, plain fix steps a grade 12 student could follow (one short
+     action per step, naming the file and line) and one "done when" sentence anyone
+     can check.
+
+   If the project has `tools/brace/`, also map the servers: build the topology with
+   `python tools/brace/topology.py build <repo> -o <repo>/brace-topology.cdx.json`,
+   record each traced tool, backend and network with `add-node`, `add-edge --risk ...`
+   and `set-zone` (each needs `path:line` and the exact quote), and name the affected
+   bom-refs next to each finding. Offer to create or update `.brace/topology.cdx.json`
+   with `topology.py record`; pass `--apply` only after the user says yes.
 
 Before returning, reconcile the entrypoint/operation inventory with the coverage rows. Check
 every finding's source ID and each date/verification claim against the specific

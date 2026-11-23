@@ -1,0 +1,275 @@
+{
+  "verdict": "upheld",
+  "checks": [
+    {
+      "id": "A03.1",
+      "result": "holds",
+      "evidence": "src/type_id.py:42",
+      "quote": "manifest = {\"scheme\": HASH_SCHEME, \"image_digest\": image_digest, \"model\": model, \"files\": _file_hashes()}",
+      "note": "SHA-256 over canonical manifest: image digest, model record (provider,id,pinning,adapter), per-file hashes of src/ (harness), prompts/ (system prompt), config/, requirements.txt, Dockerfile. CI computes it (release.yml:48) and pod verifies at start (main.py:46).",
+      "coverage": [
+        {
+          "subject": "container digest",
+          "status": "enforced",
+          "evidence": "src/type_id.py:42",
+          "quote": "\"image_digest\": image_digest",
+          "note": "validated sha256:<64 hex> at line 37; CI passes build digest, pod passes IMAGE_DIGEST"
+        },
+        {
+          "subject": "harness",
+          "status": "enforced",
+          "evidence": "src/type_id.py:20",
+          "quote": "INPUT_DIRS = (\"src\", \"prompts\", \"config\")",
+          "note": "src/ hashed"
+        },
+        {
+          "subject": "system prompt",
+          "status": "enforced",
+          "evidence": "src/type_id.py:20",
+          "quote": "INPUT_DIRS = (\"src\", \"prompts\", \"config\")",
+          "note": "prompts/system.md covered"
+        },
+        {
+          "subject": "model ID and version",
+          "status": "enforced",
+          "evidence": "src/type_id.py:49",
+          "quote": "return {\"provider\": m[\"provider\"], \"id\": m[\"id\"], \"pinning\": m[\"pinning\"], \"adapter\": m[\"adapter\"]}",
+          "note": "dated snapshot id plus adapter"
+        },
+        {
+          "subject": "configuration",
+          "status": "enforced",
+          "evidence": "src/type_id.py:20",
+          "quote": "INPUT_DIRS = (\"src\", \"prompts\", \"config\")",
+          "note": "config/agent.yaml and tools.yaml; also requirements.txt and Dockerfile at line 21"
+        },
+        {
+          "subject": "mismatch refusal",
+          "status": "enforced",
+          "evidence": "src/main.py:46",
+          "quote": "AGENT_TYPE_ID = type_id.verify_or_exit(os.environ[\"AGENT_TYPE_ID\"], os.environ[\"IMAGE_DIGEST\"], type_id.model_record(CFG))",
+          "note": "pod exits 78 on mismatch"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "input change",
+          "input": "edit one byte of prompts/system.md",
+          "trace": "file hash changes -> manifest changes -> ID changes",
+          "outcome": "blocked",
+          "evidence": "src/type_id.py:30",
+          "quote": "out[p.relative_to(ROOT).as_posix()] = hashlib.sha256(p.read_bytes()).hexdigest()"
+        },
+        {
+          "category": "input change",
+          "input": "different image digest",
+          "trace": "digest is in manifest",
+          "outcome": "blocked",
+          "evidence": "src/type_id.py:42",
+          "quote": "\"image_digest\": image_digest"
+        },
+        {
+          "category": "determinism",
+          "input": "same inputs run twice (CI vs pod)",
+          "trace": "sorted keys, fixed separators, no timestamps/env",
+          "outcome": "blocked",
+          "evidence": "src/type_id.py:43",
+          "quote": "json.dumps(manifest, sort_keys=True, separators=(\",\", \":\"))"
+        }
+      ]
+    },
+    {
+      "id": "A03.2",
+      "result": "holds",
+      "evidence": "src/type_id.py:28",
+      "quote": "for p in sorted((ROOT / d).rglob(\"*\")):",
+      "note": "rglob('*') with only an is_file() filter: no hidden-file, underscore, extension or ignore filters, so __init__.py, dotfiles and *.local.* under src/prompts/config are included. Root-level .mcp.json is not hashed, but nothing references it and the Dockerfile does not copy it into the image (grep found no consumer), so it does not define the deployed agent; recorded as a residual observation. Tool definitions live in config/tools.yaml, which is hashed. k8s/ and migrations/ are deployment/DB assets, not prompt/tool/config definition files.",
+      "coverage": [
+        {
+          "subject": "file listing filters",
+          "status": "enforced",
+          "evidence": "src/type_id.py:29",
+          "quote": "if p.is_file():",
+          "note": "only filter is is_file; no skip of hidden, '_' or extension"
+        },
+        {
+          "subject": "prompts/system.md",
+          "status": "enforced",
+          "evidence": "src/type_id.py:20",
+          "quote": "INPUT_DIRS = (\"src\", \"prompts\", \"config\")",
+          "note": "covered"
+        },
+        {
+          "subject": "config/tools.yaml, config/agent.yaml",
+          "status": "enforced",
+          "evidence": "src/type_id.py:20",
+          "quote": "INPUT_DIRS = (\"src\", \"prompts\", \"config\")",
+          "note": "covered"
+        },
+        {
+          "subject": "Dockerfile / requirements.txt",
+          "status": "enforced",
+          "evidence": "src/type_id.py:21",
+          "quote": "INPUT_FILES = (\"requirements.txt\", \"Dockerfile\")",
+          "note": "covered"
+        },
+        {
+          "subject": ".mcp.json (root, unhashed)",
+          "status": "not_applicable",
+          "evidence": ".mcp.json:1",
+          "quote": "\"mcpServers\": {",
+          "note": "not copied by Dockerfile COPY lines (agent/Dockerfile:12-15), unreferenced in repo; not part of the runtime image"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "skipped file",
+          "input": "add src/__init__.py or config/.env.local",
+          "trace": "rglob('*') matches dotfiles and underscore files; only is_file filter",
+          "outcome": "blocked",
+          "evidence": "src/type_id.py:29",
+          "quote": "if p.is_file():"
+        },
+        {
+          "category": "skipped file",
+          "input": "edit root .mcp.json",
+          "trace": "not hashed, but not in image and not read by any code",
+          "outcome": "accepted",
+          "evidence": "Dockerfile:12",
+          "quote": "COPY --chown=0:0 requirements.txt Dockerfile ./"
+        }
+      ]
+    },
+    {
+      "id": "A03.3",
+      "result": "holds",
+      "evidence": "config/agent.yaml:10",
+      "quote": "id: claude-sonnet-4-5-20250929",
+      "note": "Model ID is a dated snapshot, read from config with no env var or default fallback; agent.py:71 uses the same model['id']. adapter: none is in the record, so adapters are hashed if ever used. No checkpoint/fine-tune used (manifest.yaml fine_tune: none).",
+      "coverage": [
+        {
+          "subject": "model id",
+          "status": "enforced",
+          "evidence": "config/agent.yaml:10",
+          "quote": "id: claude-sonnet-4-5-20250929",
+          "note": "dated snapshot, not alias"
+        },
+        {
+          "subject": "pinning label",
+          "status": "enforced",
+          "evidence": "config/agent.yaml:11",
+          "quote": "pinning: snapshot",
+          "note": "hashed"
+        },
+        {
+          "subject": "adapter/checkpoint",
+          "status": "enforced",
+          "evidence": "config/agent.yaml:12",
+          "quote": "adapter: none",
+          "note": "in hashed record; model_record requires key"
+        },
+        {
+          "subject": "fallback/env override",
+          "status": "enforced",
+          "evidence": "src/agent.py:71",
+          "quote": "model=model[\"id\"], system=SYSTEM_PROMPT, max_tokens=model[\"max_output_tokens\"],",
+          "note": "no getenv for model anywhere (grep)"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "alias fallback",
+          "input": "unset MODEL env",
+          "trace": "no env lookup of model in src; id taken only from config",
+          "outcome": "blocked",
+          "evidence": "src/type_id.py:49",
+          "quote": "\"id\": m[\"id\"]"
+        }
+      ]
+    },
+    {
+      "id": "A03.4",
+      "result": "holds",
+      "evidence": "src/type_id.py:43",
+      "quote": "canonical = json.dumps(manifest, sort_keys=True, separators=(\",\", \":\")).encode()",
+      "note": "Sorted keys, compact separators, UTF-8 bytes; file list iterated via sorted() rglob and stored in dict that is key-sorted anyway; paths POSIX relative; files hashed as raw bytes so no line-ending normalisation variance.",
+      "coverage": [
+        {
+          "subject": "serialization",
+          "status": "enforced",
+          "evidence": "src/type_id.py:43",
+          "quote": "sort_keys=True",
+          "note": "fixed order and separators"
+        },
+        {
+          "subject": "file list order",
+          "status": "enforced",
+          "evidence": "src/type_id.py:28",
+          "quote": "sorted((ROOT / d).rglob(\"*\"))",
+          "note": "not raw directory order"
+        },
+        {
+          "subject": "path form",
+          "status": "enforced",
+          "evidence": "src/type_id.py:30",
+          "quote": "p.relative_to(ROOT).as_posix()",
+          "note": "platform independent"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "ordering",
+          "input": "filesystem returns different readdir order",
+          "trace": "sorted() plus sort_keys",
+          "outcome": "blocked",
+          "evidence": "src/type_id.py:43",
+          "quote": "sort_keys=True"
+        }
+      ]
+    },
+    {
+      "id": "A03.5",
+      "result": "holds",
+      "evidence": "src/type_id.py:42",
+      "quote": "manifest = {\"scheme\": HASH_SCHEME, \"image_digest\": image_digest, \"model\": model, \"files\": _file_hashes()}",
+      "note": "Manifest holds a scheme string, digest, model record and SHA-256 hashes of files, not file contents; no environment dump. Hashed config files contain no secrets (credentials come from env/STS at runtime). Stored type-id.json therefore exposes no secret values.",
+      "coverage": [
+        {
+          "subject": "manifest values",
+          "status": "enforced",
+          "evidence": "src/type_id.py:42",
+          "quote": "\"files\": _file_hashes()",
+          "note": "only hex digests of files"
+        },
+        {
+          "subject": "env dump",
+          "status": "enforced",
+          "evidence": "src/type_id.py:63",
+          "quote": "cfg = yaml.safe_load((ROOT / \"config\" / \"agent.yaml\").read_text())",
+          "note": "only agent.yaml model fields are used; no os.environ in manifest"
+        }
+      ],
+      "deviations": [],
+      "attempts": [
+        {
+          "category": "secret leak",
+          "input": "secret placed in config/agent.yaml",
+          "trace": "only its SHA-256 enters the manifest, not plaintext",
+          "outcome": "blocked",
+          "evidence": "src/type_id.py:30",
+          "quote": "hashlib.sha256(p.read_bytes()).hexdigest()"
+        }
+      ]
+    }
+  ],
+  "violates": [],
+  "applicability": "present",
+  "evidence": "src/type_id.py:1",
+  "quote": "\"\"\"agent-type-id: SHA-256 over every identity-defining input.",
+  "search": "Searched agent/ for type_id, agent_type_id, sha256, hashlib, getenv/environ, model, and mcp.json; read type_id.py, release.yml, manifest.yaml, agent.yaml, tools.yaml, Dockerfile, main.py, deployment.yaml. The control exists and is wired in CI and at pod start, so N/A (never) does not apply.",
+  "note": "Content-derived type id is computed over digest, harness, prompt, pinned model and config in a canonical order with no secrets; only residual observation is the unreferenced, un-imaged root .mcp.json."
+}
