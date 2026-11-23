@@ -205,8 +205,13 @@ def parse_aspect(letter: str, lines: list[str]) -> dict:
         if m:
             name = unbold(m.group(1))
             if name == "Remaining checks":
+                # Sections with subheadings get their groups from those; sections without
+                # them still need the remaining items kept out of the top-3 box.
+                group = {"name": "Other checks", "top": False, "items": []}
+                aspect["groups"].append(group)
+                item = None
                 continue
-            group = {"name": name, "top": "DO NOTHING ELSE" in name, "items": []}
+            group ={"name": name, "top": "DO NOTHING ELSE" in name, "items": []}
             aspect["groups"].append(group)
             item = None
             continue
@@ -267,19 +272,41 @@ def paras(text: str) -> str:
     return "".join(f"<p>{inline(p)}</p>" for p in text.split("\n\n"))
 
 
+NOTE_STYLE = {
+    "Why this is hard": ("hard", '<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.01"/>'),
+    "If you can't fully do it": ("fallback", '<path d="M4 7h11a5 5 0 0 1 0 10H8"/><path d="M8 13l-4 4 4 4" transform="translate(0 -4)"/>'),
+    "Tradeoffs you can accept": ("trade", '<path d="M12 4v16M6 20h12M4 9l4-4 4 4M12 9l4-4 4 4"/><path d="M2 13a2.5 2.5 0 0 0 5 0L4.5 8zM17 13a2.5 2.5 0 0 0 5 0L19.5 8z"/>'),
+}
+
+
+def icon(paths: str) -> str:
+    return ('<svg class="ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" '
+            f'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{paths}</svg>')
+
+
+LINK_ICON = icon('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>')
+
+
+def plain(s: str) -> str:
+    return re.sub(r"<[^>]+>", "", inline(s))
+
+
 def render_item(it: dict) -> str:
     iid = it["id"]
-    top = '<span class="top" title="If you do nothing else">Top 3</span>' if it["top"] else ""
+    aspect = ASPECTS[iid[0]]
+    num = int(iid[1:])
+    title = plain(it["title"])
     notes = ""
     for label, txt in it["notes"]:
-        cls = {"Why this is hard": "hard", "If you can't fully do it": "fallback"}.get(label, "trade")
-        notes += f'<div class="note {cls}"><div class="nl">{html.escape(label)}</div>{paras(txt)}</div>'
+        cls, paths = NOTE_STYLE.get(label, NOTE_STYLE["Tradeoffs you can accept"])
+        notes += f'<div class="note {cls}"><div class="nl">{icon(paths)}{html.escape(label)}</div>{paras(txt)}</div>'
     extra = "".join(f"<p>{inline(x)}</p>" for x in it["extra"])
     return f"""<li class="item" id="{iid}" data-gate="{it['gate']}">
-<input type="checkbox" class="cb" id="cb-{iid}" data-key="{iid}" aria-label="Mark {iid} done">
+<input type="checkbox" class="cb" id="cb-{iid}" data-key="{iid}" aria-label="Mark “{title}” done">
 <details>
-<summary><span class="iid">{iid}</span><span class="ttl">{inline(it['title'])}</span>{top}</summary>
+<summary><span class="ttl">{inline(it['title'])}</span></summary>
 <div class="body">
+<p class="meta"><a class="self" href="#{iid}" title="{iid}: link to this check">{aspect} rule {num} · {inline(it['title'])}<span class="sid">{LINK_ICON}{iid}</span></a></p>
 <p class="refs">Controls and requirements: {ref_links(it['refs'])}</p>
 <p class="req">{inline(it['body'])}</p>{extra}{notes}
 </div>
@@ -292,14 +319,15 @@ def render_aspect(a: dict) -> str:
     name = ASPECTS[letter]
     n = sum(len(g["items"]) for g in a["groups"])
     parts = [f"""<section class="aspect" id="{name.lower()}" data-aspect="{letter}">
-<div class="ahead"><span class="aletter">{letter}</span><h2>{name}</h2><span class="prog" data-prog="{letter}">{n} items</span></div>
+<div class="ahead"><span class="aletter" aria-hidden="true">{letter}</span><h2>{name}</h2><span class="prog"><span data-prog="{letter}">{n} items</span><span class="pbar" aria-hidden="true"><i data-bar="{letter}"></i></span></span></div>
 <p class="question">{inline(a['question'])}</p>"""]
     if a["links"]:
         parts.append(f'<p class="alinks">{inline(a["links"])}</p>')
-    for g in a["groups"]:
+    for g in [g for g in a["groups"] if g["items"]]:
         cls = "group top3" if g["top"] else "group"
         label = "If you do nothing else: top 3" if g["top"] else g["name"]
-        parts.append(f'<div class="{cls}"><h3>{inline(label)}</h3><ul class="items">')
+        star = icon('<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>') if g["top"] else ""
+        parts.append(f'<div class="{cls}"><h3>{star}{inline(label)}</h3><ul class="items">')
         parts += [render_item(it) for it in g["items"]]
         parts.append("</ul></div>")
     if a["evidence"]:
@@ -329,7 +357,7 @@ def render(doc: dict) -> str:
     intro_html = blocks(pre).replace("<p><strong>High-risk deployments:</strong>",
                                      '<p class="callout"><strong>High-risk deployments:</strong>', 1)
     howto_name, howto_lines = doc["howto"]
-    toc = "".join(f'<a href="#{ASPECTS[a["letter"]].lower()}"><b>{a["letter"]}</b> {ASPECTS[a["letter"]]}'
+    toc = "".join(f'<a href="#{ASPECTS[a["letter"]].lower()}" class="chip-{a["letter"]}"><b>{a["letter"]}</b> {ASPECTS[a["letter"]]}'
                   f'<span class="tc" data-prog="{a["letter"]}-toc"></span></a>' for a in doc["aspects"])
     aspects = "\n".join(render_aspect(a) for a in doc["aspects"])
     tail_sections = [(n, l) for n, l in doc["tail"]]
@@ -394,11 +422,12 @@ TEMPLATE = r"""<!DOCTYPE html>
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
-  body{margin:0; color:var(--ink); background:var(--bg); font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  body{margin:0; color:var(--ink); background:var(--bg); font:17px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
   a{color:var(--accent); text-decoration:none}
   a:hover{text-decoration:underline}
   code{background:var(--tint2); border-radius:4px; padding:1px 5px; font:13.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-  .wrap{max-width:860px; margin:0 auto; padding:0 24px}
+  .wrap{max-width:800px; margin:0 auto; padding:0 24px}
+  main p,.intro p{max-width:68ch}
   .crumb{background:#1a4d6e; color:#fff; font-size:13px; padding:10px 0}
   .crumb a{color:#cfe2f1}
   header.hero{background:#1a4d6e; color:#fff; padding:40px 0 34px}
@@ -407,68 +436,82 @@ TEMPLATE = r"""<!DOCTYPE html>
   .lede{font-size:18px; line-height:1.5; margin:0; max-width:40em; opacity:.96}
   .stats{display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; font-size:13px}
   .stats span{background:rgba(255,255,255,.14); border-radius:999px; padding:4px 12px}
-  .intro{padding:22px 0 4px; font-size:15px}
+  .intro{padding-top:28px; padding-bottom:8px; font-size:16.5px}
   .intro p{margin:10px 0}
-  .callout{background:var(--tint); border-left:4px solid var(--primary); padding:12px 16px; border-radius:0 6px 6px 0}
-  details.more{border:1px solid var(--rule); border-radius:8px; margin:14px 0; background:var(--card)}
+  .callout{background:var(--tint); border:1px solid var(--tint2); padding:14px 18px; border-radius:12px}
+  details.more{border:1px solid var(--rule); border-radius:12px; margin:14px 0; background:var(--card)}
   details.more>summary{cursor:pointer; padding:10px 16px; font-weight:600; color:var(--primary)}
   details.more>div{padding:0 18px 12px; font-size:15px}
-  .gates{display:grid; gap:8px; margin:16px 0 8px}
-  .gdef{display:flex; gap:12px; align-items:flex-start; font-size:14px; line-height:1.5}
-  .gdef b{color:var(--head)}
-  .gate{flex:none; display:inline-block; font-size:11.5px; font-weight:700; letter-spacing:.04em; padding:2px 8px; border-radius:999px; border:1px solid currentColor}
-  .gate.blocker{color:var(--blocker); background:var(--blocker-bg)}
-  .gate.required{color:var(--required); background:var(--required-bg)}
-  .gate.detection{color:var(--detection); background:var(--detection-bg)}
+  /* aspect accents: text-safe colour (--a), soft fill (--at) */
+  :root{--aB:#4338ca; --aR:#0f766e; --aA:#7e22ce; --aC:#a1530a; --aE:#15803d; --star:#a16207; --star-bg:#fef7e0; --star-rule:#f2d58a}
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){--aB:#a5b4fc; --aR:#5eead4; --aA:#d8b4fe; --aC:#fbbf24; --aE:#86efac; --star:#fcd34d; --star-bg:#2b2410; --star-rule:#5c4a17} }
+  :root[data-theme="dark"]{--aB:#a5b4fc; --aR:#5eead4; --aA:#d8b4fe; --aC:#fbbf24; --aE:#86efac; --star:#fcd34d; --star-bg:#2b2410; --star-rule:#5c4a17}
+  [data-aspect="B"],.chip-B{--a:var(--aB)} [data-aspect="R"],.chip-R{--a:var(--aR)} [data-aspect="A"],.chip-A{--a:var(--aA)}
+  [data-aspect="C"],.chip-C{--a:var(--aC)} [data-aspect="E"],.chip-E{--a:var(--aE)}
+  [data-aspect],[class^="chip-"]{--at:color-mix(in srgb, var(--a) 11%, var(--card)); --ar:color-mix(in srgb, var(--a) 35%, var(--card))}
+  .ic{flex:none; vertical-align:-3px}
   /* toolbar + sticky TOC */
-  .bar{position:sticky; top:0; z-index:5; background:var(--bg); border-bottom:1px solid var(--rule); padding:8px 0}
+  .bar{position:sticky; top:0; z-index:5; background:var(--bg); border-bottom:1px solid var(--rule); padding:8px 0; box-shadow:0 4px 14px -10px rgba(0,0,0,.25)}
   .bar .wrap{display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center}
-  .toc{display:flex; flex-wrap:wrap; gap:4px}
-  .toc a{font-size:13px; padding:3px 9px; border-radius:6px; color:var(--ink); white-space:nowrap}
-  .toc a:hover{background:var(--tint2); text-decoration:none}
-  .toc b{color:var(--primary)}
-  .tc{color:var(--muted); font-size:12px; margin-left:4px}
+  .toc{display:flex; flex-wrap:wrap; gap:6px}
+  .toc a{display:inline-flex; align-items:center; gap:6px; font-size:13px; padding:3px 10px 3px 3px; border-radius:999px; color:var(--ink); white-space:nowrap; background:var(--at, var(--tint)); border:1px solid var(--ar, var(--rule))}
+  .toc a:not([class]){padding-left:10px}
+  .toc a:hover{text-decoration:none; border-color:var(--a, var(--accent))}
+  .toc b{display:inline-grid; place-items:center; width:20px; height:20px; border-radius:50%; background:var(--a); color:var(--card); font-size:11.5px}
+  .tc{color:var(--muted); font-size:12px}
   .tools{display:none; gap:8px; align-items:center; margin-left:auto; font-size:13px}
   .js .tools{display:flex}
   .tools select,.tools button{font:inherit; font-size:13px; color:var(--ink); background:var(--card); border:1px solid var(--rule); border-radius:6px; padding:3px 8px; cursor:pointer}
   .overall{display:none; font-size:13px; font-weight:600; color:var(--good)}
   .js .overall{display:inline}
   /* aspects */
-  section.aspect,section.tail{padding:26px 0 18px; border-bottom:1px solid var(--rule); scroll-margin-top:60px}
-  .ahead{display:flex; align-items:center; gap:12px}
-  .aletter{display:inline-grid; place-items:center; width:34px; height:34px; border-radius:8px; background:var(--primary); color:var(--bg); font-weight:800}
+  section.aspect,section.tail{padding:30px 0 20px; border-bottom:1px solid var(--rule); scroll-margin-top:60px}
+  .ahead{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+  .aletter{display:inline-grid; place-items:center; width:38px; height:38px; border-radius:10px; background:var(--a); color:var(--card); font-weight:800; font-size:18px; box-shadow:0 2px 0 var(--ar)}
   h2{font-size:24px; color:var(--primary); margin:0; letter-spacing:-.3px}
+  section.aspect h2{color:var(--ink)}
   section.tail h2{margin-bottom:8px}
-  .prog{margin-left:auto; font-size:13px; color:var(--muted)}
-  .question{font-size:16px; font-weight:600; color:var(--head); margin:10px 0 2px}
+  .prog{margin-left:auto; display:flex; align-items:center; gap:10px; font-size:13px; color:var(--muted)}
+  .pbar{display:none; width:90px; height:8px; border-radius:999px; background:var(--at); border:1px solid var(--ar); overflow:hidden}
+  .js .pbar{display:block}
+  .pbar i{display:block; height:100%; width:0; background:var(--a); border-radius:999px; transition:width .25s}
+  .question{font-size:16px; font-weight:600; color:var(--head); margin:12px 0 2px}
   .alinks{font-size:14px; margin:4px 0 0; color:var(--muted)}
-  .group{margin-top:16px}
-  .group h3{font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:0 0 6px}
-  .group.top3 h3{color:var(--blocker)}
+  .group{margin-top:18px}
+  .group h3{font-size:13px; letter-spacing:.02em; color:var(--muted); margin:0 0 8px; font-weight:700}
+  .group.top3{background:var(--star-bg); border:1px solid var(--star-rule); border-radius:14px; padding:12px 12px 12px}
+  .group.top3 h3{display:flex; align-items:center; gap:7px; color:var(--star); font-size:14.5px; margin:2px 4px 10px}
+  .group.top3 h3 .ic{fill:currentColor}
   ul.items{list-style:none; margin:0; padding:0; border:1px solid var(--rule); border-radius:10px; overflow:hidden; background:var(--card)}
-  li.item{display:flex; align-items:flex-start; gap:4px; border-top:1px solid var(--rule); padding:0 0 0 12px}
+  li.item{display:flex; align-items:flex-start; gap:4px; border-top:1px solid var(--rule); padding:0 0 0 12px; box-shadow:inset 4px 0 0 var(--a); scroll-margin-top:70px}
   li.item:first-child{border-top:none}
+  li.item:target{background:var(--at)}
   li.item.hidden{display:none}
-  .cb{flex:none; width:18px; height:18px; margin:13px 4px 0 0; accent-color:var(--good); cursor:pointer}
+  li.item details[open]{padding-bottom:2px}
+  .cb{flex:none; width:19px; height:19px; margin:13px 6px 0 2px; accent-color:var(--a, var(--good)); cursor:pointer}
   li.item details{flex:1; min-width:0}
-  li.item summary{display:flex; align-items:center; gap:10px; padding:10px 14px 10px 4px; cursor:pointer; list-style:none}
+  li.item summary{display:flex; align-items:flex-start; gap:10px; padding:11px 14px 11px 4px; cursor:pointer; list-style:none}
   li.item summary::-webkit-details-marker{display:none}
-  li.item summary::after{content:""; flex:none; width:7px; height:7px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:rotate(45deg); margin:-3px 2px 0 4px; transition:transform .15s}
-  li.item details[open] summary::after{transform:rotate(-135deg); margin-top:3px}
-  li.item summary:hover .ttl{color:var(--accent)}
-  .iid{flex:none; font:600 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--muted); width:2.6em}
-  .ttl{flex:1; font-weight:600; line-height:1.35}
-  .top{flex:none; font-size:11px; font-weight:700; color:var(--blocker); text-transform:uppercase; letter-spacing:.05em}
+  li.item summary::after{content:""; flex:none; width:7px; height:7px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:rotate(45deg); margin:6px 2px 0 4px; transition:transform .15s}
+  li.item details[open] summary::after{transform:rotate(-135deg); margin-top:10px}
+  li.item summary:hover .ttl{color:var(--a)}
+  .ttl{flex:1; min-width:0; font-weight:600; line-height:1.4; overflow-wrap:anywhere}
   li.item.done .ttl{color:var(--muted); text-decoration:line-through; text-decoration-color:var(--rule)}
-  .body{padding:0 18px 14px 4px; font-size:15px}
+  .body{padding:0 18px 16px 4px; font-size:16px; line-height:1.65}
   .body p{margin:8px 0}
+  .meta{margin:0 0 6px !important}
+  a.self{display:inline-flex; flex-wrap:wrap; align-items:center; gap:2px 8px; font-size:12.5px; font-weight:700; color:var(--a); background:var(--at); border-radius:999px; padding:3px 11px}
+  a.self:hover{text-decoration:none; box-shadow:inset 0 0 0 1px var(--a)}
+  .sid{display:inline-flex; align-items:center; gap:3px; font:600 11.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--muted)}
+  .sid .ic{width:13px; height:13px}
   .refs{font-size:12.5px; color:var(--muted); margin-top:0 !important}
-  .note{border-left:3px solid var(--rule); padding:2px 0 2px 14px; margin:12px 0}
-  .note .nl{font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-top:4px}
-  .note.hard{border-color:var(--required)}
-  .note.fallback{border-color:var(--accent)}
-  .note.trade{border-color:var(--good)}
-  .evidence{font-size:14px; color:var(--muted); margin:14px 0 0}
+  .note{--n:var(--accent); border-radius:10px; padding:4px 14px 6px; margin:12px 0; background:color-mix(in srgb, var(--n) 9%, var(--card)); border:1px solid color-mix(in srgb, var(--n) 25%, var(--card))}
+  .note .nl{display:flex; align-items:center; gap:7px; font-size:13px; font-weight:700; color:var(--n); margin-top:8px}
+  .note p{margin:6px 0}
+  .note.hard{--n:var(--required)}
+  .note.fallback{--n:var(--detection)}
+  .note.trade{--n:var(--good)}
+  .evidence{font-size:14px; color:var(--muted); margin:14px 0 0; padding:10px 14px; border:1px dashed var(--ar); border-radius:10px}
   .tail{font-size:15px}
   .tail h4{font-size:15px; color:var(--head); margin:18px 0 6px}
   .tablewrap{overflow-x:auto}
@@ -482,11 +525,13 @@ TEMPLATE = r"""<!DOCTYPE html>
   @media (max-width:640px){
     h1{font-size:30px} .lede{font-size:16px}
     .wrap{padding:0 16px}
-    .tools{margin-left:0; width:100%}
-    .toc{width:100%; flex-wrap:nowrap; overflow-x:auto}
-    li.item summary{flex-wrap:wrap; gap:4px 8px}
-    .ttl{flex-basis:calc(100% - 4em); order:2}
-    summary .iid{order:1} summary .top{order:3; margin-left:3.1em} summary .gate{order:4} li.item summary::after{order:5}
+    .tools{margin-left:0; width:100%; flex-wrap:wrap}
+    .tools label,.overall,.tools button{white-space:nowrap}
+    .toc{width:100%; flex-wrap:nowrap; overflow-x:auto; padding-bottom:2px}
+    .prog{margin-left:50px; width:100%}
+    .group.top3{padding:10px 8px; margin-left:-4px; margin-right:-4px}
+    li.item{padding-left:10px}
+    li.item summary{padding-right:10px}
     .body{padding-right:12px}
   }
   @media print{
@@ -509,7 +554,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     <p class="eyebrow">BRACE · Sign-off checklist</p>
     <h1>@@TITLE@@</h1>
     <p class="lede">@@TOTAL@@ checks in five groups. Each row is one check: tick it when the deployed setup meets it and you can link to proof. Open a row to read the full requirement.</p>
-    <div class="stats"><span>Start with the 3 marked “Top 3” in each group</span></div>
+    <div class="stats"><span>Start with the highlighted top 3 in each group</span></div>
   </div>
 </header>
 
@@ -556,6 +601,7 @@ TEMPLATE = r"""<!DOCTYPE html>
       total+=n; done+=c;
       var L=sec.getAttribute('data-aspect');
       sec.querySelector('[data-prog="'+L+'"]').textContent=c+' of '+n+' checked';
+      var bar=sec.querySelector('[data-bar="'+L+'"]'); if(bar) bar.style.width=(n?Math.round(100*c/n):0)+'%';
       var t=d.querySelector('[data-prog="'+L+'-toc"]'); if(t) t.textContent=c+'/'+n;
     });
     d.getElementById('overall').textContent=done+' of '+total+' checked';
