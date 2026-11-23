@@ -99,20 +99,20 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 | # | What to fix | Where | Priority | Lead | Assigned to |
 |---|---|---|---|---|---|
-| [A04](#a04) | The model can choose which customer company gets a credit, so it could credit another company's account. | issue_credit, payments API | Must fix before release (G1) | Agent team | _____ |
-| [B05](#b05) | The agent can email any address, give credits with no approval, and refund up to $500 with no approval. | send_reminder, mail API, issue_credit | Must fix before release (G1) | Agent team | _____ |
-| [B06](#b06) | One approval for a small refund can be reused to refund any amount, many times. | issue_refund, payments API | Must fix before release (G1) | Agent team | _____ |
-| [E08](#e08) | The letter-writing helper agent is meant to have no tools, but it gets all of them, including refunds and email. | src/drafter.py, issue_refund | Must fix before release (G1) | Agent team | _____ |
-| [B03](#b03) | A secret login token for the accounting server is saved in a settings file in the code. | accounting | Fix before release, or get a written risk approval (G2) | Infrastructure | _____ |
-| [E06](#e06) | The agent talks straight to the accounting server. Nothing in between checks, limits or logs each call. | accounting | Fix before release, or get a written risk approval (G2) | Infrastructure | _____ |
-| [R05](#r05) | Saved notes are filed by email address only, so two customer companies with the same contact share notes. | negotiation memory (Redis), recall_negotiation, save_negotiation_note | Fix soon; track until done (G3) | Data and privacy | _____ |
-| [R02](#r02) | Text from the accounting server and saved notes reaches the model, but there is no test showing an attack in that text is stopped. | accounting, negotiation memory (Redis) | Show proof it works, or get a written risk approval (G2) | Security | _____ |
+| [A04](#a04) | The model can choose which customer company gets a credit, so it could credit another company's account. | issue_credit, payments API | Must fix before release (Blocker) | Agent team | _____ |
+| [B05](#b05) | The agent can email any address, give credits with no approval, and refund up to $500 with no approval. | send_reminder, mail API, issue_credit | Must fix before release (Blocker) | Agent team | _____ |
+| [B06](#b06) | One approval for a small refund can be reused to refund any amount, many times. | issue_refund, payments API | Must fix before release (Blocker) | Agent team | _____ |
+| [E08](#e08) | The letter-writing helper agent is meant to have no tools, but it gets all of them, including refunds and email. | src/drafter.py, issue_refund | Must fix before release (Blocker) | Agent team | _____ |
+| [B03](#b03) | A secret login token for the accounting server is saved in a settings file in the code. | accounting | Fix before release, or get a written risk approval (Required) | Infrastructure | _____ |
+| [E06](#e06) | The agent talks straight to the accounting server. Nothing in between checks, limits or logs each call. | accounting | Fix before release, or get a written risk approval (Required) | Infrastructure | _____ |
+| [R05](#r05) | Saved notes are filed by email address only, so two customer companies with the same contact share notes. | negotiation memory (Redis), recall_negotiation, save_negotiation_note | Fix soon; track until done (Detection) | Data and privacy | _____ |
+| [R02](#r02) | Text from the accounting server and saved notes reaches the model, but there is no test showing an attack in that text is stopped. | accounting, negotiation memory (Redis) | Show proof it works, or get a written risk approval (Required) | Security | _____ |
 
 ## 4. How to fix each one
 
 ### A04
 
-**Trustworthy attribution** · Must fix before release (G1)
+**Trustworthy attribution** · Must fix before release (Blocker)
 
 **The problem:** The model can choose which customer company gets a credit, so it could credit another company's account.
 
@@ -132,7 +132,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 ### B05
 
-**Destructive-action interception** · Must fix before release (G1)
+**Destructive-action interception** · Must fix before release (Blocker)
 
 **The problem:** The agent can email any address, give credits with no approval, and refund up to $500 with no approval.
 
@@ -152,7 +152,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 ### B06
 
-**Approval integrity** · Must fix before release (G1)
+**Approval integrity** · Must fix before release (Blocker)
 
 **The problem:** One approval for a small refund can be reused to refund any amount, many times.
 
@@ -173,7 +173,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 ### E08
 
-**Bounded delegated authority** · Must fix before release (G1)
+**Bounded delegated authority** · Must fix before release (Blocker)
 
 **The problem:** The letter-writing helper agent is meant to have no tools, but it gets all of them, including refunds and email.
 
@@ -192,7 +192,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 ### B03
 
-**Credential lifetime and handling** · Fix before release, or get a written risk approval (G2)
+**Credential lifetime and handling** · Fix before release, or get a written risk approval (Required)
 
 **The problem:** A secret login token for the accounting server is saved in a settings file in the code.
 
@@ -212,7 +212,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 ### E06
 
-**Enforced gateway boundary** · Fix before release, or get a written risk approval (G2)
+**Enforced gateway boundary** · Fix before release, or get a written risk approval (Required)
 
 **The problem:** The agent talks straight to the accounting server. Nothing in between checks, limits or logs each call.
 
@@ -232,7 +232,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 ### R05
 
-**Memory isolation and write validation** · Fix soon; track until done (G3)
+**Memory isolation and write validation** · Fix soon; track until done (Detection)
 
 **The problem:** Saved notes are filed by email address only, so two customer companies with the same contact share notes.
 
@@ -252,7 +252,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 ### R02
 
-**Separate data from instructions and test injection containment** · Show proof it works, or get a written risk approval (G2)
+**Separate data from instructions and test injection containment** · Show proof it works, or get a written risk approval (Required)
 
 **The problem:** Text from the accounting server and saved notes reaches the model, but there is no test showing an attack in that text is stopped.
 

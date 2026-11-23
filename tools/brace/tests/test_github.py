@@ -12,7 +12,7 @@ import pytest
 
 from conftest import brace, good_exception
 
-ITEM = "R01"  # G2
+ITEM = "R01"  # Required
 STEM = f"{ITEM}-input-checks"
 REL = f".brace/exceptions/{STEM}.yaml"
 REPO_NAME = "acme/agent"

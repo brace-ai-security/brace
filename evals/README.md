@@ -316,7 +316,7 @@ after the campaign completed.
 Codex v0.160.0 ran Sol and Luna with reasoning effort `none`; Claude Code served
 `claude-sonnet-5-5`. Per-session model and CLI versions are recorded in each
 `run.json` under `runtime`. Reviews covered all 53 items in one session, in normal
-mode; each challenge and G1/G2 gap hunt used a fresh session of the same model.
+mode; each challenge and Blocker/Required gap hunt used a fresh session of the same model.
 
 Sonnet repeatedly upheld procurement R07 and clinic E04/E05. Its first and third
 clinic runs also passed B07; one challenger admitted uncounted classifier costs
@@ -468,7 +468,7 @@ The skill used here adds four things to the previous version:
 - a pre-scan (`prescan.py`, 50 patterns over 23 items; now 52) whose hits must each be confirmed or dismissed;
 - `violates`: a gap must quote the words of the requirement it breaks;
 - `also_affects`: the same failing line used for two gaps must be declared on both;
-- gap hunts (`challenge.py make --hunt`) for every G1 or G2 item rated needs_evidence.
+- gap hunts (`challenge.py make --hunt`) for every Blocker or Required item rated needs_evidence.
 
 Results are in [results/2026-10-02-improved/](results/2026-10-02-improved/).
 

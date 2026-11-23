@@ -55,7 +55,7 @@ def test_actions_ordered_and_assignable(example):
     actions, problems = action_plan.actions_from(findings, topology.all_nodes(bom))
     assert problems == []
     assert [a["rating"] for a in actions][-1] == "needs_evidence"
-    assert actions[0]["gate"] == "G1" and actions[0]["rating"] == "gap"
+    assert actions[0]["gate"] == "Blocker" and actions[0]["rating"] == "gap"
     assert all(a["lead_role"] and a["steps"] and a["done_when"] for a in actions)
 
 
@@ -165,7 +165,7 @@ def test_json_output_matches_schema_and_sarif_shape(example):
     actions, problems = action_plan.actions_from(findings, topology.all_nodes(bom))
     data = action_plan.plan_data(findings, bom, actions, problems)
     jsonschema.validate(data, json.loads((TOOL_DIR / "schemas/action-plan.schema.json").read_text()))
-    assert data["summary"]["g1_gaps"] == 4 and data["summary"]["actions"] == 8
+    assert data["summary"]["blocker_gaps"] == 4 and data["summary"]["actions"] == 8
     s = action_plan.sarif(data)
     run = s["runs"][0]
     assert s["version"] == "2.1.0" and len(run["results"]) == 8
@@ -183,7 +183,7 @@ def test_fail_on_levels(example, tmp_path):
     t.write_text(json.dumps(bom))
     base = [str(f), str(t), "-o", str(tmp_path / "p.md")]
     assert action_plan.main(base + ["--fail-on", "none"]) == 0
-    assert action_plan.main(base + ["--fail-on", "g1"]) == 3
+    assert action_plan.main(base + ["--fail-on", "blocker"]) == 3
     only_needs = {**findings, "findings": [x for x in findings["findings"] if x["rating"] == "needs_evidence"]}
     f.write_text(json.dumps(only_needs))
     assert action_plan.main(base + ["--fail-on", "gap"]) == 0

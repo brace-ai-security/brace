@@ -8,7 +8,7 @@ This page maps every subcategory in the Core of the NIST AI Risk Management Fram
 - **Out of scope** — BRACE doesn't address it (for example, workforce diversity, impact on communities, or organizational policy); say why in a few words.
 BRACE is a technical deployment checklist. The AI RMF is voluntary and organization-wide. Passing BRACE items does not mean an organization has implemented the AI RMF.
 
-Item IDs refer to the [checklist](../CHECKLIST.md). "Sign-off record" is the [final sign-off](../CHECKLIST.md#final-sign-off), including the deployment record and the stakes and autonomy rating. "Priority gates" are the [G1/G2/G3 rules](../CHECKLIST.md#priority-gates-g). "Evidence record" is the [evidence and exception record](../CHECKLIST.md#evidence-and-exception-record), including owners and risk acceptances. An item supplies evidence only when its result is Pass. Tests and evidence for each item are in the [verification guide](../CHECKLIST-VERIFICATION.md).
+Item IDs refer to the [checklist](../CHECKLIST.md). "Sign-off record" is the [final sign-off](../CHECKLIST.md#final-sign-off), including the deployment record and the stakes and autonomy rating. "Priority gates" are the [Blocker/Required/Detection rules](../CHECKLIST.md#priority-gates). "Evidence record" is the [evidence and exception record](../CHECKLIST.md#evidence-and-exception-record), including owners and risk acceptances. An item supplies evidence only when its result is Pass. Tests and evidence for each item are in the [verification guide](../CHECKLIST-VERIFICATION.md).
 
 ## Summary
 
@@ -26,7 +26,7 @@ Item IDs refer to the [checklist](../CHECKLIST.md). "Sign-off record" is the [fi
 |---|---|---|---|---|
 | GOVERN 1.1 | Legal and regulatory duties for AI are known, managed, and written down. | Partial | E11 | E11 keeps audit records as long as the law requires; every other legal duty is outside BRACE. |
 | GOVERN 1.2 | Trustworthy-AI traits are built into organizational policies and practices. | Partial | Priority gates, Sign-off record | The gates give a release rule for security and accountability only; the policy itself and the other traits are organizational work. |
-| GOVERN 1.3 | The organization decides how much risk management each system needs, based on its risk tolerance. | Partial | Sign-off record, Priority gates | The stakes and autonomy rating decides when G3 items must pass; setting the organization's tolerance happens outside BRACE. |
+| GOVERN 1.3 | The organization decides how much risk management each system needs, based on its risk tolerance. | Partial | Sign-off record, Priority gates | The stakes and autonomy rating decides when Detection items must pass; setting the organization's tolerance happens outside BRACE. |
 | GOVERN 1.4 | The risk process and its results are set by clear policies and controls based on risk priorities. | Partial | Priority gates, Evidence record, Sign-off record | Each release has written pass rules and a recorded result, but the organization-wide process is not BRACE's. |
 | GOVERN 1.5 | Monitoring and periodic review of the risk process are planned, with roles and review frequency set. | Partial | Sign-off record, Evidence record | BRACE sets a next review date, reopen triggers, and an owner per item for one agent, not for the whole risk program. |
 | GOVERN 1.6 | There is a way to inventory AI systems. | Partial | C01, A03, A05, A07 | The manifest, type ID, and lookup drill describe each agent; keeping a list of all AI systems is organizational work. |

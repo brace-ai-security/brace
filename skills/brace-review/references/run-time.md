@@ -4,7 +4,7 @@
 
 Use this file to rate each item from the code and configuration. The requirement is the checklist text. The heuristics say what to look for. Ratings: likely_pass, gap, needs_evidence, or na_candidate. Never rate pass.
 
-## R01 · G2 · C5 — Validate every input boundary, including API responses
+## R01 · Required · C5 — Validate every input boundary, including API responses
 
 **Lead:** Agent team. **Shares:** Security.
 
@@ -16,7 +16,7 @@ List every input the agent receives. That includes API responses (errors and str
 
   If you can't fully do it: Start with type checks, size limits, sender checks, and rejecting broken content. Add content checks for attack patterns you've seen. Buffer or limit streams when the required checks can't run before use. Keep permissions narrow, and use R02 to contain instructions that slip through. Record which integrations and payload types you tested and which you didn't.
 
-  Tradeoffs you can accept: Buffering delay, rejecting some valid responses, or supporting fewer payload types. Incomplete detection of attacks hidden in meaning can get G2 risk acceptance. That needs tested containment and clear limits on what was covered. Schema checks alone don't fully protect against injection.
+  Tradeoffs you can accept: Buffering delay, rejecting some valid responses, or supporting fewer payload types. Incomplete detection of attacks hidden in meaning can get a written, approved risk acceptance. That needs tested containment and clear limits on what was covered. Schema checks alone don't fully protect against injection.
 
 ### Verification recipe
 
@@ -78,7 +78,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## R02 · G2 · C5 — Separate data from instructions and test injection containment
+## R02 · Required · C5 — Separate data from instructions and test injection containment
 
 **Lead:** Security. **Shares:** Agent team.
 
@@ -90,7 +90,7 @@ Keep API responses, connector messages, and other outside content out of trusted
 
   If you can't fully do it: Assume some injections will work. Send the forbidden calls they would cause straight to your credential limits, egress rules, and action gates. Also run full end-to-end examples. Limit the tools and data the agent can reach. When containment is uncertain, make high-impact actions draft-only, or require approval for each one. Report structure checks, injection detection, and blocked side effects as separate results.
 
-  Tradeoffs you can accept: Fewer finished tasks, fewer tools, and more approvals, each for one specific action. Remaining detection gaps can get G2 acceptance with clear exposure and separate proof of containment. The required access and destructive-action gates still apply.
+  Tradeoffs you can accept: Fewer finished tasks, fewer tools, and more approvals, each for one specific action. Remaining detection gaps can get a written, approved risk acceptance with clear exposure and separate proof of containment. The required access and destructive-action gates still apply.
 
 ### Verification recipe
 
@@ -150,7 +150,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## R03 · G2 · C5/C9 — Prevent output and log leakage
+## R03 · Required · C5/C9 — Prevent output and log leakage
 
 **Lead:** Agent team. **Shares:** Security, Data and privacy, Infrastructure.
 
@@ -213,7 +213,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## R04 · G2 · C5/C6 — Retrieval-corpus integrity
+## R04 · Required · C5/C6 — Retrieval-corpus integrity
 
 **Lead:** Agent team. **Shares:** Data and privacy, Infrastructure, Security.
 
@@ -225,7 +225,7 @@ The retrieval corpus is the set of documents the agent searches for context. Its
 
   If you can't fully do it: Set a limit you can measure, such as "no revoked chunks in new search results after N minutes." Check current access at search time, clear caches, and stop or restart affected runs when needed. If you can't find all affected copies, quarantine the whole collection and rebuild it from approved sources. Record copies that remain and how long they were exposed. Don't claim you removed every derived copy.
 
-  Tradeoffs you can accept: A stated revocation delay that fits the risk, search downtime, or less search coverage while you rebuild. Record the exposure during the delay and any G2 exception. Where access must end right away, block the affected searches and runs until revocation takes effect.
+  Tradeoffs you can accept: A stated revocation delay that fits the risk, search downtime, or less search coverage while you rebuild. Record the exposure during the delay and any risk acceptance. Where access must end right away, block the affected searches and runs until revocation takes effect.
 
 ### Verification recipe
 
@@ -282,7 +282,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** Only when the agent has no retrieval corpus or search index.
 
-## R05 · G3 · C6 — Memory isolation and write validation
+## R05 · Detection · C6 — Memory isolation and write validation
 
 **Lead:** Agent team. **Shares:** Data and privacy, Security.
 
@@ -294,7 +294,7 @@ Separate memory by tenant, agent type, instance, and task as needed. Block acces
 
   If you can't fully do it: Start with memory per task or per instance, and turn sharing off by default. Allow only defined memory fields. Require review before an entry moves into shared, long-lived memory. If a store can't keep memory separate, turn off saved writes or sharing for that workflow. Test the reduced setup, and record any feature you turned off to get there.
 
-  Tradeoffs you can accept: Less personalization, repeated work, or shared memory that only holds reviewed entries. Turning off saved writes or sharing can reduce exposure. Any remaining memory-control gap can be deferred only where G3 allows.
+  Tradeoffs you can accept: Less personalization, repeated work, or shared memory that only holds reviewed entries. Turning off saved writes or sharing can reduce exposure. Any remaining memory-control gap can be deferred only where the Detection rules allow.
 
 ### Verification recipe
 
@@ -349,7 +349,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** Only when the agent has no memory that lasts between runs.
 
-## R06 · G3 · C6 — Memory provenance and cleanup
+## R06 · Detection · C6 — Memory provenance and cleanup
 
 **Lead:** Agent team. **Shares:** Operations, Data and privacy.
 
@@ -361,7 +361,7 @@ For any memory entry, look up who wrote it, when, for which task, from what inpu
 
   If you can't fully do it: Keep source and writer links on new entries and on summaries made from them. When the history is incomplete, quarantine or reset the affected memory area and its caches. Restart affected sessions and rebuild from known sources. Record the wider reset and the useful memory it cost. Keep missing provenance as a Gap until you can show it. A cleanup alone does not restore it.
 
-  Tradeoffs you can accept: Losing useful memories, and the cost of resetting a wider area when a precise cleanup isn't possible. Missing provenance stays a G3 gap. Record what was thrown away and how trusted memory will be rebuilt.
+  Tradeoffs you can accept: Losing useful memories, and the cost of resetting a wider area when a precise cleanup isn't possible. Missing provenance stays a Detection gap. Record what was thrown away and how trusted memory will be rebuilt.
 
 ### Verification recipe
 
@@ -414,7 +414,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** Only when the agent has no memory that lasts between runs.
 
-## R07 · G2 · Obs-T2 — Decision-time context size
+## R07 · Required · Obs-T2 — Decision-time context size
 
 **Lead:** Agent team. **Shares:** Operations.
 
@@ -474,7 +474,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## R08 · G3 · C7 — Security monitoring
+## R08 · Detection · C7 — Security monitoring
 
 **Lead:** Security. **Shares:** Operations.
 
@@ -532,7 +532,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## R09 · G3 · C7/Obs-T2 — Sequence and context-aware detection
+## R09 · Detection · C7/Obs-T2 — Sequence and context-aware detection
 
 **Lead:** Security. **Shares:** Operations, Agent team.
 
@@ -544,7 +544,7 @@ Test suspicious chains of actions that are each allowed on their own. Also test 
 
   If you can't fully do it: Start with a few clear signals. Examples: an unusual number of reads followed by an outside send, repeated denials, too many sub-agents, or a used-up budget. Measure how many seeded attacks you catch, how many false alarms you raise, and how fast alerts arrive, for each context-size range. Use hard rate and cost limits, and limit destinations, while you improve detection. Say exactly which sequences you cover and which you miss. Basic rules don't prove general sequence detection.
 
-  Tradeoffs you can accept: A narrower, written detection scope, and a measured false-alarm rate that responders can handle. For lower-stakes deployments, defer broader coverage under G3 while keeping hard limits. For high-risk use, retain uncovered behavior as an open finding and reduce exposure or finish the required coverage.
+  Tradeoffs you can accept: A narrower, written detection scope, and a measured false-alarm rate that responders can handle. For lower-stakes deployments, defer broader coverage under the Detection rules while keeping hard limits. For high-risk use, retain uncovered behavior as an open finding and reduce exposure or finish the required coverage.
 
 ### Verification recipe
 
@@ -597,7 +597,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## R10 · G3 · C7 — Misaligned-behavior review
+## R10 · Detection · C7 — Misaligned-behavior review
 
 **Lead:** Security. **Shares:** Agent team, Governance.
 
@@ -609,7 +609,7 @@ If deliberate misalignment is in scope, test a second model or pattern review ag
 
   If you can't fully do it: Make narrow claims about behavior you can see. An example is catching attempts to split a forbidden operation across several calls. Keep a record of misses and false positives. Rely on separate permission limits, action approvals, and stop controls for containment. Where detection falls short, reduce autonomy or remove high-impact powers. Record an unproven detector as a gap. Never label the model's intent as safe.
 
-  Tradeoffs you can accept: Uncertainty about hidden intent, as long as claims stay limited to measured behavior. This checklist does not certify alignment. Less autonomy and more review are also fine. Missing required behavior detection still falls under G3.
+  Tradeoffs you can accept: Uncertainty about hidden intent, as long as claims stay limited to measured behavior. This checklist does not certify alignment. Less autonomy and more review are also fine. Missing required behavior detection still falls under the Detection rules.
 
 ### Verification recipe
 
@@ -654,7 +654,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** Only when deliberate misalignment is recorded as out of scope for this deployment, with a reason and approval.
 
-## R11 · G1 · C8 — Tested kill switch
+## R11 · Blocker · C8 — Tested kill switch
 
 **Lead:** Operations. **Shares:** Infrastructure, Agent team.
 
@@ -716,7 +716,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## R12 · G1 · C8 — Safe state after stopping
+## R12 · Blocker · C8 — Safe state after stopping
 
 **Lead:** Agent team. **Shares:** Operations, Business owner.
 
@@ -784,7 +784,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## R13 · G1 · C9 — Full execution audit
+## R13 · Blocker · C9 — Full execution audit
 
 **Lead:** Agent team. **Shares:** Infrastructure, Operations.
 
@@ -796,7 +796,7 @@ Record each run as an execution graph: a linked record of every step. It must in
 
   If you can't fully do it: Give each operation an ID before you send it. Keep receipts or status checks from the destination where you can. Match attempts against the destination's records, and mark unresolved results clearly. Pause dependent actions and retries until each one is resolved. If an integration can't give you enough evidence to trace and recover, limit or remove that path. Sampling and the agent's own reports can't replace the required action record.
 
-  Tradeoffs you can accept: Pausing dependent work while an unclear result gets resolved. Keep the attempt, the uncertainty, and the final answer in the graph. Less automation is a fair cost. Missing or made-up action evidence is not a G1 pass.
+  Tradeoffs you can accept: Pausing dependent work while an unclear result gets resolved. Keep the attempt, the uncertainty, and the final answer in the graph. Less automation is a fair cost. Missing or made-up action evidence is not a Blocker pass.
 
 ### Verification recipe
 
@@ -854,7 +854,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## R14 · G2 · C9 — Recovery integrity
+## R14 · Required · C9 — Recovery integrity
 
 **Lead:** Agent team. **Shares:** Infrastructure, Operations.
 
@@ -866,7 +866,7 @@ If logs or checkpoints drive recovery, make them tamper-evident. Before using th
 
   If you can't fully do it: Use idempotency enforced by the destination where it exists. Write a durable operation record before sending. If the result is unclear, pause replay and reconcile using the destination's evidence or an operator. Don't retry blindly. Turn off automatic replay for side effects that don't support it, and document that limit. Reject checkpoints you can't verify, and recover from a trusted state. Manual recovery doesn't prove automatic replay is safe.
 
-  Tradeoffs you can accept: Manual recovery, slower completion, and no automatic replay for unsupported integrations. Never call blind retries of unclear, permanent actions "safe replay." Remaining recovery-control gaps need allowed G2 acceptance.
+  Tradeoffs you can accept: Manual recovery, slower completion, and no automatic replay for unsupported integrations. Never call blind retries of unclear, permanent actions "safe replay." Remaining recovery-control gaps need allowed Required acceptance.
 
 ### Verification recipe
 

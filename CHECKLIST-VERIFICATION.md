@@ -39,7 +39,7 @@ A **release manifest** lists the exact artifacts and settings approved for a dep
 
 **Training you run vs. hosted models:** For training or fine-tuning your team runs, require the full run and dataset history. For a hosted foundation model, record the version details the provider shares. Mark hidden training history as **provider-undisclosed**. If you fine-tune a hosted base model, still record your own fine-tuning job and dataset, even when the base model's history is hidden. Write **not applicable** for a training step that never happened. Write **unknown — gap** for records your team should have but doesn't.
 
-Marking something provider-undisclosed meets the requirement to document that limit. It doesn't prove the model is pinned or that its history is complete. If the provider offers only an alias that can change, record the C05 pinning gap and use the checklist's G2 exception process. Other unmet requirements stay gaps under their own gates.
+Marking something provider-undisclosed meets the requirement to document that limit. It doesn't prove the model is pinned or that its history is complete. If the provider offers only an alias that can change, record the C05 pinning gap and use the checklist's Required exception process. Other unmet requirements stay gaps under their own gates.
 
 **Worked trace:** `support-agent release 42` → model record `primary` → `base-model snapshot 7` + `adapter digest abc…` → `fine-tune job 184` → `dataset snapshot 12`, `training code commit def…`, and `training config 3` → `evaluation report 29`. Check every arrow against a registry, job record, deployment record, or report. These IDs are examples, not a required naming scheme.
 

@@ -4,7 +4,7 @@
 
 Use this file to write tests and drills for each item. Each recipe gives the procedure, the expected result, and the evidence to keep.
 
-## C01 · G2 · C1–C6/Obs-T1 — Complete release manifest
+## C01 · Required · C1–C6/Obs-T1 — Complete release manifest
 
 **Lead:** Agent team. **Shares:** Infrastructure, Model team, Data and privacy.
 
@@ -14,7 +14,7 @@ Export the deployed artifacts and settings, and match them field by field agains
 
 **Evidence to keep:** Manifest-vs-deployment diff, model registry records, training jobs, dataset versions.
 
-## C02 · G2 · C1–C7 — Review security-relevant changes
+## C02 · Required · C1–C7 — Review security-relevant changes
 
 **Lead:** Governance. **Shares:** Agent team, Security.
 
@@ -24,7 +24,7 @@ Use a role without release permission to try changing a prompt, a tool, and a ne
 
 **Evidence to keep:** Role policy, rejected edits, normal and emergency change records.
 
-## C03 · G1 · Obs-T1 — Match release identity to running state
+## C03 · Blocker · Obs-T1 — Match release identity to running state
 
 **Lead:** Infrastructure. **Shares:** Agent team, Operations, Model team.
 
@@ -34,7 +34,7 @@ Compare the runtime artifact references you observe yourself with the approved m
 
 **Evidence to keep:** Runtime export, manifest comparison, mismatch event.
 
-## C04 · G2 · C1/C3/C4/Obs-T1 — Detect drift per agent
+## C04 · Required · C1/C3/C4/Obs-T1 — Detect drift per agent
 
 **Lead:** Operations. **Shares:** Infrastructure, Security, Model team.
 
@@ -44,7 +44,7 @@ In a separate deployment, change the prompt, the MCP server list, and the egress
 
 **Evidence to keep:** State before and after, drift alerts, quarantine or rollback events.
 
-## C05 · G2 · C3/C4/C7 — Control dependency, model, and training changes
+## C05 · Required · C3/C4/C7 — Control dependency, model, and training changes
 
 **Lead:** Agent team. **Shares:** Model team, Security, Vendors.
 
@@ -54,7 +54,7 @@ Replace a checkpoint or adapter, and confirm promotion requires review and testi
 
 **Evidence to keep:** Version diffs, training-to-output history, promotion block, provider monitoring record.
 
-## C06 · G2 · C4–C9 — Re-test changed behavior
+## C06 · Required · C4–C9 — Re-test changed behavior
 
 **Lead:** Agent team. **Shares:** Security, Business owner.
 
@@ -64,7 +64,7 @@ Run the release test suite for the exact candidate and model artifacts. Include 
 
 **Evidence to keep:** Suite version, candidate manifest and model IDs, results, release-gate decision.
 
-## C07 · G2 · C8/C9 — Rollback and restart
+## C07 · Required · C8/C9 — Rollback and restart
 
 **Lead:** Operations. **Shares:** Agent team, Infrastructure.
 
@@ -74,7 +74,7 @@ Upgrade a test deployment, create pending work and a revoked credential, then ro
 
 **Evidence to keep:** Rollback events, actual permissions, state and queue comparison.
 
-## C08 · G2 · Obs-T1/Obs-T2/Obs-T3 — Connect configuration to execution
+## C08 · Required · Obs-T1/Obs-T2/Obs-T3 — Connect configuration to execution
 
 **Lead:** Operations. **Shares:** Agent team, Infrastructure.
 

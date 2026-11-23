@@ -21,7 +21,7 @@ SOURCE = ROOT / "CHECKLIST.md"
 OUTPUT = ROOT / "checklist" / "index.html"
 
 ASPECTS = {"B": "Build-time", "R": "Run-time", "A": "Agent", "C": "Configuration", "E": "Ecosystem"}
-ITEM_RE = re.compile(r"^- \[ \] \*\*([BRACE]\d\d) · (G[123]) · (.+?) — (.+?)\*\*\s*(.*)$")
+ITEM_RE = re.compile(r"^- \[ \] \*\*([BRACE]\d\d) · (Blocker|Required|Detection) · (.+?) — (.+?)\*\*\s*(.*)$")
 NOTE_LABELS = ("Why this is hard", "If you can't fully do it", "Tradeoffs you can accept")
 
 
@@ -37,7 +37,7 @@ def rewrite_link(target: str) -> str | None:
     Repository files are never linked: the site must not point at source hosting.
     """
     if target.startswith("#priority-gates"):
-        return "#gates"
+        return "#priority-gates"
     if target.startswith("#"):
         return target
     m = re.match(r"guides/([a-z-]+)/index\.html$", target)
@@ -275,11 +275,10 @@ def render_item(it: dict) -> str:
         cls = {"Why this is hard": "hard", "If you can't fully do it": "fallback"}.get(label, "trade")
         notes += f'<div class="note {cls}"><div class="nl">{html.escape(label)}</div>{paras(txt)}</div>'
     extra = "".join(f"<p>{inline(x)}</p>" for x in it["extra"])
-    gate_title = {"G1": "G1, blocking", "G2": "G2, harden the substrate", "G3": "G3, active detection"}[it["gate"]]
     return f"""<li class="item" id="{iid}" data-gate="{it['gate']}">
 <input type="checkbox" class="cb" id="cb-{iid}" data-key="{iid}" aria-label="Mark {iid} done">
 <details>
-<summary><span class="iid">{iid}</span><span class="ttl">{inline(it['title'])}</span>{top}<span class="gate {it['gate'].lower()}" title="{gate_title}">{it['gate']}</span></summary>
+<summary><span class="iid">{iid}</span><span class="ttl">{inline(it['title'])}</span>{top}</summary>
 <div class="body">
 <p class="refs">Controls and requirements: {ref_links(it['refs'])}</p>
 <p class="req">{inline(it['body'])}</p>{extra}{notes}
@@ -330,21 +329,6 @@ def render(doc: dict) -> str:
     intro_html = blocks(pre).replace("<p><strong>High-risk deployments:</strong>",
                                      '<p class="callout"><strong>High-risk deployments:</strong>', 1)
     howto_name, howto_lines = doc["howto"]
-    gates = []
-    for line in howto_lines:
-        m = re.match(r"^\| \*\*(G[123]) — (.+?)\*\* \| (.+) \|$", line.strip())
-        if m:
-            gates.append(m.groups())
-    if len(gates) != 3:
-        raise ChecklistError("could not find the three priority gate definitions")
-    gate_html = "".join(
-        f'<div class="gdef"><span class="gate {g.lower()}">{g}</span><div><b>{inline(n)}</b> {inline(rule)}</div></div>'
-        for g, n, rule in gates)
-    counts = {g: 0 for g in ("G1", "G2", "G3")}
-    for a in doc["aspects"]:
-        for gr in a["groups"]:
-            for it in gr["items"]:
-                counts[it["gate"]] += 1
     toc = "".join(f'<a href="#{ASPECTS[a["letter"]].lower()}"><b>{a["letter"]}</b> {ASPECTS[a["letter"]]}'
                   f'<span class="tc" data-prog="{a["letter"]}-toc"></span></a>' for a in doc["aspects"])
     aspects = "\n".join(render_aspect(a) for a in doc["aspects"])
@@ -357,10 +341,6 @@ def render(doc: dict) -> str:
             .replace("@@INTRO@@", intro_html)
             .replace("@@HOWTO_NAME@@", inline(howto_name))
             .replace("@@HOWTO@@", blocks(howto_lines))
-            .replace("@@GATES@@", gate_html)
-            .replace("@@G1@@", str(counts["G1"]))
-            .replace("@@G2@@", str(counts["G2"]))
-            .replace("@@G3@@", str(counts["G3"]))
             .replace("@@TOC@@", toc)
             .replace("@@ASPECTS@@", aspects)
             .replace("@@TAIL@@", tail))
@@ -380,7 +360,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="BRACE Framework">
 <meta property="og:title" content="The BRACE sign-off checklist">
-<meta property="og:description" content="@@TOTAL@@ checks across all five BRACE aspects. Tick them off, filter by gate, expand any item for the full requirement.">
+<meta property="og:description" content="@@TOTAL@@ checks across all five BRACE aspects. Tick them off, expand any item for the full requirement.">
 <meta property="og:url" content="https://braceframework.org/checklist/">
 <meta property="og:image" content="https://braceframework.org/og-checklist.png">
 <meta property="og:image:type" content="image/png">
@@ -395,21 +375,21 @@ TEMPLATE = r"""<!DOCTYPE html>
   :root{
     --ink:#1a1a1a; --muted:#555a63; --primary:#1a4d6e; --accent:#2e8bc0;
     --tint:#eef5fc; --tint2:#dde9f3; --rule:#c8d4df; --bg:#ffffff; --card:#ffffff; --head:#15384f;
-    --g1:#b23a2e; --g1-bg:#fbecea; --g2:#a2650a; --g2-bg:#fdf3e1; --g3:#1f6a8a; --g3-bg:#e6f2f8;
+    --blocker:#b23a2e; --blocker-bg:#fbecea; --required:#a2650a; --required-bg:#fdf3e1; --detection:#1f6a8a; --detection-bg:#e6f2f8;
     --good:#1f7a4d; --good-bg:#e9f5ee;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       --ink:#e4e8ec; --muted:#9aa4ae; --primary:#7fb8de; --accent:#6cb6e6;
       --tint:#16222c; --tint2:#1c2b37; --rule:#2c3b47; --bg:#0f161c; --card:#131d25; --head:#cfe3f2;
-      --g1:#f08a7e; --g1-bg:#3a1d1a; --g2:#e7b25a; --g2-bg:#352813; --g3:#7cc4e4; --g3-bg:#142c38;
+      --blocker:#f08a7e; --blocker-bg:#3a1d1a; --required:#e7b25a; --required-bg:#352813; --detection:#7cc4e4; --detection-bg:#142c38;
       --good:#6fcf9b; --good-bg:#16301f;
     }
   }
   :root[data-theme="dark"]{
     --ink:#e4e8ec; --muted:#9aa4ae; --primary:#7fb8de; --accent:#6cb6e6;
     --tint:#16222c; --tint2:#1c2b37; --rule:#2c3b47; --bg:#0f161c; --card:#131d25; --head:#cfe3f2;
-    --g1:#f08a7e; --g1-bg:#3a1d1a; --g2:#e7b25a; --g2-bg:#352813; --g3:#7cc4e4; --g3-bg:#142c38;
+    --blocker:#f08a7e; --blocker-bg:#3a1d1a; --required:#e7b25a; --required-bg:#352813; --detection:#7cc4e4; --detection-bg:#142c38;
     --good:#6fcf9b; --good-bg:#16301f;
   }
   *{box-sizing:border-box}
@@ -437,9 +417,9 @@ TEMPLATE = r"""<!DOCTYPE html>
   .gdef{display:flex; gap:12px; align-items:flex-start; font-size:14px; line-height:1.5}
   .gdef b{color:var(--head)}
   .gate{flex:none; display:inline-block; font-size:11.5px; font-weight:700; letter-spacing:.04em; padding:2px 8px; border-radius:999px; border:1px solid currentColor}
-  .gate.g1{color:var(--g1); background:var(--g1-bg)}
-  .gate.g2{color:var(--g2); background:var(--g2-bg)}
-  .gate.g3{color:var(--g3); background:var(--g3-bg)}
+  .gate.blocker{color:var(--blocker); background:var(--blocker-bg)}
+  .gate.required{color:var(--required); background:var(--required-bg)}
+  .gate.detection{color:var(--detection); background:var(--detection-bg)}
   /* toolbar + sticky TOC */
   .bar{position:sticky; top:0; z-index:5; background:var(--bg); border-bottom:1px solid var(--rule); padding:8px 0}
   .bar .wrap{display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center}
@@ -464,7 +444,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   .alinks{font-size:14px; margin:4px 0 0; color:var(--muted)}
   .group{margin-top:16px}
   .group h3{font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:0 0 6px}
-  .group.top3 h3{color:var(--g1)}
+  .group.top3 h3{color:var(--blocker)}
   ul.items{list-style:none; margin:0; padding:0; border:1px solid var(--rule); border-radius:10px; overflow:hidden; background:var(--card)}
   li.item{display:flex; align-items:flex-start; gap:4px; border-top:1px solid var(--rule); padding:0 0 0 12px}
   li.item:first-child{border-top:none}
@@ -478,14 +458,14 @@ TEMPLATE = r"""<!DOCTYPE html>
   li.item summary:hover .ttl{color:var(--accent)}
   .iid{flex:none; font:600 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--muted); width:2.6em}
   .ttl{flex:1; font-weight:600; line-height:1.35}
-  .top{flex:none; font-size:11px; font-weight:700; color:var(--g1); text-transform:uppercase; letter-spacing:.05em}
+  .top{flex:none; font-size:11px; font-weight:700; color:var(--blocker); text-transform:uppercase; letter-spacing:.05em}
   li.item.done .ttl{color:var(--muted); text-decoration:line-through; text-decoration-color:var(--rule)}
   .body{padding:0 18px 14px 4px; font-size:15px}
   .body p{margin:8px 0}
   .refs{font-size:12.5px; color:var(--muted); margin-top:0 !important}
   .note{border-left:3px solid var(--rule); padding:2px 0 2px 14px; margin:12px 0}
   .note .nl{font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-top:4px}
-  .note.hard{border-color:var(--g2)}
+  .note.hard{border-color:var(--required)}
   .note.fallback{border-color:var(--accent)}
   .note.trade{border-color:var(--good)}
   .evidence{font-size:14px; color:var(--muted); margin:14px 0 0}
@@ -529,14 +509,13 @@ TEMPLATE = r"""<!DOCTYPE html>
     <p class="eyebrow">BRACE · Sign-off checklist</p>
     <h1>@@TITLE@@</h1>
     <p class="lede">@@TOTAL@@ checks in five groups. Each row is one check: tick it when the deployed setup meets it and you can link to proof. Open a row to read the full requirement.</p>
-    <div class="stats"><span>@@G1@@ × G1 blocking</span><span>@@G2@@ × G2 harden</span><span>@@G3@@ × G3 detect</span><span>Start with the 3 marked “Top 3” in each group</span></div>
+    <div class="stats"><span>Start with the 3 marked “Top 3” in each group</span></div>
   </div>
 </header>
 
 <div class="wrap intro">
 @@INTRO@@
-<div class="gates" id="gates">@@GATES@@</div>
-<details class="more"><summary>@@HOWTO_NAME@@ (full instructions, identifiers and gate rules)</summary><div>
+<details class="more" id="priority-gates"><summary>@@HOWTO_NAME@@ (full instructions)</summary><div>
 @@HOWTO@@
 </div></details>
 </div>
@@ -546,11 +525,8 @@ TEMPLATE = r"""<!DOCTYPE html>
     <div class="toc">@@TOC@@<a href="#final-sign-off">Sign-off</a></div>
     <div class="tools">
       <span class="overall" id="overall" aria-live="polite"></span>
-      <label>Show <select id="gatefilter" aria-label="Filter by gate">
-        <option value="all">All gates</option>
-        <option value="G1">G1 only: must pass</option>
-        <option value="G2">G2 only</option>
-        <option value="G3">G3 only</option>
+      <label>Show <select id="gatefilter" aria-label="Filter items">
+        <option value="all">All items</option>
         <option value="todo">Unchecked only</option>
       </select></label>
       <button type="button" id="toggleall">Expand all</button>
@@ -592,7 +568,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   function applyFilter(){
     var v=sel.value;
     [].forEach.call(d.querySelectorAll('li.item'),function(li){
-      var show = v==='all' || (v==='todo' ? !li.querySelector('.cb').checked : li.getAttribute('data-gate')===v);
+      var show = v==='all' || !li.querySelector('.cb').checked;
       li.classList.toggle('hidden',!show);
     });
     [].forEach.call(d.querySelectorAll('.group'),function(g){

@@ -2,9 +2,9 @@
 """Generate tools/brace/brace_items.json and the record.yaml template.
 
 Sources:
-  CHECKLIST.md  item headings, e.g. `**B05 · G1 · C4 — Destructive-action interception.**`
+  CHECKLIST.md  item headings, e.g. `**B05 · Blocker · C4 — Destructive-action interception.**`
                 top-3 = items listed under each "IF YOU DO NOTHING ELSE" heading
-  ROLES.md      item tables, e.g. `| B05 | G1 | Title | **Agent team** | Business owner, Security |`
+  ROLES.md      item tables, e.g. `| B05 | Blocker | Title | **Agent team** | Business owner, Security |`
 
 Usage:
   python tools/brace/gen_items.py           # write the files
@@ -48,10 +48,10 @@ ROLE_KEYS = {
 EXPECTED_COUNT = 53
 
 HEADING_RE = re.compile(
-    r"^- \[[ xX]\] \*\*(?P<id>[BRACE]\d{2}) · (?P<gate>G[123]) · (?P<controls>[^—]+?) — (?P<title>.+?)\.\*\*"
+    r"^- \[[ xX]\] \*\*(?P<id>[BRACE]\d{2}) · (?P<gate>Blocker|Required|Detection) · (?P<controls>[^—]+?) — (?P<title>.+?)\.\*\*"
 )
 ROLES_ROW_RE = re.compile(
-    r"^\|\s*(?P<id>[BRACE]\d{2})\s*\|\s*(?P<gate>G[123])\s*\|\s*(?P<title>[^|]+?)\s*\|"
+    r"^\|\s*(?P<id>[BRACE]\d{2})\s*\|\s*(?P<gate>Blocker|Required|Detection)\s*\|\s*(?P<title>[^|]+?)\s*\|"
     r"\s*\*\*(?P<lead>[^*]+)\*\*\s*\|\s*(?P<shares>[^|]*?)\s*\|\s*$"
 )
 
@@ -177,7 +177,7 @@ def render_record_template(items: list[dict]) -> str:
         "#              - link: \"https://ci.example/run/123\"",
         "#                date: 2026-09-30",
         "#                note: \"What the test showed.\"",
-        "# exception: for a G2 gap (or a G3 gap on a low-stakes, low-autonomy deployment),",
+        "# exception: for a Required gap (or a Detection gap on a low-stakes, low-autonomy deployment),",
         "#            the name of a file in .brace/exceptions/ without .yaml.",
         "# na:        for an N/A item, the name of a file in .brace/na/ without .yaml.",
         "# verified_by, notes: optional.",

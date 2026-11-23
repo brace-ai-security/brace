@@ -4,7 +4,7 @@
 
 Use this file to write tests and drills for each item. Each recipe gives the procedure, the expected result, and the evidence to keep.
 
-## A01 · G1 · C2/Obs-T1 — Distinct agent identity
+## A01 · Blocker · C2/Obs-T1 — Distinct agent identity
 
 **Lead:** Infrastructure. **Shares:** Agent team.
 
@@ -14,7 +14,7 @@ Launch the agent from a user account. Look at the identity (principal) the agent
 
 **Evidence to keep:** Identity bindings, permission comparison, revocation results.
 
-## A02 · G1 · Obs-T1 — All six identity fields
+## A02 · Blocker · Obs-T1 — All six identity fields
 
 **Lead:** Agent team. **Shares:** Infrastructure, Business owner, Governance.
 
@@ -24,7 +24,7 @@ Query every record from a controlled run with successful, denied, failed, async,
 
 **Evidence to keep:** Field-completeness query, counts, sample records.
 
-## A03 · G1 · Obs-T1 — Content-derived type identity
+## A03 · Blocker · Obs-T1 — Content-derived type identity
 
 **Lead:** Agent team. **Shares:** Model team.
 
@@ -34,7 +34,7 @@ Hash the same frozen manifest twice. The IDs must match. Change the container, h
 
 **Evidence to keep:** Hashing steps and version, input manifests, expected and actual IDs.
 
-## A04 · G1 · C9/Obs-T1 — Trustworthy attribution
+## A04 · Blocker · C9/Obs-T1 — Trustworthy attribution
 
 **Lead:** Infrastructure. **Shares:** Agent team, Security.
 
@@ -44,7 +44,7 @@ Send fake tenant or instance labels through arguments or headers the agent contr
 
 **Evidence to keep:** Fake-input fixtures, trusted identity logs, async trace.
 
-## A05 · G1 · C8/C9/Obs-T1 — Operational lookup
+## A05 · Blocker · C8/C9/Obs-T1 — Operational lookup
 
 **Lead:** Operations. **Shares:** Business owner, Governance, Infrastructure.
 
@@ -54,7 +54,7 @@ Give an operator a test action or trace ID with no other context. Have them find
 
 **Evidence to keep:** Lookup queries, drill timeline, results for target and non-target runs.
 
-## A06 · G3 · Obs-T3 — Parent and prompt provenance
+## A06 · Detection · Obs-T3 — Parent and prompt provenance
 
 **Lead:** Agent team. **Shares:** Data and privacy, Security.
 
@@ -64,7 +64,7 @@ Start a child and a grandchild agent, each with a test prompt you can tell apart
 
 **Evidence to keep:** Nested trace, protected prompt references, access test.
 
-## A07 · G3 · C7/Obs-T1 — Every model in the loop
+## A07 · Detection · C7/Obs-T1 — Every model in the loop
 
 **Lead:** Agent team. **Shares:** Model team, Security.
 

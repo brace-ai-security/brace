@@ -39,9 +39,9 @@ For each item in `record.yaml`, set `outcome` to one of:
 
 - `pass` — add at least one `evidence` entry with a `link` and a `date`.
 - `gap` — the item isn't met. What happens next depends on its gate:
-  - **G1**: an open, non-waivable finding; blocks a lower-risk record GO.
-  - **G2**: add a risk acceptance file in `.brace/exceptions/` and set `exception:` to its name (without `.yaml`).
-  - **G3**: remains an open finding when stakes or autonomy are high. Otherwise, treat it like G2.
+  - **Blocker**: an open, non-waivable finding; blocks a lower-risk record GO.
+  - **Required**: add a risk acceptance file in `.brace/exceptions/` and set `exception:` to its name (without `.yaml`).
+  - **Detection**: remains an open finding when stakes or autonomy are high. Otherwise, treat it like Required.
 - `na` — add a file in `.brace/na/` with the reason, evidence, and reviewer, and set `na:` to its name.
 
 Exception files have no expiry date. They stay until someone removes them, and the
@@ -67,7 +67,7 @@ The checker reports unresolved record conditions (exit 1) when:
 4. a `pass` has no evidence with both a link and a date;
 5. an `na` has no N/A file, the file is for another item, or it lacks a reason, evidence, or reviewer;
 6. a `gap` breaks its gate rule, or its risk acceptance is missing, for another item, incomplete, or not approved;
-7. any exception file exists for a G1 item, or for a G3 item on a high-stakes or high-autonomy deployment;
+7. any exception file exists for a Blocker item, or for a Detection item on a high-stakes or high-autonomy deployment;
 8. the agent-type-id in `deployment.yaml` no longer matches `manifest.yaml`.
 
 ## Approval model
@@ -170,14 +170,14 @@ most issue trackers.
 More outputs from the same data:
 
     python tools/brace/action_plan.py brace-findings.json brace-topology.cdx.json -o brace-action-plan.md \
-        --html brace-action-plan.html --json brace-action-plan.json --sarif brace.sarif --fail-on g1
+        --html brace-action-plan.html --json brace-action-plan.json --sarif brace.sarif --fail-on blocker
 
 | Option | What you get |
 |---|---|
 | `--html` | One web page that walks through the plan: summary, map, risky connections, action list, and a card per action with its own small diagram, steps, test code and "done when". Diagrams load Mermaid from a pinned CDN version; without it the diagram text still shows. |
 | `--json` | The plan for CI and other tools, schema `brace-action-plan/1` ([`schemas/action-plan.schema.json`](schemas/action-plan.schema.json)). |
-| `--sarif` | SARIF 2.1.0, so each action shows up in GitHub code scanning and other SARIF tools. G1/G2 gaps are errors, G3 gaps warnings, items that need proof notes. |
-| `--fail-on` | Exit 3 when an action matches: `g1` (a G1 gap), `gap` (any gap), `any`, or `none` (default). |
+| `--sarif` | SARIF 2.1.0, so each action shows up in GitHub code scanning and other SARIF tools. Blocker/Required gaps are errors, Detection gaps warnings, items that need proof notes. |
+| `--fail-on` | Exit 3 when an action matches: `blocker` (a Blocker gap), `gap` (any gap), `any`, or `none` (default). |
 
 Exit codes: 0 written, 1 input notes with `--strict`, 2 bad input, 3 `--fail-on` matched.
 
@@ -197,12 +197,12 @@ to `.github/workflows/`; it uses the vendored copy with `uses: ./tools/brace/act
 | `findings` | `brace-findings.json` | The review's findings. |
 | `topology` | `brace-topology.cdx.json` | The map; rebuilt first when `build-topology` is `true`. |
 | `build-topology`, `agent-config`, `tools-config` | `false`, empty | Rebuild the map from `.mcp.json`, config and the reviewer's overlay. |
-| `fail-on` | `g1` | `g1`, `gap`, `any` or `none`. |
+| `fail-on` | `blocker` | `blocker`, `gap`, `any` or `none`. |
 | `strict` | `true` | Fail on input notes. |
 | `record`, `record-drift` | `.brace/topology.cdx.json`, `warn` | Compare the map with the record: `warn`, `fail` or `off`. The Action never writes the record; a person runs `topology.py record --apply`. |
 | `upload-sarif`, `upload-artifact` | `true`, `true` | SARIF upload needs `permissions: security-events: write`; it is skipped with a warning if code scanning is not available. |
 
-Outputs: `actions`, `gaps`, `g1-gaps`, `record-status`, `report-dir`.
+Outputs: `actions`, `gaps`, `blocker-gaps`, `record-status`, `report-dir`.
 The review itself (the `brace-review` skill) runs before this, outside the Action.
 
 ## Other commands

@@ -4,7 +4,7 @@
 
 Use this file to rate each item from the code and configuration. The requirement is the checklist text. The heuristics say what to look for. Ratings: likely_pass, gap, needs_evidence, or na_candidate. Never rate pass.
 
-## C01 · G2 · C1–C6/Obs-T1 — Complete release manifest
+## C01 · Required · C1–C6/Obs-T1 — Complete release manifest
 
 **Lead:** Agent team. **Shares:** Infrastructure, Model team, Data and privacy.
 
@@ -16,7 +16,7 @@ Write a release manifest: a list of everything that makes up this release. Inclu
 
   If you can't fully do it: Fill in model records from serving metadata, registries, and training-job output. Require full history for training your team runs. Clearly label fields the provider hides, and keep where and when you checked. Prefer a fixed provider snapshot when one exists. Record missing training history your team should have as a Gap, and rebuild it first. Never make up training versions. Never treat a provider alias as a training job ID.
 
-  Tradeoffs you can accept: Provider pretraining details that are clearly marked as not shared, as long as your own model-selection and training records are complete. A G2 gap in visibility or history can get written acceptance with an owner. Unknown records must never be written down as real versions.
+  Tradeoffs you can accept: Provider pretraining details that are clearly marked as not shared, as long as your own model-selection and training records are complete. A Required gap in visibility or history can get written acceptance with an owner. Unknown records must never be written down as real versions.
 
 ### Verification recipe
 
@@ -76,7 +76,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## C02 · G2 · C1–C7 — Review security-relevant changes
+## C02 · Required · C1–C7 — Review security-relevant changes
 
 **Lead:** Governance. **Shares:** Agent team, Security.
 
@@ -135,7 +135,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## C03 · G1 · Obs-T1 — Match release identity to running state
+## C03 · Blocker · Obs-T1 — Match release identity to running state
 
 **Lead:** Infrastructure. **Shares:** Agent team, Operations, Model team.
 
@@ -205,7 +205,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## C04 · G2 · C1/C3/C4/Obs-T1 — Detect drift per agent
+## C04 · Required · C1/C3/C4/Obs-T1 — Detect drift per agent
 
 **Lead:** Operations. **Shares:** Infrastructure, Security, Model team.
 
@@ -265,7 +265,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## C05 · G2 · C3/C4/C7 — Control dependency, model, and training changes
+## C05 · Required · C3/C4/C7 — Control dependency, model, and training changes
 
 **Lead:** Agent team. **Shares:** Model team, Security, Vendors.
 
@@ -277,7 +277,7 @@ Pin dependency versions. Where supported, also pin each model's base version, ch
 
   If you can't fully do it: Prefer pinned snapshots. Otherwise keep both the requested and the observed IDs, watch provider notices, and schedule realistic tests with a named owner. Limit permissions and autonomy while you're unsure of the version. Decide in advance what triggers a pause or a move to an approved alternative. Record gaps from names that can change, and any allowed risk acceptance. Tests and provider notices help manage uncertainty. They don't prove the model's identity is fixed.
 
-  Tradeoffs you can accept: The ease of a hosted model, with less reproducibility and possibly slower detection of changes, once that exposure has written G2 acceptance. Set a testing schedule and decide when use must stop. If the uncertainty matters too much, choose a pinned alternative or reduce the agent's powers.
+  Tradeoffs you can accept: The ease of a hosted model, with less reproducibility and possibly slower detection of changes, once that exposure has a written, approved risk acceptance. Set a testing schedule and decide when use must stop. If the uncertainty matters too much, choose a pinned alternative or reduce the agent's powers.
 
 ### Verification recipe
 
@@ -336,7 +336,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## C06 · G2 · C4–C9 — Re-test changed behavior
+## C06 · Required · C4–C9 — Re-test changed behavior
 
 **Lead:** Agent team. **Shares:** Security, Business owner.
 
@@ -394,7 +394,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## C07 · G2 · C8/C9 — Rollback and restart
+## C07 · Required · C8/C9 — Rollback and restart
 
 **Lead:** Operations. **Shares:** Agent team, Infrastructure.
 
@@ -455,7 +455,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## C08 · G2 · Obs-T1/Obs-T2/Obs-T3 — Connect configuration to execution
+## C08 · Required · Obs-T1/Obs-T2/Obs-T3 — Connect configuration to execution
 
 **Lead:** Operations. **Shares:** Agent team, Infrastructure.
 

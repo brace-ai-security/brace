@@ -8,7 +8,7 @@ This folder holds the security sign-off record for this agent, checked by
 | `deployment.yaml` | What the agent is, what it may do, how risky it is (stakes and autonomy), who holds each role, and who may approve. |
 | `record.yaml` | One entry for each of the 53 checklist items: the outcome (pass, gap, na, not_reviewed), who leads it, and links to evidence. |
 | `manifest.yaml` | The inputs that define this agent type: container, harness, prompt, model, config. `brace.py hash` turns them into the agent-type-id. |
-| `exceptions/` | One file per accepted risk (a G2 gap, or a G3 gap on a low-stakes, low-autonomy deployment). G1 gaps can't be accepted. |
+| `exceptions/` | One file per accepted risk (a Required gap, or a Detection gap on a low-stakes, low-autonomy deployment). Blocker gaps can't be accepted. |
 | `na/` | One file per item that doesn't apply, with the reason, evidence, and reviewer. |
 
 ## How approval works

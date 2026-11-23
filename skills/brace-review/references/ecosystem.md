@@ -4,7 +4,7 @@
 
 Use this file to rate each item from the code and configuration. The requirement is the checklist text. The heuristics say what to look for. Ratings: likely_pass, gap, needs_evidence, or na_candidate. Never rate pass.
 
-## E01 · G2 · C1–C9 — Map shared responsibilities
+## E01 · Required · C1–C9 — Map shared responsibilities
 
 **Lead:** Governance. **Shares:** Agent team, Infrastructure, Vendors.
 
@@ -60,7 +60,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## E02 · G2 · C3/C5 — Vet and pin dependencies
+## E02 · Required · C3/C5 — Vet and pin dependencies
 
 **Lead:** Security. **Shares:** Agent team, Model team, Vendors.
 
@@ -124,7 +124,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## E03 · G2 · C5 — Re-check tools on load
+## E03 · Required · C5 — Re-check tools on load
 
 **Lead:** Infrastructure. **Shares:** Security, Vendors.
 
@@ -187,7 +187,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** The agent loads no external tools or MCP servers; all tools are built in and fixed in the release.
 
-## E04 · G2 · C5 — Inspect tool metadata
+## E04 · Required · C5 — Inspect tool metadata
 
 **Lead:** Security. **Shares:** Infrastructure.
 
@@ -199,7 +199,7 @@ Before the model sees them, scan server instructions, tool names, titles, descri
 
   If you can't fully do it: Use a small approved tool catalog, with reviewed, versioned descriptions and schemas. Block unexpected changes. Keep rule-based limits and known-pattern checks even without advanced scanning. Limit each tool's powers regardless of what its metadata says. Turn a tool off when the required inspection isn't available. Record what the scanner covers and misses. Manual review and pattern scans are useful layers. They don't prove every poisoned tool is caught.
 
-  Tradeoffs you can accept: A smaller catalog, review delays, and some honest metadata getting rejected. Limited scanning for attacks hidden in meaning can get G2 acceptance, as long as tool powers are limited separately. Known-pattern tests don't prove you can catch every poisoned tool.
+  Tradeoffs you can accept: A smaller catalog, review delays, and some honest metadata getting rejected. Limited scanning for attacks hidden in meaning can get a written, approved risk acceptance, as long as tool powers are limited separately. Known-pattern tests don't prove you can catch every poisoned tool.
 
 ### Verification recipe
 
@@ -254,7 +254,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** The agent loads no external tools or MCP servers; all tool metadata is written in-house and fixed in the release.
 
-## E05 · G2 · C2/C5 — Verified, namespaced tools
+## E05 · Required · C2/C5 — Verified, namespaced tools
 
 **Lead:** Infrastructure. **Shares:** Security.
 
@@ -311,7 +311,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** The agent loads no external tools or MCP servers.
 
-## E06 · G2 · C1/C2/C4/C5/C9 — Enforced gateway boundary
+## E06 · Required · C1/C2/C4/C5/C9 — Enforced gateway boundary
 
 **Lead:** Infrastructure. **Shares:** Security, Agent team, Vendors.
 
@@ -383,7 +383,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** The agent uses no MCP servers or similar external tool servers.
 
-## E07 · G2 · C2/C5 — Untrusted peer messages
+## E07 · Required · C2/C5 — Untrusted peer messages
 
 **Lead:** Agent team. **Shares:** Security.
 
@@ -450,7 +450,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** The agent receives no messages from other agents (no A2A server, peer endpoint, or agent-to-agent channel).
 
-## E08 · G1 · C2/C4 — Bounded delegated authority
+## E08 · Blocker · C2/C4 — Bounded delegated authority
 
 **Lead:** Agent team. **Shares:** Infrastructure, Security.
 
@@ -462,7 +462,7 @@ Give sub-agents only the powers approved for their task. Preserve the verified o
 
   If you can't fully do it: Carry the verified original identity, tenant, and allowed scope all the way to where the action runs. If a peer can't enforce those limits, delegate only to peers with no more relevant authority. Or use a narrow task credential, or require separate approval for that exact privileged action. If none of these can be enforced, turn off that delegation path. Trusting a peer's prompt does not pass this blocking check.
 
-  Tradeoffs you can accept: Less flexible delegation, narrower child roles, or separate approval for each action. These keep the authorization boundary intact. Quiet privilege gains can never pass this G1 check. Turn off the path if you can't enforce the boundary.
+  Tradeoffs you can accept: Less flexible delegation, narrower child roles, or separate approval for each action. These keep the authorization boundary intact. Quiet privilege gains can never pass this Blocker check. Turn off the path if you can't enforce the boundary.
 
 ### Verification recipe
 
@@ -519,7 +519,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** The agent never delegates to sub-agents or peer agents.
 
-## E09 · G1 · C8 — Recursive shutdown
+## E09 · Blocker · C8 — Recursive shutdown
 
 **Lead:** Operations. **Shares:** Agent team, Infrastructure.
 
@@ -587,7 +587,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## E10 · G1 · C9/Obs-T1 — Audit across service boundaries
+## E10 · Blocker · C9/Obs-T1 — Audit across service boundaries
 
 **Lead:** Infrastructure. **Shares:** Operations, Security, Vendors.
 
@@ -655,7 +655,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## E11 · G2 · C9 — Protect shared evidence
+## E11 · Required · C9 — Protect shared evidence
 
 **Lead:** Infrastructure. **Shares:** Governance, Data and privacy, Security, Vendors.
 
@@ -667,7 +667,7 @@ Set rules for how long audit records are kept, who can see them, what is redacte
 
   If you can't fully do it: Use durable local buffering, or another protected audit path, with delivery receipts, backlog limits, and alerts for missing records. Export vendor evidence before the vendor deletes it, and limit who can see it. When buffering runs out or isn't available, pause affected actions before required evidence is lost. Record outages and any evidence you can't get back. A fixed pipeline doesn't bring back missing history.
 
-  Tradeoffs you can accept: Short delivery delays while records stay safely stored, extra storage and export costs, and paused work during outages. Limits on retention or delivery can get G2 acceptance only if the required G1 action capture and attribution still hold. Disclose any lost evidence.
+  Tradeoffs you can accept: Short delivery delays while records stay safely stored, extra storage and export costs, and paused work during outages. Limits on retention or delivery can get a written, approved risk acceptance only if the required Blocker action capture and attribution still hold. Disclose any lost evidence.
 
 ### Verification recipe
 
@@ -723,7 +723,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## E12 · G3 · C7/C8 — Fleet incident response
+## E12 · Detection · C7/C8 — Fleet incident response
 
 **Lead:** Security. **Shares:** Operations, Governance, Business owner.
 

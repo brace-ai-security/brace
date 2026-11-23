@@ -52,12 +52,12 @@ ROLE_NAMES = {
     "independent_audit": "Independent audit",
 }
 PRIORITY = {
-    ("gap", "G1"): (1, "Must fix before release"),
-    ("gap", "G2"): (2, "Fix before release, or get a written risk approval"),
-    ("gap", "G3"): (3, "Fix soon; track until done"),
-    ("needs_evidence", "G1"): (4, "Show proof it works before release"),
-    ("needs_evidence", "G2"): (5, "Show proof it works, or get a written risk approval"),
-    ("needs_evidence", "G3"): (6, "Show proof it works"),
+    ("gap", "Blocker"): (1, "Must fix before release"),
+    ("gap", "Required"): (2, "Fix before release, or get a written risk approval"),
+    ("gap", "Detection"): (3, "Fix soon; track until done"),
+    ("needs_evidence", "Blocker"): (4, "Show proof it works before release"),
+    ("needs_evidence", "Required"): (5, "Show proof it works, or get a written risk approval"),
+    ("needs_evidence", "Detection"): (6, "Show proof it works"),
 }
 MAX_GRADE = 12.0
 MAX_WORDS = 30
@@ -133,7 +133,7 @@ def actions_from(findings: dict, nodes: dict, repo: Path | None = None) -> tuple
         if rating not in ("gap", "needs_evidence"):
             continue
         item = ITEMS.get(f["item"], {})
-        gate = f.get("gate") or item.get("gate", "G3")
+        gate = f.get("gate") or item.get("gate", "Detection")
         rank, priority = PRIORITY[(rating, gate)]
         comps = list(f.get("components") or [])
         for c in f.get("checks") or []:  # failing coverage rows can name the part too
@@ -309,7 +309,7 @@ def write_csv(path: Path, actions: list[dict], nodes: dict) -> None:
 SCHEMA_ID = "brace-action-plan/1"
 FAIL_ON = {
     "none": lambda a: False,
-    "g1": lambda a: a["rating"] == "gap" and a["gate"] == "G1",
+    "blocker": lambda a: a["rating"] == "gap" and a["gate"] == "Blocker",
     "gap": lambda a: a["rating"] == "gap",
     "any": lambda a: True,
 }
@@ -351,7 +351,7 @@ def plan_data(findings: dict, bom: dict, actions: list[dict], problems: list[str
         "agent": bom["metadata"]["component"]["name"],
         "repo": findings.get("repo"), "commit": findings.get("commit"), "reviewed_at": findings.get("reviewed_at"),
         "summary": {"actions": len(actions), "gaps": len(gaps), "needs_evidence": len(actions) - len(gaps),
-                    "g1_gaps": sum(a["gate"] == "G1" for a in gaps),
+                    "blocker_gaps": sum(a["gate"] == "Blocker" for a in gaps),
                     "risky_connections": sum(bool(c["risks"]) for c in conns),
                     "components": len(comps), "input_notes": len(problems),
                     "stale_map_entries": len(topology.stale_entries(bom))},
@@ -364,7 +364,7 @@ def plan_data(findings: dict, bom: dict, actions: list[dict], problems: list[str
 
 def sarif(data: dict) -> dict:
     """SARIF 2.1.0 for code-scanning tools: one rule per BRACE item, one result per action."""
-    level = {("gap", "G1"): "error", ("gap", "G2"): "error", ("gap", "G3"): "warning"}
+    level = {("gap", "Blocker"): "error", ("gap", "Required"): "error", ("gap", "Detection"): "warning"}
     rules, results = {}, []
     for a in data["actions"]:
         rules.setdefault(a["id"], {
@@ -407,7 +407,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sarif", type=Path, help="SARIF 2.1.0 for code scanning")
     ap.add_argument("--html", type=Path, help="a web page that walks through the plan with diagrams")
     ap.add_argument("--fail-on", choices=list(FAIL_ON), default="none",
-                    help="exit 3 if any action matches: g1 = a G1 gap, gap = any gap, any = any action")
+                    help="exit 3 if any action matches: blocker = a Blocker gap, gap = any gap, any = any action")
     a = ap.parse_args(argv)
     findings, bom = load(a.findings), load(a.topology)
     errors = topology.validate(bom)

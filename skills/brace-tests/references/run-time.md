@@ -4,7 +4,7 @@
 
 Use this file to write tests and drills for each item. Each recipe gives the procedure, the expected result, and the evidence to keep.
 
-## R01 · G2 · C5 — Validate every input boundary, including API responses
+## R01 · Required · C5 — Validate every input boundary, including API responses
 
 **Lead:** Agent team. **Shares:** Security.
 
@@ -14,7 +14,7 @@ Have a mock integration return wrong types, oversized bodies, hostile text, erro
 
 **Evidence to keep:** Fixtures for each integration, validation decisions, checks of what was passed on.
 
-## R02 · G2 · C5 — Separate data from instructions and test injection containment
+## R02 · Required · C5 — Separate data from instructions and test injection containment
 
 **Lead:** Security. **Shares:** Agent team.
 
@@ -24,7 +24,7 @@ Hide an instruction to send a fake secret to your test destination. Put it insid
 
 **Evidence to keep:** Model request with role and source labels, attempt counts and success rates, gate denial, destination receipt log.
 
-## R03 · G2 · C5/C9 — Prevent output and log leakage
+## R03 · Required · C5/C9 — Prevent output and log leakage
 
 **Lead:** Agent team. **Shares:** Security, Data and privacy, Infrastructure.
 
@@ -34,7 +34,7 @@ Return an easy-to-spot fake secret in tool output, debug output, and an API erro
 
 **Evidence to keep:** Marker test, redaction decisions, searches of each output path.
 
-## R04 · G2 · C5/C6 — Retrieval-corpus integrity
+## R04 · Required · C5/C6 — Retrieval-corpus integrity
 
 **Lead:** Agent team. **Shares:** Data and privacy, Infrastructure, Security.
 
@@ -44,7 +44,7 @@ Create searchable test documents for tenants A and B, each with a unique marker.
 
 **Evidence to keep:** Permissions for adding content, and the rejection; each chunk's source, time, trust, and access records; searches before and after; cache-clearing timestamps.
 
-## R05 · G3 · C6 — Memory isolation and write validation
+## R05 · Detection · C6 — Memory isolation and write validation
 
 **Lead:** Agent team. **Shares:** Data and privacy, Security.
 
@@ -54,7 +54,7 @@ In one instance, try to save a harmful instruction, and try to read and write an
 
 **Evidence to keep:** Memory policy, rejected writes and reads, new-session context.
 
-## R06 · G3 · C6 — Memory provenance and cleanup
+## R06 · Detection · C6 — Memory provenance and cleanup
 
 **Lead:** Agent team. **Shares:** Operations, Data and privacy.
 
@@ -64,7 +64,7 @@ Seed an approved test entry with a known source. Flag it as tainted, find relate
 
 **Evidence to keep:** Provenance query, cleanup log, later search results.
 
-## R07 · G2 · Obs-T2 — Decision-time context size
+## R07 · Required · Obs-T2 — Decision-time context size
 
 **Lead:** Agent team. **Shares:** Operations.
 
@@ -74,7 +74,7 @@ Capture decisions with short and long contexts, and a tool handoff. Compare the 
 
 **Evidence to keep:** Counting method, model-request metadata, trace query.
 
-## R08 · G3 · C7 — Security monitoring
+## R08 · Detection · C7 — Security monitoring
 
 **Lead:** Security. **Shares:** Operations.
 
@@ -84,7 +84,7 @@ Send each configured security event through test traffic. Check that the rule fi
 
 **Evidence to keep:** Rule versions, event fixtures, alert and delivery timestamps.
 
-## R09 · G3 · C7/Obs-T2 — Sequence and context-aware detection
+## R09 · Detection · C7/Obs-T2 — Sequence and context-aware detection
 
 **Lead:** Security. **Shares:** Operations, Agent team.
 
@@ -94,7 +94,7 @@ Define a labeled harmless sequence and a labeled abusive one, made of calls that
 
 **Evidence to keep:** Labeled sequences, context ranges, thresholds, results for each range.
 
-## R10 · G3 · C7 — Misaligned-behavior review
+## R10 · Detection · C7 — Misaligned-behavior review
 
 **Lead:** Security. **Shares:** Agent team, Governance.
 
@@ -104,7 +104,7 @@ Build a labeled review set. Include harmless traces and traces with attempted ev
 
 **Evidence to keep:** Review-set version, detector or model version, results and stated limits.
 
-## R11 · G1 · C8 — Tested kill switch
+## R11 · Blocker · C8 — Tested kill switch
 
 **Lead:** Operations. **Shares:** Infrastructure, Agent team.
 
@@ -114,7 +114,7 @@ Start a controlled run and trigger the operator's stop control. Record the time 
 
 **Evidence to keep:** Drill trace, operator action, measured stop time.
 
-## R12 · G1 · C8 — Safe state after stopping
+## R12 · Blocker · C8 — Safe state after stopping
 
 **Lead:** Agent team. **Shares:** Operations, Business owner.
 
@@ -124,7 +124,7 @@ Stop runs before a write, during a transaction, and after a finished outside tes
 
 **Evidence to keep:** Outcome of each scenario, queue snapshots, undo and reconciliation records.
 
-## R13 · G1 · C9 — Full execution audit
+## R13 · Blocker · C9 — Full execution audit
 
 **Lead:** Agent team. **Shares:** Infrastructure, Operations.
 
@@ -134,7 +134,7 @@ Run a known sequence with an allowed call, a denial, an approval, a tool error, 
 
 **Evidence to keep:** Expected event list, rebuilt graph, query for missing events.
 
-## R14 · G2 · C9 — Recovery integrity
+## R14 · Required · C9 — Recovery integrity
 
 **Lead:** Agent team. **Shares:** Infrastructure, Operations.
 

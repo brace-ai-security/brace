@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Challenge every likely_pass and G1/G2 N/A claim with a fresh look at the code.
+"""Challenge every likely_pass and Blocker/Required N/A claim with a fresh look at the code.
 
   python challenge.py make  FINDINGS.json [--repo DIR] [--out DIR] [--hunt]
       Writes one sheet per likely_pass item to DIR (default: <repo>/brace-challenges/),
-      plus every G1/G2 na_candidate, and with --hunt every G1/G2 needs_evidence,
+      plus every Blocker/Required na_candidate, and with --hunt every Blocker/Required needs_evidence,
       plus a verdicts.json to fill in. Each sheet shows the item's checks, how to
       verify them, and the quoted code with surrounding lines.
 
@@ -132,8 +132,8 @@ def make(doc, table, repo, out, hunt=False):
     for f in doc["findings"]:
         item = f["item"]
         meta = table[item]
-        is_na = f.get("rating") == "na_candidate" and meta["gate"] in ("G1", "G2")
-        is_hunt = (hunt and f.get("rating") == "needs_evidence" and meta["gate"] in ("G1", "G2")
+        is_na = f.get("rating") == "na_candidate" and meta["gate"] in ("Blocker", "Required")
+        is_hunt = (hunt and f.get("rating") == "needs_evidence" and meta["gate"] in ("Blocker", "Required")
                    and meta["checks"])
         if f.get("rating") != "likely_pass" and not is_hunt and not is_na:
             continue

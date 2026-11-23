@@ -50,83 +50,83 @@ Governance and the Business owner lead few items but own most sign-off decisions
 
 | Item | Gate | Title | Lead | Shares |
 |---|---|---|---|---|
-| B05 | G1 | Destructive-action interception | **Agent team** | Business owner, Security, Governance |
-| B02 | G1 | Least-privilege access | **Infrastructure** | Agent team, Security |
-| B01 | G1 | Minimal tool surface | **Agent team** | Security |
-| B03 | G2 | Credential lifetime and handling | **Infrastructure** | Security |
-| B04 | G1 | Independent revocation | **Infrastructure** | Operations, Security |
-| B06 | G1 | Approval integrity | **Agent team** | Business owner, Security, Infrastructure |
-| B07 | G2 | Hard execution budgets | **Agent team** | Business owner, Infrastructure, Operations |
-| B08 | G2 | Environment isolation | **Infrastructure** | Security |
-| B09 | G2 | Egress allowlist | **Infrastructure** | Security, Operations |
-| B10 | G2 | Pinned, verified image | **Infrastructure** | Security, Agent team |
-| B11 | G2 | Minimal, isolated runtime | **Infrastructure** | Security, Agent team, Vendors |
-| B12 | G1 | Reviewed harness and instructions | **Agent team** | Security, Governance |
+| B05 | Blocker | Destructive-action interception | **Agent team** | Business owner, Security, Governance |
+| B02 | Blocker | Least-privilege access | **Infrastructure** | Agent team, Security |
+| B01 | Blocker | Minimal tool surface | **Agent team** | Security |
+| B03 | Required | Credential lifetime and handling | **Infrastructure** | Security |
+| B04 | Blocker | Independent revocation | **Infrastructure** | Operations, Security |
+| B06 | Blocker | Approval integrity | **Agent team** | Business owner, Security, Infrastructure |
+| B07 | Required | Hard execution budgets | **Agent team** | Business owner, Infrastructure, Operations |
+| B08 | Required | Environment isolation | **Infrastructure** | Security |
+| B09 | Required | Egress allowlist | **Infrastructure** | Security, Operations |
+| B10 | Required | Pinned, verified image | **Infrastructure** | Security, Agent team |
+| B11 | Required | Minimal, isolated runtime | **Infrastructure** | Security, Agent team, Vendors |
+| B12 | Blocker | Reviewed harness and instructions | **Agent team** | Security, Governance |
 
 ### R — Run-time
 
 | Item | Gate | Title | Lead | Shares |
 |---|---|---|---|---|
-| R11 | G1 | Tested kill switch | **Operations** | Infrastructure, Agent team |
-| R13 | G1 | Full execution audit | **Agent team** | Infrastructure, Operations |
-| R01 | G2 | Validate every input boundary, including API responses | **Agent team** | Security |
-| R02 | G2 | Separate data from instructions and test injection containment | **Security** | Agent team |
-| R03 | G2 | Prevent output and log leakage | **Agent team** | Security, Data and privacy, Infrastructure |
-| R04 | G2 | Retrieval-corpus integrity | **Agent team** | Data and privacy, Infrastructure, Security |
-| R05 | G3 | Memory isolation and write validation | **Agent team** | Data and privacy, Security |
-| R06 | G3 | Memory provenance and cleanup | **Agent team** | Operations, Data and privacy |
-| R07 | G2 | Decision-time context size | **Agent team** | Operations |
-| R08 | G3 | Security monitoring | **Security** | Operations |
-| R09 | G3 | Sequence and context-aware detection | **Security** | Operations, Agent team |
-| R10 | G3 | Misaligned-behavior review | **Security** | Agent team, Governance |
-| R12 | G1 | Safe state after stopping | **Agent team** | Operations, Business owner |
-| R14 | G2 | Recovery integrity | **Agent team** | Infrastructure, Operations |
+| R11 | Blocker | Tested kill switch | **Operations** | Infrastructure, Agent team |
+| R13 | Blocker | Full execution audit | **Agent team** | Infrastructure, Operations |
+| R01 | Required | Validate every input boundary, including API responses | **Agent team** | Security |
+| R02 | Required | Separate data from instructions and test injection containment | **Security** | Agent team |
+| R03 | Required | Prevent output and log leakage | **Agent team** | Security, Data and privacy, Infrastructure |
+| R04 | Required | Retrieval-corpus integrity | **Agent team** | Data and privacy, Infrastructure, Security |
+| R05 | Detection | Memory isolation and write validation | **Agent team** | Data and privacy, Security |
+| R06 | Detection | Memory provenance and cleanup | **Agent team** | Operations, Data and privacy |
+| R07 | Required | Decision-time context size | **Agent team** | Operations |
+| R08 | Detection | Security monitoring | **Security** | Operations |
+| R09 | Detection | Sequence and context-aware detection | **Security** | Operations, Agent team |
+| R10 | Detection | Misaligned-behavior review | **Security** | Agent team, Governance |
+| R12 | Blocker | Safe state after stopping | **Agent team** | Operations, Business owner |
+| R14 | Required | Recovery integrity | **Agent team** | Infrastructure, Operations |
 
 ### A — Agent
 
 | Item | Gate | Title | Lead | Shares |
 |---|---|---|---|---|
-| A01 | G1 | Distinct agent identity | **Infrastructure** | Agent team |
-| A02 | G1 | All six identity fields | **Agent team** | Infrastructure, Business owner, Governance |
-| A03 | G1 | Content-derived type identity | **Agent team** | Model team |
-| A04 | G1 | Trustworthy attribution | **Infrastructure** | Agent team, Security |
-| A05 | G1 | Operational lookup | **Operations** | Business owner, Governance, Infrastructure |
-| A06 | G3 | Parent and prompt provenance | **Agent team** | Data and privacy, Security |
-| A07 | G3 | Every model in the loop | **Agent team** | Model team, Security |
+| A01 | Blocker | Distinct agent identity | **Infrastructure** | Agent team |
+| A02 | Blocker | All six identity fields | **Agent team** | Infrastructure, Business owner, Governance |
+| A03 | Blocker | Content-derived type identity | **Agent team** | Model team |
+| A04 | Blocker | Trustworthy attribution | **Infrastructure** | Agent team, Security |
+| A05 | Blocker | Operational lookup | **Operations** | Business owner, Governance, Infrastructure |
+| A06 | Detection | Parent and prompt provenance | **Agent team** | Data and privacy, Security |
+| A07 | Detection | Every model in the loop | **Agent team** | Model team, Security |
 
 ### C — Configuration
 
 | Item | Gate | Title | Lead | Shares |
 |---|---|---|---|---|
-| C01 | G2 | Complete release manifest | **Agent team** | Infrastructure, Model team, Data and privacy |
-| C03 | G1 | Match release identity to running state | **Infrastructure** | Agent team, Operations, Model team |
-| C04 | G2 | Detect drift per agent | **Operations** | Infrastructure, Security, Model team |
-| C02 | G2 | Review security-relevant changes | **Governance** | Agent team, Security |
-| C05 | G2 | Control dependency, model, and training changes | **Agent team** | Model team, Security, Vendors |
-| C06 | G2 | Re-test changed behavior | **Agent team** | Security, Business owner |
-| C07 | G2 | Rollback and restart | **Operations** | Agent team, Infrastructure |
-| C08 | G2 | Connect configuration to execution | **Operations** | Agent team, Infrastructure |
+| C01 | Required | Complete release manifest | **Agent team** | Infrastructure, Model team, Data and privacy |
+| C03 | Blocker | Match release identity to running state | **Infrastructure** | Agent team, Operations, Model team |
+| C04 | Required | Detect drift per agent | **Operations** | Infrastructure, Security, Model team |
+| C02 | Required | Review security-relevant changes | **Governance** | Agent team, Security |
+| C05 | Required | Control dependency, model, and training changes | **Agent team** | Model team, Security, Vendors |
+| C06 | Required | Re-test changed behavior | **Agent team** | Security, Business owner |
+| C07 | Required | Rollback and restart | **Operations** | Agent team, Infrastructure |
+| C08 | Required | Connect configuration to execution | **Operations** | Agent team, Infrastructure |
 
 ### E — Ecosystem
 
 | Item | Gate | Title | Lead | Shares |
 |---|---|---|---|---|
-| E06 | G2 | Enforced gateway boundary | **Infrastructure** | Security, Agent team, Vendors |
-| E08 | G1 | Bounded delegated authority | **Agent team** | Infrastructure, Security |
-| E09 | G1 | Recursive shutdown | **Operations** | Agent team, Infrastructure |
-| E01 | G2 | Map shared responsibilities | **Governance** | Agent team, Infrastructure, Vendors |
-| E02 | G2 | Vet and pin dependencies | **Security** | Agent team, Model team, Vendors |
-| E03 | G2 | Re-check tools on load | **Infrastructure** | Security, Vendors |
-| E04 | G2 | Inspect tool metadata | **Security** | Infrastructure |
-| E05 | G2 | Verified, namespaced tools | **Infrastructure** | Security |
-| E07 | G2 | Untrusted peer messages | **Agent team** | Security |
-| E10 | G1 | Audit across service boundaries | **Infrastructure** | Operations, Security, Vendors |
-| E11 | G2 | Protect shared evidence | **Infrastructure** | Governance, Data and privacy, Security, Vendors |
-| E12 | G3 | Fleet incident response | **Security** | Operations, Governance, Business owner |
+| E06 | Required | Enforced gateway boundary | **Infrastructure** | Security, Agent team, Vendors |
+| E08 | Blocker | Bounded delegated authority | **Agent team** | Infrastructure, Security |
+| E09 | Blocker | Recursive shutdown | **Operations** | Agent team, Infrastructure |
+| E01 | Required | Map shared responsibilities | **Governance** | Agent team, Infrastructure, Vendors |
+| E02 | Required | Vet and pin dependencies | **Security** | Agent team, Model team, Vendors |
+| E03 | Required | Re-check tools on load | **Infrastructure** | Security, Vendors |
+| E04 | Required | Inspect tool metadata | **Security** | Infrastructure |
+| E05 | Required | Verified, namespaced tools | **Infrastructure** | Security |
+| E07 | Required | Untrusted peer messages | **Agent team** | Security |
+| E10 | Blocker | Audit across service boundaries | **Infrastructure** | Operations, Security, Vendors |
+| E11 | Required | Protect shared evidence | **Infrastructure** | Governance, Data and privacy, Security, Vendors |
+| E12 | Detection | Fleet incident response | **Security** | Operations, Governance, Business owner |
 
 ## Sign-off duties
 
-These steps come from the checklist's [how-to](CHECKLIST.md#how-to-use-this-checklist), [priority gates](CHECKLIST.md#priority-gates-g), and [final sign-off](CHECKLIST.md#final-sign-off). They aren't numbered items, but someone has to own them.
+These steps come from the checklist's [how-to](CHECKLIST.md#how-to-use-this-checklist), [priority gates](CHECKLIST.md#priority-gates), and [final sign-off](CHECKLIST.md#final-sign-off). They aren't numbered items, but someone has to own them.
 
 | Duty | Lead | Shares |
 |---|---|---|
@@ -136,10 +136,10 @@ These steps come from the checklist's [how-to](CHECKLIST.md#how-to-use-this-chec
 | Approve high-impact actions while the agent runs (B05, B06) | **Business owner** | Governance |
 | Run the verification recipes against the release candidate | **Agent team** | Operations, Security, Infrastructure |
 | Approve each N/A | **Governance** | Security |
-| Approve G2 and G3 risk acceptances | **Governance** | Security, Business owner |
+| Approve Required and Detection risk acceptances | **Governance** | Security, Business owner |
 | Fix gaps and track remediation owners | **Agent team** | Operations, Security, Infrastructure |
 | Record emergency changes (C02) | **Operations** | Governance |
-| Check evidence independently before a deployment decision, at least for G1 items | **Independent audit** | Governance |
+| Check evidence independently before a deployment decision, at least for Blocker items | **Independent audit** | Governance |
 | Own and record the deployment decision separately from BRACE findings, including a gradual monitored high-risk rollout | **Governance** | Business owner, Security |
 | Keep the stop control, response steps, and evidence reachable by operators | **Operations** | Infrastructure |
 | Get evidence for the vendor half of each control (E01) | **Governance** | Agent team, Infrastructure, Vendors |

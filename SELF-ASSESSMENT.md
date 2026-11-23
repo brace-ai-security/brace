@@ -23,11 +23,11 @@ A fallback earns 2 only when you can show it meets the requirement for the setup
 
 ### Priority gates
 
-The **G1/G2/G3** labels match the checklist's evidence requirements and lower-risk record gates. They do not authorize high-risk releases. **Obs-T1/Obs-T2/Obs-T3** name observability requirements, not gates.
+The **Blocker/Required/Detection** labels match the checklist's evidence requirements and lower-risk record gates. They do not authorize high-risk releases. **Obs-T1/Obs-T2/Obs-T3** name observability requirements, not gates.
 
-- **G1:** Every applicable item must score 2 to meet this evidence requirement; retain each Partial or No as an open finding.
-- **G2:** Every applicable item must score 2, or have a written, approved risk acceptance.
-- **G3:** For high-stakes or high-autonomy deployments, report every applicable score and retain Partial or No as an open finding. For lower-stakes deployments, a Partial or No needs a written, approved risk acceptance.
+- **Blocker:** Every applicable item must score 2 to meet this evidence requirement; retain each Partial or No as an open finding.
+- **Required:** Every applicable item must score 2, or have a written, approved risk acceptance.
+- **Detection:** For high-stakes or high-autonomy deployments, report every applicable score and retain Partial or No as an open finding. For lower-stakes deployments, a Partial or No needs a written, approved risk acceptance.
 
 Rate the deployment's stakes and autonomy before you judge any gaps. Record owners, evidence, N/A approvals, and exceptions in the [checklist records](CHECKLIST.md#evidence-and-exception-record). Using a vendor's service doesn't make its part of a control N/A.
 
@@ -43,18 +43,18 @@ For each row, ask: **Does this deployment meet the full checklist requirement, a
 
 | Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
 |---|---|---|---|---|---|
-| B01 | G1 | C4 | Minimal tool surface | | |
-| B02 | G1 | C2 | Least-privilege access | | |
-| B03 | G2 | C2 | Credential lifetime and handling | | |
-| B04 | G1 | C2 | Independent revocation | | |
-| B05 | G1 | C4 | Destructive-action interception | | |
-| B06 | G1 | C4 | Approval integrity | | |
-| B07 | G2 | C4 | Hard execution budgets | | |
-| B08 | G2 | C1 | Environment isolation | | |
-| B09 | G2 | C1 | Egress allowlist | | |
-| B10 | G2 | C3 | Pinned, verified image | | |
-| B11 | G2 | C3 | Minimal, isolated runtime | | |
-| B12 | G1 | C4 | Reviewed harness and instructions | | |
+| B01 | Blocker | C4 | Minimal tool surface | | |
+| B02 | Blocker | C2 | Least-privilege access | | |
+| B03 | Required | C2 | Credential lifetime and handling | | |
+| B04 | Blocker | C2 | Independent revocation | | |
+| B05 | Blocker | C4 | Destructive-action interception | | |
+| B06 | Blocker | C4 | Approval integrity | | |
+| B07 | Required | C4 | Hard execution budgets | | |
+| B08 | Required | C1 | Environment isolation | | |
+| B09 | Required | C1 | Egress allowlist | | |
+| B10 | Required | C3 | Pinned, verified image | | |
+| B11 | Required | C3 | Minimal, isolated runtime | | |
+| B12 | Blocker | C4 | Reviewed harness and instructions | | |
 
 ### R — Run-time
 
@@ -64,20 +64,20 @@ For each row, ask: **Does this deployment meet the full checklist requirement, a
 
 | Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
 |---|---|---|---|---|---|
-| R01 | G2 | C5 | Validate every input boundary, including API responses | | |
-| R02 | G2 | C5 | Separate data from instructions and test injection containment | | |
-| R03 | G2 | C5/C9 | Prevent output and log leakage | | |
-| R04 | G2 | C5/C6 | Retrieval-corpus integrity | | |
-| R05 | G3 | C6 | Memory isolation and write validation | | |
-| R06 | G3 | C6 | Memory provenance and cleanup | | |
-| R07 | G2 | Obs-T2 | Decision-time context size | | |
-| R08 | G3 | C7 | Security monitoring | | |
-| R09 | G3 | C7/Obs-T2 | Sequence and context-aware detection | | |
-| R10 | G3 | C7 | Misaligned-behavior review | | |
-| R11 | G1 | C8 | Tested kill switch | | |
-| R12 | G1 | C8 | Safe state after stopping | | |
-| R13 | G1 | C9 | Full execution audit | | |
-| R14 | G2 | C9 | Recovery integrity | | |
+| R01 | Required | C5 | Validate every input boundary, including API responses | | |
+| R02 | Required | C5 | Separate data from instructions and test injection containment | | |
+| R03 | Required | C5/C9 | Prevent output and log leakage | | |
+| R04 | Required | C5/C6 | Retrieval-corpus integrity | | |
+| R05 | Detection | C6 | Memory isolation and write validation | | |
+| R06 | Detection | C6 | Memory provenance and cleanup | | |
+| R07 | Required | Obs-T2 | Decision-time context size | | |
+| R08 | Detection | C7 | Security monitoring | | |
+| R09 | Detection | C7/Obs-T2 | Sequence and context-aware detection | | |
+| R10 | Detection | C7 | Misaligned-behavior review | | |
+| R11 | Blocker | C8 | Tested kill switch | | |
+| R12 | Blocker | C8 | Safe state after stopping | | |
+| R13 | Blocker | C9 | Full execution audit | | |
+| R14 | Required | C9 | Recovery integrity | | |
 
 ### A — Agent
 
@@ -87,13 +87,13 @@ For each row, ask: **Does this deployment meet the full checklist requirement, a
 
 | Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
 |---|---|---|---|---|---|
-| A01 | G1 | C2/Obs-T1 | Distinct agent identity | | |
-| A02 | G1 | Obs-T1 | All six identity fields | | |
-| A03 | G1 | Obs-T1 | Content-derived type identity | | |
-| A04 | G1 | C9/Obs-T1 | Trustworthy attribution | | |
-| A05 | G1 | C8/C9/Obs-T1 | Operational lookup | | |
-| A06 | G3 | Obs-T3 | Parent and prompt provenance | | |
-| A07 | G3 | C7/Obs-T1 | Every model in the loop | | |
+| A01 | Blocker | C2/Obs-T1 | Distinct agent identity | | |
+| A02 | Blocker | Obs-T1 | All six identity fields | | |
+| A03 | Blocker | Obs-T1 | Content-derived type identity | | |
+| A04 | Blocker | C9/Obs-T1 | Trustworthy attribution | | |
+| A05 | Blocker | C8/C9/Obs-T1 | Operational lookup | | |
+| A06 | Detection | Obs-T3 | Parent and prompt provenance | | |
+| A07 | Detection | C7/Obs-T1 | Every model in the loop | | |
 
 ### C — Configuration
 
@@ -103,14 +103,14 @@ For each row, ask: **Does this deployment meet the full checklist requirement, a
 
 | Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
 |---|---|---|---|---|---|
-| C01 | G2 | C1–C6/Obs-T1 | Complete release manifest | | |
-| C02 | G2 | C1–C7 | Review security-relevant changes | | |
-| C03 | G1 | Obs-T1 | Match release identity to running state | | |
-| C04 | G2 | C1/C3/C4/Obs-T1 | Detect drift per agent | | |
-| C05 | G2 | C3/C4/C7 | Control dependency, model, and training changes | | |
-| C06 | G2 | C4–C9 | Re-test changed behavior | | |
-| C07 | G2 | C8/C9 | Rollback and restart | | |
-| C08 | G2 | Obs-T1/Obs-T2/Obs-T3 | Connect configuration to execution | | |
+| C01 | Required | C1–C6/Obs-T1 | Complete release manifest | | |
+| C02 | Required | C1–C7 | Review security-relevant changes | | |
+| C03 | Blocker | Obs-T1 | Match release identity to running state | | |
+| C04 | Required | C1/C3/C4/Obs-T1 | Detect drift per agent | | |
+| C05 | Required | C3/C4/C7 | Control dependency, model, and training changes | | |
+| C06 | Required | C4–C9 | Re-test changed behavior | | |
+| C07 | Required | C8/C9 | Rollback and restart | | |
+| C08 | Required | Obs-T1/Obs-T2/Obs-T3 | Connect configuration to execution | | |
 
 ### E — Ecosystem
 
@@ -120,18 +120,18 @@ For each row, ask: **Does this deployment meet the full checklist requirement, a
 
 | Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
 |---|---|---|---|---|---|
-| E01 | G2 | C1–C9 | Map shared responsibilities | | |
-| E02 | G2 | C3/C5 | Vet and pin dependencies | | |
-| E03 | G2 | C5 | Re-check tools on load | | |
-| E04 | G2 | C5 | Inspect tool metadata | | |
-| E05 | G2 | C2/C5 | Verified, namespaced tools | | |
-| E06 | G2 | C1/C2/C4/C5/C9 | Enforced gateway boundary | | |
-| E07 | G2 | C2/C5 | Untrusted peer messages | | |
-| E08 | G1 | C2/C4 | Bounded delegated authority | | |
-| E09 | G1 | C8 | Recursive shutdown | | |
-| E10 | G1 | C9/Obs-T1 | Audit across service boundaries | | |
-| E11 | G2 | C9 | Protect shared evidence | | |
-| E12 | G3 | C7/C8 | Fleet incident response | | |
+| E01 | Required | C1–C9 | Map shared responsibilities | | |
+| E02 | Required | C3/C5 | Vet and pin dependencies | | |
+| E03 | Required | C5 | Re-check tools on load | | |
+| E04 | Required | C5 | Inspect tool metadata | | |
+| E05 | Required | C2/C5 | Verified, namespaced tools | | |
+| E06 | Required | C1/C2/C4/C5/C9 | Enforced gateway boundary | | |
+| E07 | Required | C2/C5 | Untrusted peer messages | | |
+| E08 | Blocker | C2/C4 | Bounded delegated authority | | |
+| E09 | Blocker | C8 | Recursive shutdown | | |
+| E10 | Blocker | C9/Obs-T1 | Audit across service boundaries | | |
+| E11 | Required | C9 | Protect shared evidence | | |
+| E12 | Detection | C7/C8 | Fleet incident response | | |
 
 ## Reading your score
 
@@ -141,7 +141,7 @@ With all 53 items applicable, the maximum is **106 points**. If some items have 
 
 Report the number of applicable items, the N/A count, the points earned, and the denominator together. If no items apply, there is no score. Recheck the assessment scope instead of reporting readiness. Compare scores only when the scope and N/A decisions match.
 
-The score tracks what you have shown is in place. It is not a security rating, and it does not approve a release. Report the number of open G1 gaps and the status of G2 and G3 exceptions separately. A high score can't make up for one blocker. A risk acceptance doesn't remove the gap from the score.
+The score tracks what you have shown is in place. It is not a security rating, and it does not approve a release. Report the number of open Blocker gaps and the status of Required and Detection exceptions separately. A high score can't make up for one blocker. A risk acceptance doesn't remove the gap from the score.
 
 Finish with the [checklist's final sign-off](CHECKLIST.md#final-sign-off), including the next review date and what triggers a new review. Recheck the agent's powers on that schedule and remove access it no longer needs. Re-test after changes that matter.
 

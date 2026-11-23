@@ -118,7 +118,7 @@ def render(data: dict, bom: dict) -> str:
            "Each action has a lead, a place for who is doing it, and steps to follow.</p>",
            "<div class=tiles>",
            f"<div class='tile gap'><b>{s['gaps']}</b><span>things to fix</span></div>",
-           f"<div class='tile gap'><b>{s['g1_gaps']}</b><span>must fix before release</span></div>",
+           f"<div class='tile gap'><b>{s['blocker_gaps']}</b><span>must fix before release</span></div>",
            f"<div class='tile need'><b>{s['needs_evidence']}</b><span>need proof they work</span></div>",
            f"<div class=tile><b>{s['risky_connections']}</b><span>risky connections</span></div>",
            f"<div class=tile><b>{s['components']}</b><span>parts on the map</span></div>",

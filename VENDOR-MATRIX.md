@@ -23,7 +23,7 @@ Use the [53-item checklist](CHECKLIST.md), its [verification recipes](CHECKLIST-
 | Obs-T2 — Context size | R07; R09; C08 | How full the context was, in tokens, at each decision. Include the counting method, limits of any estimate, and values marked unknown. Billing totals alone may not be enough. |
 | Obs-T3 — Parent/prompt provenance | A06; C08 | Parent-child trace links, and the prompt the parent passed (or a protected reference to it). Show that links survive handoffs and that access is controlled. |
 
-E01 and the Configuration items (C01–C08) apply across the whole matrix, including model records and the history of training you run yourself. A vendor may cover only part of an item. Name who builds and checks the rest. No product listing changes the checklist's G1/G2/G3 rules.
+E01 and the Configuration items (C01–C08) apply across the whole matrix, including model records and the history of training you run yourself. A vendor may cover only part of an item. Name who builds and checks the rest. No product listing changes the checklist's Blocker/Required/Detection rules.
 
 ## MCP gateway deployment evidence
 

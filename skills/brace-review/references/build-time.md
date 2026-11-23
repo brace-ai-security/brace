@@ -4,7 +4,7 @@
 
 Use this file to rate each item from the code and configuration. The requirement is the checklist text. The heuristics say what to look for. Ratings: likely_pass, gap, needs_evidence, or na_candidate. Never rate pass.
 
-## B01 · G1 · C4 — Minimal tool surface
+## B01 · Blocker · C4 — Minimal tool surface
 
 **Lead:** Agent team. **Shares:** Security.
 
@@ -72,7 +72,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## B02 · G1 · C2 — Least-privilege access
+## B02 · Blocker · C2 — Least-privilege access
 
 **Lead:** Infrastructure. **Shares:** Agent team, Security.
 
@@ -137,7 +137,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## B03 · G2 · C2 — Credential lifetime and handling
+## B03 · Required · C2 — Credential lifetime and handling
 
 **Lead:** Infrastructure. **Shares:** Security.
 
@@ -200,7 +200,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## B04 · G1 · C2 — Independent revocation
+## B04 · Blocker · C2 — Independent revocation
 
 **Lead:** Infrastructure. **Shares:** Operations, Security.
 
@@ -261,7 +261,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## B05 · G1 · C4 — Destructive-action interception
+## B05 · Blocker · C4 — Destructive-action interception
 
 **Lead:** Agent team. **Shares:** Business owner, Security, Governance.
 
@@ -329,7 +329,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## B06 · G1 · C4 — Approval integrity
+## B06 · Blocker · C4 — Approval integrity
 
 **Lead:** Agent team. **Shares:** Business owner, Security, Infrastructure.
 
@@ -393,7 +393,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** Only when the agent has no actions that need approval under B05, with that inventory recorded.
 
-## B07 · G2 · C4 — Hard execution budgets
+## B07 · Required · C4 — Hard execution budgets
 
 **Lead:** Agent team. **Shares:** Business owner, Infrastructure, Operations.
 
@@ -453,7 +453,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## B08 · G2 · C1 — Environment isolation
+## B08 · Required · C1 — Environment isolation
 
 **Lead:** Infrastructure. **Shares:** Security.
 
@@ -512,7 +512,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## B09 · G2 · C1 — Egress allowlist
+## B09 · Required · C1 — Egress allowlist
 
 **Lead:** Infrastructure. **Shares:** Security, Operations.
 
@@ -576,7 +576,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## B10 · G2 · C3 — Pinned, verified image
+## B10 · Required · C3 — Pinned, verified image
 
 **Lead:** Infrastructure. **Shares:** Security, Agent team.
 
@@ -641,7 +641,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** Only when the deployment runs no container image you build or choose (for example, a fully vendor-hosted agent). An unpinned or unsigned image is a Gap, not N/A.
 
-## B11 · G2 · C3 — Minimal, isolated runtime
+## B11 · Required · C3 — Minimal, isolated runtime
 
 **Lead:** Infrastructure. **Shares:** Security, Agent team, Vendors.
 
@@ -704,7 +704,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## B12 · G1 · C4 — Reviewed harness and instructions
+## B12 · Blocker · C4 — Reviewed harness and instructions
 
 **Lead:** Agent team. **Shares:** Security, Governance.
 

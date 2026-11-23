@@ -28,7 +28,7 @@ For high-stakes or high-autonomy deployments, report tested scope, results, gaps
 
 ## Steps
 
-1. **Pick the items.** Start with items rated `needs_evidence` or `likely_pass` in a supplied review, G1 items first, or with the items the user names. Map MCP report topics to their BRACE IDs; don't imply the remaining checklist was reviewed.
+1. **Pick the items.** Start with items rated `needs_evidence` or `likely_pass` in a supplied review, Blocker items first, or with the items the user names. Map MCP report topics to their BRACE IDs; don't imply the remaining checklist was reviewed.
 2. **Read the recipe** in the right reference file:
    - [references/build-time.md](references/build-time.md): B01–B12
    - [references/run-time.md](references/run-time.md): R01–R14

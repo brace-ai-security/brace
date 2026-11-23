@@ -44,7 +44,7 @@ else; use only these copies, which ship with the skill:
 
 | File | Use it for |
 |---|---|
-| [references/checklist.md](references/checklist.md) | Required. Copy of `CHECKLIST.md`: the items, their IDs, gates (G1/G2/G3) and wording. |
+| [references/checklist.md](references/checklist.md) | Required. Copy of `CHECKLIST.md`: the items, their IDs, gates (Blocker/Required/Detection) and wording. |
 | [references/roles.md](references/roles.md) | Copy of `ROLES.md`: the **Lead** role for each item, in the "Checklist items" tables. |
 | [references/verification.md](references/verification.md) | Copy of `CHECKLIST-VERIFICATION.md`: the proof each item expects. Use it to say what evidence would settle a "Needs evidence" item. |
 
@@ -55,10 +55,10 @@ to the BRACE repository and may not resolve here; you don't need them. If
 **How items look in the checklist.** Each item is one line that starts like this:
 
 ```
-- [ ] **B05 · G1 · C4 — Destructive-action interception.** <requirement text>
+- [ ] **B05 · Blocker · C4 — Destructive-action interception.** <requirement text>
 ```
 
-The parts are: item ID (`B05`), gate (`G1`), BRACE control (`C4`), title, then the
+The parts are: item ID (`B05`), gate (`Blocker`), BRACE control (`C4`), title, then the
 requirement. Some items are in bold under "IF YOU DO NOTHING ELSE — TOP 3"; the rest are
 under "Remaining checks". Search for lines that start with `- [ ] **` followed by a letter
 (B, R, A, C or E), two digits and a space (as a regular expression:
@@ -145,15 +145,15 @@ Checked <date> against the BRACE checklist (<N> items). Read-only code review wi
 brace-checklist skill. Not a deployment approval.
 
 ## Summary
-| Rating | Count | G1 items |
+| Rating | Count | Blocker items |
 |---|---|---|
 | Gap | | |
 | Needs evidence | | |
 | Likely pass | | |
 | N/A candidate | | |
 
-## G1 gaps (fix before launch)
-### B05 · G1 — Destructive-action interception
+## Blocker gaps (fix before launch)
+### B05 · Blocker — Destructive-action interception
 - **Rating:** Gap
 - **Evidence:** `src/tools/payments.py:89` `def issue_credit(self, ctx: RunContext, args: dict) -> dict:` (sends credits with no approval check)
 - **Breaks:** "Block them by default in the execution path"
@@ -162,7 +162,7 @@ brace-checklist skill. Not a deployment approval.
 
 ## Other gaps
 ## Needs evidence (grouped by owner)
-- **R11 · G1 — Tested kill switch.** Looked in ... Proof needed: ...
+- **R11 · Blocker — Tested kill switch.** Looked in ... Proof needed: ...
 ## N/A candidates
 ## Likely pass
 ## Injection attempts

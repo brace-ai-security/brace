@@ -75,9 +75,9 @@ def repo(tmp_path):
 
 def test_action_builds_map_writes_outputs_and_fails_on_g1(repo):
     results, outputs, summary = run_action(repo, build_topology="true", agent_config="config/agent.yaml")
-    assert dict(results)["Apply the gate"] == 1  # the sample has G1 gaps
+    assert dict(results)["Apply the gate"] == 1  # the sample has Blocker gaps
     assert outputs["plan"]["exit_code"] == "3"
-    assert outputs["plan"]["g1_gaps"] == "4" and outputs["plan"]["actions"] == "8"
+    assert outputs["plan"]["blocker_gaps"] == "4" and outputs["plan"]["actions"] == "8"
     assert outputs["record"]["status"] == "missing"
     out = repo / "brace-report"
     for name in ("brace-action-plan.md", "brace-action-plan.html", "brace-action-plan.json", "brace.sarif",

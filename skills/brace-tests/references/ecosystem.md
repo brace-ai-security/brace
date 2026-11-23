@@ -4,7 +4,7 @@
 
 Use this file to write tests and drills for each item. Each recipe gives the procedure, the expected result, and the evidence to keep.
 
-## E01 · G2 · C1–C9 — Map shared responsibilities
+## E01 · Required · C1–C9 — Map shared responsibilities
 
 **Lead:** Governance. **Shares:** Agent team, Infrastructure, Vendors.
 
@@ -14,7 +14,7 @@ Map the real calls and services from the configuration and a test trace. For eac
 
 **Evidence to keep:** Dependency map, responsibility table, evidence links.
 
-## E02 · G2 · C3/C5 — Vet and pin dependencies
+## E02 · Required · C3/C5 — Vet and pin dependencies
 
 **Lead:** Security. **Shares:** Agent team, Model team, Vendors.
 
@@ -24,7 +24,7 @@ For each approved dependency, including model files, adapters, and datasets, fin
 
 **Evidence to keep:** Dependency list, signature and scan results, review and exception records.
 
-## E03 · G2 · C5 — Re-check tools on load
+## E03 · Required · C5 — Re-check tools on load
 
 **Lead:** Infrastructure. **Shares:** Security, Vendors.
 
@@ -34,7 +34,7 @@ Discover a new tool and confirm it is disabled until its owner approves it. Chan
 
 **Evidence to keep:** Owner approvals, old/new fingerprints, publication and rollback records, config versions, propagation times, denials and affected-deployment query.
 
-## E04 · G2 · C5 — Inspect tool metadata
+## E04 · Required · C5 — Inspect tool metadata
 
 **Lead:** Security. **Shares:** Infrastructure.
 
@@ -44,7 +44,7 @@ Add test fixtures with hidden or encoded instructions, and overlong descriptions
 
 **Evidence to keep:** Metadata fixtures, scan results, check of what the model saw.
 
-## E05 · G2 · C2/C5 — Verified, namespaced tools
+## E05 · Required · C2/C5 — Verified, namespaced tools
 
 **Lead:** Infrastructure. **Shares:** Security.
 
@@ -54,7 +54,7 @@ Register a second test server with a duplicate or lookalike tool name. The regis
 
 **Evidence to keep:** Registration warning, resolved tool identity, destination log.
 
-## E06 · G2 · C1/C2/C4/C5/C9 — Enforced gateway boundary
+## E06 · Required · C1/C2/C4/C5/C9 — Enforced gateway boundary
 
 **Lead:** Infrastructure. **Shares:** Security, Agent team, Vendors.
 
@@ -64,7 +64,7 @@ List each enabled transport, protocol/extension version, and execution path. An 
 
 **Evidence to keep:** Transport/path inventory, policy/config versions, redacted front/back token metadata, tenant/cache/handle fixtures, bypass and outage denials, extension tests, allowed-call logs and rate-limit results.
 
-## E07 · G2 · C2/C5 — Untrusted peer messages
+## E07 · Required · C2/C5 — Untrusted peer messages
 
 **Lead:** Agent team. **Shares:** Security.
 
@@ -74,7 +74,7 @@ Send valid, broken, fake-sender, replayed, and cross-tenant peer requests. Reuse
 
 **Evidence to keep:** Peer policy, message fixtures, authorization and validation logs.
 
-## E08 · G1 · C2/C4 — Bounded delegated authority
+## E08 · Blocker · C2/C4 — Bounded delegated authority
 
 **Lead:** Agent team. **Shares:** Infrastructure, Security.
 
@@ -84,7 +84,7 @@ Give parent A a read-only task, then request a forbidden write through a more po
 
 **Evidence to keep:** Parent/child grants, verified subject/actor records, exchange and authorization decisions, negative tests and destination state.
 
-## E09 · G1 · C8 — Recursive shutdown
+## E09 · Blocker · C8 — Recursive shutdown
 
 **Lead:** Operations. **Shares:** Agent team, Infrastructure.
 
@@ -94,7 +94,7 @@ Build a test tree with nested agents, a remote worker, queued work, and open too
 
 **Evidence to keep:** Full tree, stop and revocation times, retry denials, reconciliation log.
 
-## E10 · G1 · C9/Obs-T1 — Audit across service boundaries
+## E10 · Blocker · C9/Obs-T1 — Audit across service boundaries
 
 **Lead:** Infrastructure. **Shares:** Operations, Security, Vendors.
 
@@ -104,7 +104,7 @@ Run a task across the gateway, tools, and workers. Merge their logs into one gra
 
 **Evidence to keep:** Cross-service graph, completeness query, audit-write denial.
 
-## E11 · G2 · C9 — Protect shared evidence
+## E11 · Required · C9 — Protect shared evidence
 
 **Lead:** Infrastructure. **Shares:** Governance, Data and privacy, Security, Vendors.
 
@@ -114,7 +114,7 @@ Pull up an old test trace, check its integrity, and run the export and recovery 
 
 **Evidence to keep:** Retention and access policy, integrity and export results, outage alerts and response.
 
-## E12 · G3 · C7/C8 — Fleet incident response
+## E12 · Detection · C7/C8 — Fleet incident response
 
 **Lead:** Security. **Shares:** Operations, Governance, Business owner.
 

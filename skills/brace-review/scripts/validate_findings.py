@@ -231,12 +231,12 @@ def check_item(item, f, meta, repo, sites=()):
         if failed or flags:
             why = f"checks answered no: {', '.join(failed)}" if failed else "red flags were found"
             errors.append(f"{item}: {why}, so the rating must be gap, not needs_evidence")
-    elif rating == "na_candidate" and meta["gate"] in ("G1", "G2"):
+    elif rating == "na_candidate" and meta["gate"] in ("Blocker", "Required"):
         challenge = f.get("challenge") or {}
         if (challenge.get("verdict") != "upheld" or challenge.get("applicability") != "absent"
                 or not quote_found(repo, challenge.get("evidence"), challenge.get("quote"))
                 or len(str(challenge.get("note", "")).split()) < 6):
-            errors.append(f"{item}: G1/G2 N/A needs a fresh challenge establishing absence with quoted code and a search explanation")
+            errors.append(f"{item}: Blocker/Required N/A needs a fresh challenge establishing absence with quoted code and a search explanation")
         if meta.get("na_when") == "never":
             errors.append(f"{item}: this item's N/A condition is never; use an applicable rating")
     return errors
@@ -461,7 +461,7 @@ def main():
     errors = validate(doc, table, repo, ids, topology_refs(args.topology) if args.topology else None)
     if args.before_challenges:
         errors = [e for e in errors if 'likely_pass needs a challenge that upheld it' not in e
-                  and 'G1/G2 N/A needs a fresh challenge establishing absence' not in e]
+                  and 'Blocker/Required N/A needs a fresh challenge establishing absence' not in e]
     if args.batch:
         # A bounded batch may contain mostly external/governance checks. Keep
         # per-check notes/completeness strict; apply the unknown ratio globally.

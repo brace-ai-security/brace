@@ -70,7 +70,7 @@ def test_quote_pieces_from_two_files(tmp_path):
 def test_make_challenges_na_only_for_g1_g2_without_hunt(tmp_path):
     table = {item: {"gate": gate, "title": "Peers", "requirement": "Verify peers",
                     "na_when": "No peer messages", "checks": [{"id": item + ".1"}]}
-             for item, gate in (("E07", "G2"), ("B02", "G1"), ("C01", "G3"))}
+             for item, gate in (("E07", "Required"), ("B02", "Blocker"), ("C01", "Detection"))}
     doc = {"findings": [{"item": item, "rating": "na_candidate", "checks": [],
                          "summary": "There are no peer messages here"} for item in table]}
     challenge.make(doc, table, tmp_path, tmp_path / "sheets")
@@ -119,6 +119,6 @@ def test_na_uncertain_or_present_without_failure_needs_evidence(tmp_path):
 
 def test_validator_rejects_unchallenged_na(tmp_path):
     from validate_findings import check_item
-    meta = {"gate": "G2", "checks": [], "na_when": "No peer messages"}
+    meta = {"gate": "Required", "checks": [], "na_when": "No peer messages"}
     f = {"rating": "na_candidate", "checks": [], "red_flags_found": []}
     assert any("fresh challenge" in e for e in check_item("E07", f, meta, tmp_path))

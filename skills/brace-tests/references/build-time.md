@@ -4,7 +4,7 @@
 
 Use this file to write tests and drills for each item. Each recipe gives the procedure, the expected result, and the evidence to keep.
 
-## B01 · G1 · C4 — Minimal tool surface
+## B01 · Blocker · C4 — Minimal tool surface
 
 **Lead:** Agent team. **Shares:** Security.
 
@@ -14,7 +14,7 @@ Export the tools, programs, and file permissions the running agent can see. Comp
 
 **Evidence to keep:** List comparison, allowlist, traces of allowed and denied calls.
 
-## B02 · G1 · C2 — Least-privilege access
+## B02 · Blocker · C2 — Least-privilege access
 
 **Lead:** Infrastructure. **Shares:** Agent team, Security.
 
@@ -24,7 +24,7 @@ Use the real test access token and verify its acting-agent and delegated-subject
 
 **Evidence to keep:** Redacted identity/audience/scope metadata, authorization logs, tenant tests, resource-state checks; never token values.
 
-## B03 · G2 · C2 — Credential lifetime and handling
+## B03 · Required · C2 — Credential lifetime and handling
 
 **Lead:** Infrastructure. **Shares:** Security.
 
@@ -34,7 +34,7 @@ Obtain a short-lived API access token from the destination's trusted issuer usin
 
 **Evidence to keep:** Issuer and grant details without secrets, issue/expiry times, overlap policy, replay results, static-key exceptions, redacted scans.
 
-## B04 · G1 · C2 — Independent revocation
+## B04 · Blocker · C2 — Independent revocation
 
 **Lead:** Infrastructure. **Shares:** Operations, Security.
 
@@ -44,7 +44,7 @@ Open a session and revoke the agent identity's access. Then try again, within th
 
 **Evidence to keep:** Revocation event, session results and timestamps.
 
-## B05 · G1 · C4 — Destructive-action interception
+## B05 · Blocker · C4 — Destructive-action interception
 
 **Lead:** Agent team. **Shares:** Business owner, Security, Governance.
 
@@ -54,7 +54,7 @@ Aim each forbidden operation at throwaway resources through every tool, API, and
 
 **Evidence to keep:** Operation-and-path matrix, capability-combination record, denial traces, resource state before and after.
 
-## B06 · G1 · C4 — Approval integrity
+## B06 · Blocker · C4 — Approval integrity
 
 **Lead:** Agent team. **Shares:** Business owner, Security, Infrastructure.
 
@@ -64,7 +64,7 @@ Approve a test action, then change its target or arguments. Separately, send it 
 
 **Evidence to keep:** Approval details, reviewer roles, gate decisions, resulting state.
 
-## B07 · G2 · C4 — Hard execution budgets
+## B07 · Required · C4 — Hard execution budgets
 
 **Lead:** Agent team. **Shares:** Business owner, Infrastructure, Operations.
 
@@ -74,7 +74,7 @@ Set small test budgets and go over each one separately, including budgets for ne
 
 **Evidence to keep:** Budget settings, usage counters, stop events.
 
-## B08 · G2 · C1 — Environment isolation
+## B08 · Required · C1 — Environment isolation
 
 **Lead:** Infrastructure. **Shares:** Security.
 
@@ -84,7 +84,7 @@ From inside the agent's runtime, try test endpoints that stand for forbidden net
 
 **Evidence to keep:** Policy and route exports, connection results, isolation-denial logs.
 
-## B09 · G2 · C1 — Egress allowlist
+## B09 · Required · C1 — Egress allowlist
 
 **Lead:** Infrastructure. **Shares:** Security, Operations.
 
@@ -94,7 +94,7 @@ Call one allowed and one forbidden test destination. Include direct routes aroun
 
 **Evidence to keep:** Egress rules, gateway and network logs, alert receipt time.
 
-## B10 · G2 · C3 — Pinned, verified image
+## B10 · Required · C3 — Pinned, verified image
 
 **Lead:** Infrastructure. **Shares:** Security, Agent team.
 
@@ -104,7 +104,7 @@ Deploy the approved signed digest. Then try an unsigned image, an image signed b
 
 **Evidence to keep:** Signature and admission results, provenance check output, verifier version, policy mode and scope, build provenance, running image digest.
 
-## B11 · G2 · C3 — Minimal, isolated runtime
+## B11 · Required · C3 — Minimal, isolated runtime
 
 **Lead:** Infrastructure. **Shares:** Security, Agent team, Vendors.
 
@@ -114,7 +114,7 @@ Check installed programs, mounts, privileges, and sandbox settings against the c
 
 **Evidence to keep:** Runtime settings, list of installed programs, access results.
 
-## B12 · G1 · C4 — Reviewed harness and instructions
+## B12 · Blocker · C4 — Reviewed harness and instructions
 
 **Lead:** Agent team. **Shares:** Security, Governance.
 

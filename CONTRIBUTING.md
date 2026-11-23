@@ -19,7 +19,7 @@ These two steps keep control changes careful. Please don't open a PR that rewrit
 
 ## Identifier and linking style
 
-BRACE uses separate sets of codes for checklist items (`B05`, `R01`, `A03`, `C01`, `E06`), release gates (`G1`–`G3`; G stands for gate), controls (`C1`–`C9`), and observability requirements (`Obs-T1`–`Obs-T3`). These codes are fixed. Don't renumber them just because the display order changes. Note that `C01` is a Configuration checklist item, while `C1` is the Architecture control.
+BRACE uses separate sets of codes for checklist items (`B05`, `R01`, `A03`, `C01`, `E06`), release gates (`Blocker`, `Required`, `Detection`), controls (`C1`–`C9`), and observability requirements (`Obs-T1`–`Obs-T3`). These codes are fixed. Don't renumber them just because the display order changes. Note that `C01` is a Configuration checklist item, while `C1` is the Architecture control.
 
 When you use a code defined by another organization, link the code to its official definition the first time it appears in each document or stand-alone section. Examples include [ASI01](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/), [RFC 7009](https://www.rfc-editor.org/info/rfc7009/), and [ISO/IEC 42001](https://www.iso.org/standard/81230.html). Link to the standards body, publisher, or official registry, not a secondary explainer. Don't format an outside code as if it were a BRACE code.
 

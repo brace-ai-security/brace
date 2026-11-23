@@ -72,7 +72,7 @@ def test_challenger_admission_cannot_uphold(tmp_path):
 
 
 def test_discovery_sheet_hides_initial_claim_and_quotes(tmp_path):
-    table={'B02':{'gate':'G1','title':'Credentials','requirement':'Enforce scoped credentials.',
+    table={'B02':{'gate':'Blocker','title':'Credentials','requirement':'Enforce scoped credentials.',
                   'checks':[{'id':'B02.1','check':'Scoped credentials are enforced.'}]}}
     doc={'findings':[{'item':'B02','rating':'likely_pass','summary':'UNIQUE CLAIM',
                      'checks':[{'id':'B02.1','quote':'UNIQUE SUPPORT','note':'UNIQUE NOTE'}]}]}

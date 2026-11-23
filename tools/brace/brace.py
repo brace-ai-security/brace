@@ -50,7 +50,7 @@ EXIT_GO = 0
 EXIT_NOGO = 1
 EXIT_INVALID = 2
 
-GATE_ORDER = ["G1", "G2", "G3"]
+GATE_ORDER = ["Blocker", "Required", "Detection"]
 OUTCOMES = ["pass", "gap", "na", "not_reviewed"]
 
 
@@ -813,13 +813,13 @@ class Checker:
 
     def rule_gap(self, item_id, meta, rec):
         gate = meta["gate"]
-        if gate == "G1":
+        if gate == "Blocker":
             consequence = "The finding remains open." if self.high else "Release is blocked."
-            self._block(item_id, f"{item_id} is G1 and marked gap. G1 items can't be waived. {consequence}")
+            self._block(item_id, f"{item_id} is Blocker and marked gap. Blocker items can't be waived. {consequence}")
             return
-        if gate == "G3" and self.high:
+        if gate == "Detection" and self.high:
             why = "high stakes or high autonomy" if self.deployment.get("classification") else "not rated, so it counts as high stakes"
-            self._block(item_id, f"{item_id} is G3 and marked gap. This deployment is {why}, so G3 gaps can't be "
+            self._block(item_id, f"{item_id} is Detection and marked gap. This deployment is {why}, so Detection gaps can't be "
                                  "closed by risk acceptance. The finding remains open.")
             return
         stem = rec.get("exception")
@@ -852,12 +852,12 @@ class Checker:
             item_id = data["item"]
             gate = self.catalog[item_id]["gate"]
             rel = f".brace/exceptions/{stem}.yaml"
-            if gate == "G1":
-                self._block(item_id, f"{rel} is a risk acceptance for {item_id}, a G1 item. G1 items can't be waived. "
+            if gate == "Blocker":
+                self._block(item_id, f"{rel} is a risk acceptance for {item_id}, a Blocker item. Blocker items can't be waived. "
                                      "Remove the file and fix the gap.")
-            elif gate == "G3" and self.high:
-                self._block(item_id, f"{rel} is a risk acceptance for {item_id}, a G3 item. This deployment is high "
-                                     "stakes or high autonomy, so G3 risk acceptances aren't allowed.")
+            elif gate == "Detection" and self.high:
+                self._block(item_id, f"{rel} is a risk acceptance for {item_id}, a Detection item. This deployment is high "
+                                     "stakes or high autonomy, so Detection risk acceptances aren't allowed.")
             if not stem.startswith(f"{item_id}-") and stem != item_id:
                 self.warnings.append(f"{rel} is for {item_id}; name it {item_id}-<slug>.yaml.")
             if (records.get(item_id) or {}).get("exception") != stem:

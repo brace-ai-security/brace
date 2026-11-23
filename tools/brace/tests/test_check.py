@@ -4,8 +4,8 @@ import yaml
 
 from conftest import GATE, ITEMS, brace, good_exception, good_na
 
-G1, G2, G3 = "B05", "R01", "R09"
-assert (GATE[G1], GATE[G2], GATE[G3]) == ("G1", "G2", "G3")
+Blocker, Required, Detection = "B05", "R01", "R09"
+assert (GATE[Blocker], GATE[Required], GATE[Detection]) == ("Blocker", "Required", "Detection")
 
 
 def reasons(result):
@@ -16,7 +16,7 @@ def test_go(repo):
     code, res = repo.check("--approvals", "off")
     assert code == 0, res["reasons"]
     assert res["decision"] == "GO"
-    assert res["counts"]["G1"]["pass"] == 18
+    assert res["counts"]["Blocker"]["pass"] == 18
     assert sum(c["pass"] for c in res["counts"].values()) == 53
 
 
@@ -26,7 +26,7 @@ def test_go_with_strict_and_nothing_to_approve(repo):
 
 
 @pytest.mark.parametrize("dimension", ["stakes", "autonomy"])
-@pytest.mark.parametrize("gap", [None, G1, G3])
+@pytest.mark.parametrize("gap", [None, Blocker, Detection])
 def test_high_risk_reports_findings_without_release_verdict(repo, dimension, gap):
     repo.deployment["classification"][dimension] = "high"
     repo.write()
@@ -86,50 +86,50 @@ def test_pass_without_evidence(repo):
     assert "B03 is marked pass but has no evidence" in reasons(res)
 
 
-def test_g1_gap_blocked(repo):
-    repo.set_item(G1, outcome="gap", lead="@bob")
+def test_blocker_gap_blocked(repo):
+    repo.set_item(Blocker, outcome="gap", lead="@bob")
     code, res = repo.check("--approvals", "off")
     assert code == 1
-    assert f"{G1} is G1 and marked gap. G1 items can't be waived. Release is blocked." in res["reasons"]
+    assert f"{Blocker} is Blocker and marked gap. Blocker items can't be waived. Release is blocked." in res["reasons"]
 
 
-def test_g1_exception_is_error(repo):
-    repo.add("exceptions", f"{G1}-waiver", good_exception(G1))
-    repo.set_item(G1, outcome="gap", lead="@bob", exception=f"{G1}-waiver")
+def test_blocker_exception_is_error(repo):
+    repo.add("exceptions", f"{Blocker}-waiver", good_exception(Blocker))
+    repo.set_item(Blocker, outcome="gap", lead="@bob", exception=f"{Blocker}-waiver")
     code, res = repo.check("--approvals", "off")
     assert code == 1
-    assert f"is a risk acceptance for {G1}, a G1 item" in reasons(res)
+    assert f"is a risk acceptance for {Blocker}, a Blocker item" in reasons(res)
 
 
-def test_g1_exception_file_is_error_even_when_item_passes(repo):
-    repo.add("exceptions", f"{G1}-waiver", good_exception(G1))
+def test_blocker_exception_file_is_error_even_when_item_passes(repo):
+    repo.add("exceptions", f"{Blocker}-waiver", good_exception(Blocker))
     code, res = repo.check("--approvals", "off")
     assert code == 1
-    assert "G1 items can't be waived" in reasons(res)
+    assert "Blocker items can't be waived" in reasons(res)
 
 
 def test_g3_gap_high_stakes_blocked(repo):
     repo.deployment["classification"]["stakes"] = "high"
     repo.write()
-    repo.add("exceptions", f"{G3}-seq", good_exception(G3))
-    repo.set_item(G3, outcome="gap", lead="@bob", exception=f"{G3}-seq")
+    repo.add("exceptions", f"{Detection}-seq", good_exception(Detection))
+    repo.set_item(Detection, outcome="gap", lead="@bob", exception=f"{Detection}-seq")
     code, res = repo.check("--approvals", "off")
     assert code == 1
-    assert f"{G3} is G3 and marked gap" in reasons(res)
-    assert "G3 risk acceptances aren't allowed" in reasons(res)
+    assert f"{Detection} is Detection and marked gap" in reasons(res)
+    assert "Detection risk acceptances aren't allowed" in reasons(res)
 
 
 def test_g3_gap_high_autonomy_blocked(repo):
     repo.deployment["classification"]["autonomy"] = "high"
     repo.write()
-    repo.set_item(G3, outcome="gap", lead="@bob")
+    repo.set_item(Detection, outcome="gap", lead="@bob")
     code, _ = repo.check("--approvals", "off")
     assert code == 1
 
 
 def test_g3_gap_low_stakes_with_exception(repo):
-    repo.add("exceptions", f"{G3}-seq", good_exception(G3))
-    repo.set_item(G3, outcome="gap", lead="@bob", exception=f"{G3}-seq")
+    repo.add("exceptions", f"{Detection}-seq", good_exception(Detection))
+    repo.set_item(Detection, outcome="gap", lead="@bob", exception=f"{Detection}-seq")
     code, res = repo.check("--approvals", "off")
     assert code == 0, res["reasons"]
     assert any("approval not verified" in w for w in res["warnings"])
@@ -140,40 +140,40 @@ def test_g3_gap_low_stakes_with_exception(repo):
 
 
 def test_g3_gap_low_stakes_without_exception(repo):
-    repo.set_item(G3, outcome="gap", lead="@bob")
+    repo.set_item(Detection, outcome="gap", lead="@bob")
     code, res = repo.check("--approvals", "off")
     assert code == 1
     assert "no risk acceptance" in reasons(res)
 
 
 def test_g2_gap_without_exception(repo):
-    repo.set_item(G2, outcome="gap", lead="@bob")
+    repo.set_item(Required, outcome="gap", lead="@bob")
     code, res = repo.check("--approvals", "off")
     assert code == 1
-    assert f"{G2} is G2 and marked gap with no risk acceptance" in reasons(res)
+    assert f"{Required} is Required and marked gap with no risk acceptance" in reasons(res)
 
 
 def test_g2_gap_exception_file_missing(repo):
-    repo.set_item(G2, outcome="gap", lead="@bob", exception=f"{G2}-nope")
+    repo.set_item(Required, outcome="gap", lead="@bob", exception=f"{Required}-nope")
     code, res = repo.check("--approvals", "off")
     assert code == 1
     assert "does not exist" in reasons(res)
 
 
 def test_g2_gap_exception_wrong_item(repo):
-    repo.add("exceptions", f"{G2}-x", good_exception("R02"))
-    repo.set_item(G2, outcome="gap", lead="@bob", exception=f"{G2}-x")
+    repo.add("exceptions", f"{Required}-x", good_exception("R02"))
+    repo.set_item(Required, outcome="gap", lead="@bob", exception=f"{Required}-x")
     code, res = repo.check("--approvals", "off")
     assert code == 1
-    assert f"is for R02, not {G2}" in reasons(res)
+    assert f"is for R02, not {Required}" in reasons(res)
 
 
 def test_g2_gap_exception_incomplete(repo):
-    exc = good_exception(G2)
+    exc = good_exception(Required)
     del exc["tracking"]
     exc["threat"] = ""
-    repo.add("exceptions", f"{G2}-x", exc)
-    repo.set_item(G2, outcome="gap", lead="@bob", exception=f"{G2}-x")
+    repo.add("exceptions", f"{Required}-x", exc)
+    repo.set_item(Required, outcome="gap", lead="@bob", exception=f"{Required}-x")
     code, res = repo.check("--approvals", "off")
     assert code == 1
     assert "missing: threat, tracking" in reasons(res)
@@ -252,9 +252,9 @@ def test_schema_bad_outcome(repo, validator_kind):
 
 
 def test_schema_expiry_field_rejected(repo, validator_kind):
-    exc = good_exception(G2)
+    exc = good_exception(Required)
     exc["expires_on"] = "2027-01-01"
-    repo.add("exceptions", f"{G2}-x", exc)
+    repo.add("exceptions", f"{Required}-x", exc)
     code, _ = repo.check("--approvals", "off")
     assert code == 2
 
@@ -319,8 +319,8 @@ def test_github_mode_needs_env(repo):
 
 def test_git_mode_uncommitted_exception_blocks(repo):
     repo.git_init()
-    repo.add("exceptions", f"{G2}-x", good_exception(G2))
-    repo.set_item(G2, outcome="gap", lead="@bob", exception=f"{G2}-x")
+    repo.add("exceptions", f"{Required}-x", good_exception(Required))
+    repo.set_item(Required, outcome="gap", lead="@bob", exception=f"{Required}-x")
     code, res = repo.check("--approvals", "git")
     assert code == 1
     assert "is not committed" in reasons(res)
@@ -328,8 +328,8 @@ def test_git_mode_uncommitted_exception_blocks(repo):
 
 def test_git_mode_committed_exception_unverified(repo):
     repo.git_init()
-    repo.add("exceptions", f"{G2}-x", good_exception(G2))
-    repo.set_item(G2, outcome="gap", lead="@bob", exception=f"{G2}-x")
+    repo.add("exceptions", f"{Required}-x", good_exception(Required))
+    repo.set_item(Required, outcome="gap", lead="@bob", exception=f"{Required}-x")
     repo.commit_all("add exception")
     code, res = repo.check("--approvals", "git")
     assert code == 0, res["reasons"]

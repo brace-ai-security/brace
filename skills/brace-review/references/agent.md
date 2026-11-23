@@ -4,7 +4,7 @@
 
 Use this file to rate each item from the code and configuration. The requirement is the checklist text. The heuristics say what to look for. Ratings: likely_pass, gap, needs_evidence, or na_candidate. Never rate pass.
 
-## A01 · G1 · C2/Obs-T1 — Distinct agent identity
+## A01 · Blocker · C2/Obs-T1 — Distinct agent identity
 
 **Lead:** Infrastructure. **Shares:** Agent team.
 
@@ -68,7 +68,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## A02 · G1 · Obs-T1 — All six identity fields
+## A02 · Blocker · Obs-T1 — All six identity fields
 
 **Lead:** Agent team. **Shares:** Infrastructure, Business owner, Governance.
 
@@ -132,7 +132,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## A03 · G1 · Obs-T1 — Content-derived type identity
+## A03 · Blocker · Obs-T1 — Content-derived type identity
 
 **Lead:** Agent team. **Shares:** Model team.
 
@@ -144,7 +144,7 @@ Compute the agent-type-id as a hash of the container digest, harness, system pro
 
   If you can't fully do it: Hash the exact local artifacts and the model, checkpoint, and adapter references you have, using a manifest anyone can rebuild. Record the model name you asked for separately from the version the provider says it served. Mark hidden information clearly. State that the ID fingerprints this recorded setup. Handle changes behind remote names under C05. Never use the agent app's release number as the model's identity. Never present a local hash as proof of the provider's hidden state.
 
-  Tradeoffs you can accept: A fingerprint that covers only the recorded setup, with the provider's hidden details clearly outside the claim. Track changes behind remote names under C05. Missing hashes or model references for artifacts you control still fail this G1 item.
+  Tradeoffs you can accept: A fingerprint that covers only the recorded setup, with the provider's hidden details clearly outside the claim. Track changes behind remote names under C05. Missing hashes or model references for artifacts you control still fail this Blocker item.
 
 ### Verification recipe
 
@@ -204,7 +204,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## A04 · G1 · C9/Obs-T1 — Trustworthy attribution
+## A04 · Blocker · C9/Obs-T1 — Trustworthy attribution
 
 **Lead:** Infrastructure. **Shares:** Agent team, Security.
 
@@ -270,7 +270,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## A05 · G1 · C8/C9/Obs-T1 — Operational lookup
+## A05 · Blocker · C8/C9/Obs-T1 — Operational lookup
 
 **Lead:** Operations. **Shares:** Business owner, Governance, Infrastructure.
 
@@ -329,7 +329,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## A06 · G3 · Obs-T3 — Parent and prompt provenance
+## A06 · Detection · Obs-T3 — Parent and prompt provenance
 
 **Lead:** Agent team. **Shares:** Data and privacy, Security.
 
@@ -391,7 +391,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** The agent never starts sub-agents (no child agents, handoffs, or delegated agent tasks).
 
-## A07 · G3 · C7/Obs-T1 — Every model in the loop
+## A07 · Detection · C7/Obs-T1 — Every model in the loop
 
 **Lead:** Agent team. **Shares:** Model team, Security.
 

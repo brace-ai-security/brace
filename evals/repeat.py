@@ -302,7 +302,7 @@ def run_one(model, fixture, index, out, timeout, resume=False, batch_size=0, act
                             saved.write_text(json.dumps(part, indent=2)+'\n')
                             errors = validator.validate(part, table, batch_repo, ids=ids)
                             errors = [e for e in errors if 'likely_pass needs a challenge that upheld it' not in e
-                                      and 'G1/G2 N/A needs a fresh challenge establishing absence' not in e
+                                      and 'Blocker/Required N/A needs a fresh challenge establishing absence' not in e
                                       and 'checks are unknown. Go back' not in e]
                             result['batches'].append({'items': ids, 'validation_errors': errors})
                             (dest/f'batch-{number:02d}.validation.json').write_text(json.dumps(errors,indent=2)+'\n')
@@ -329,7 +329,7 @@ def run_one(model, fixture, index, out, timeout, resume=False, batch_size=0, act
             shutil.copyfile(findings, dest / "initial.json")
             initial_errors = validator.validate(doc, table, repo)
             unexpected = [e for e in initial_errors if "likely_pass needs a challenge that upheld it" not in e
-                          and "G1/G2 N/A needs a fresh challenge establishing absence" not in e
+                          and "Blocker/Required N/A needs a fresh challenge establishing absence" not in e
                           # Bounded batches cannot see each other's items; the final repair
                           # session adds also_affects links and the last validation still enforces them.
                           and "is also the failing evidence for" not in e]
