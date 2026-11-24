@@ -16,9 +16,8 @@ Usage:
   --topology FILE  A CycloneDX topology (tools/brace/topology.py). Every finding's
                    optional `components` must name bom-refs in it.
 
-Optional action fields on a finding: `components` (list of bom-refs), `fix`
-({"steps": [...], "done_when": "...", "effort": "small|medium|large"}) and
-`assignee` (a person, filled in by people). Their shape is always checked.
+Optional action fields on a finding: `components` (list of bom-refs) and `fix`
+({"steps": [...], "done_when": "...", "effort": "small|medium|large"}). Their shape is always checked.
 
 Exit 0 if valid, 1 if not, 2 on bad usage.
 """
@@ -326,7 +325,7 @@ def topology_refs(path):
 
 
 def action_fields(item, f, topo=None):
-    """Shape of the optional components/fix/assignee fields."""
+    """Shape of the optional components/fix fields."""
     errors = []
     comps = f.get("components")
     if comps is not None:
@@ -364,8 +363,6 @@ def action_fields(item, f, topo=None):
                     errors.append(f"{item}: {c.get('id')} {kind} component must be a bom-ref string")
                 elif topo is not None and ref not in topo:
                     errors.append(f"{item}: {c.get('id')} {kind} component {ref!r} is not in the topology")
-    if f.get("assignee") not in (None, "") and not isinstance(f.get("assignee"), str):
-        errors.append(f"{item}: assignee must be a name or null")
     return errors
 
 

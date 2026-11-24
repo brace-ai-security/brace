@@ -78,6 +78,8 @@ def test_mermaid_renders_every_node(bom):
 def _overlay_repo(tmp_path):
     repo = tmp_path / "billing-agent"
     shutil.copytree(FIXTURE, repo)
+    cfg = repo / "config/agent.yaml"  # test the overlay alone: drop the declared connections
+    cfg.write_text(cfg.read_text().split("\n# What the agent is meant to reach")[0])
     subprocess.run([sys.executable, str(ROOT / "skills/brace-review/scripts/review_coverage.py"),
                     "inventory", str(repo)], check=True, capture_output=True)
     return repo

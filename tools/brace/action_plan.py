@@ -6,7 +6,7 @@ Joins a review's findings (`brace-findings.json`) with the component topology
 
 1. a map of the agent's connections, coloured by what needs fixing;
 2. the connections that matter for security, in plain words;
-3. an action list with a lead role and a blank "assigned to" for each item;
+3. an action list with a lead role for each item;
 4. step-by-step fix guidance, with a check that each step is plain enough for a
    grade 12 reader.
 
@@ -21,7 +21,6 @@ Findings may carry these optional fields (written by the reviewer):
             "steps": ["Open src/tools/payments.py.", "..."],
             "done_when": "A refund above the approved amount is refused.",
             "effort": "small | medium | large"},
-    "assignee": null                                          # people fill this in
 
 Outputs: Markdown (-o), CSV (--csv), JSON for CI (--json, schema
 `schemas/action-plan.schema.json`), SARIF 2.1.0 for code scanning (--sarif) and a
@@ -166,7 +165,7 @@ def actions_from(findings: dict, nodes: dict, repo: Path | None = None) -> tuple
             "id": f["item"], "title": f.get("title") or item.get("title", ""), "gate": gate, "rating": rating,
             "rank": rank, "priority": priority, "summary": plain or f.get("summary", ""),
             "components": [c for c in comps if c in nodes], "lead_role": f.get("lead_role") or item.get("lead_role", ""),
-            "assignee": f.get("assignee") or "", "steps": steps or [f.get("next_step", "Ask the Security lead.")],
+            "steps": steps or [f.get("next_step", "Ask the Security lead.")],
             "plain": bool(steps), "done_when": fix.get("done_when", ""), "effort": fix.get("effort", ""),
             "test": fix.get("test") if isinstance(fix.get("test"), dict) else None,
             "evidence": evidence, "violates": f.get("violates", []), "also_affects": f.get("also_affects", []),
@@ -240,16 +239,14 @@ def report(findings: dict, bom: dict, actions: list[dict], problems: list[str]) 
     L.append("")
 
     L += ["## 3. Action list", "",
-          "Fill in **Assigned to** with a person's name. The **Lead** is the team that owns the fix "
-          "(see ROLES.md).", "",
-          "| # | What to fix | Where | Priority | Lead | Assigned to |", "|---|---|---|---|---|---|"]
+          "The **Lead** is the role that usually owns the fix (see ROLES.md).", "",
+          "| # | What to fix | Where | Priority | Lead |", "|---|---|---|---|---|"]
     for a in actions:
         where = ", ".join(name(nodes, c) for c in a["components"]) or "not mapped"
         L.append(f"| [{a['id']}](#{a['id'].lower()}) | {cell(a['summary'] or a['title'])} | {cell(where)} | "
-                 f"{a['priority']} ({a['gate']}) | {ROLE_NAMES.get(a['lead_role'], a['lead_role'])} | "
-                 f"{cell(a['assignee']) or '_____'} |")
+                 f"{a['priority']} ({a['gate']}) | {ROLE_NAMES.get(a['lead_role'], a['lead_role'])} |")
     if not actions:
-        L.append("| - | Nothing to fix or prove was found. | - | - | - | - |")
+        L.append("| - | Nothing to fix or prove was found. | - | - | - |")
     L.append("")
 
     L += ["## 4. How to fix each one", ""]
@@ -258,8 +255,7 @@ def report(findings: dict, bom: dict, actions: list[dict], problems: list[str]) 
               f"**The problem:** {a['summary']}", "",
               f"**Where:** {', '.join(name(nodes, c) for c in a['components']) or 'not mapped to a component'}"
               + (f" — {', '.join(f'`{e}`' for e in a['evidence'])}" if a["evidence"] else ""), "",
-              f"**Lead:** {ROLE_NAMES.get(a['lead_role'], a['lead_role'])} · **Assigned to:** "
-              f"{a['assignee'] or '_____'}" + (f" · **Effort:** {a['effort']}" if a["effort"] else ""), "",
+              f"**Lead:** {ROLE_NAMES.get(a['lead_role'], a['lead_role'])}" + (f" · **Effort:** {a['effort']}" if a["effort"] else ""), "",
               "**Steps:**", ""]
         L += [f"{i}. {s}" for i, s in enumerate(a["steps"], 1)]
         if a["test"] and a["test"].get("code"):
@@ -296,12 +292,12 @@ def report(findings: dict, bom: dict, actions: list[dict], problems: list[str]) 
 def write_csv(path: Path, actions: list[dict], nodes: dict) -> None:
     with path.open("w", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["id", "title", "priority", "gate", "rating", "components", "lead", "assigned_to",
+        w.writerow(["id", "title", "priority", "gate", "rating", "components", "lead",
                     "problem", "steps", "done_when", "evidence"])
         for a in actions:
             w.writerow([a["id"], a["title"], a["priority"], a["gate"], a["rating"],
                         "; ".join(name(nodes, c) for c in a["components"]),
-                        ROLE_NAMES.get(a["lead_role"], a["lead_role"]), a["assignee"], a["summary"],
+                        ROLE_NAMES.get(a["lead_role"], a["lead_role"]), a["summary"],
                         " ".join(f"{i}. {s}" for i, s in enumerate(a["steps"], 1)), a["done_when"],
                         "; ".join(a["evidence"])])
 
@@ -341,7 +337,7 @@ def plan_data(findings: dict, bom: dict, actions: list[dict], problems: list[str
         out_actions.append({
             "id": a["id"], "title": a["title"], "gate": a["gate"], "rating": a["rating"],
             "priority": a["priority"], "priority_rank": a["rank"], "lead_role": a["lead_role"],
-            "lead": ROLE_NAMES.get(a["lead_role"], a["lead_role"]), "assignee": a["assignee"] or None,
+            "lead": ROLE_NAMES.get(a["lead_role"], a["lead_role"]),
             "components": a["components"], "problem": a["summary"], "steps": a["steps"],
             "steps_plain": a["plain"], "done_when": a["done_when"] or None, "effort": a["effort"] or None,
             "test": a["test"], "evidence": a["evidence"], "also_affects": a["also_affects"]})
@@ -385,7 +381,7 @@ def sarif(data: dict) -> dict:
                   "message": {"text": text},
                   "partialFingerprints": {"braceItem/v1": f"{a['id']}:{','.join(sorted(a['components']))}"},
                   "properties": {"rating": a["rating"], "gate": a["gate"], "lead_role": a["lead_role"],
-                                 "components": a["components"], "assignee": a["assignee"]}}
+                                 "components": a["components"]}}
         if locations:
             result["locations"] = locations[:10]
         results.append(result)

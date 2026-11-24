@@ -50,7 +50,7 @@ def test_shipped_example_matches_generator(example, tmp_path):
     assert (EXAMPLE / "action-plan.md").read_text() == action_plan.report(findings, bom, actions, problems)
 
 
-def test_actions_ordered_and_assignable(example):
+def test_actions_ordered_with_lead_roles(example):
     bom, findings = example
     actions, problems = action_plan.actions_from(findings, topology.all_nodes(bom))
     assert problems == []
@@ -68,7 +68,7 @@ def test_report_sections_and_map(example):
         assert heading in text
     assert "linkStyle" in text and "class " in text and "B06" in text
     assert "| issue_refund | payments API | can change, send or delete things; can move money" in text
-    assert "_____" in text  # blank "assigned to" for people to fill in
+    assert "Assigned to" not in text and "_____" not in text
 
 
 def test_csv_for_trackers(example, tmp_path):
@@ -78,7 +78,7 @@ def test_csv_for_trackers(example, tmp_path):
     out = tmp_path / "a.csv"
     action_plan.write_csv(out, actions, nodes)
     rows = list(csv.DictReader(out.open()))
-    assert len(rows) == len(actions) and rows[0]["assigned_to"] == ""
+    assert len(rows) == len(actions) and "assigned_to" not in rows[0]
     assert rows[0]["steps"].startswith("1. ")
 
 
@@ -112,11 +112,9 @@ def test_validator_checks_action_fields(example, tmp_path):
     ok = {"rating": "gap", "components": ["mcp:accounting"],
           "fix": {"steps": ["Delete the token."], "done_when": "No token is in the code.", "effort": "small"}}
     assert validate_findings.action_fields("B03", ok, refs) == []
-    bad = {"rating": "likely_pass", "components": ["mcp:nope", ""], "fix": {"steps": [], "effort": "huge"},
-           "assignee": 7}
+    bad = {"rating": "likely_pass", "components": ["mcp:nope", ""], "fix": {"steps": [], "effort": "huge"}}
     errs = "\n".join(validate_findings.action_fields("B03", bad, refs))
     assert "components must be a list" in errs and "fix.steps" in errs and "fix.effort" in errs
-    assert "assignee" in errs
     assert "not in the topology" in "\n".join(
         validate_findings.action_fields("B03", {"components": ["mcp:nope"]}, refs))
     assert "nothing to fix" in "\n".join(validate_findings.action_fields(

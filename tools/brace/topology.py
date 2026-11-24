@@ -9,6 +9,7 @@ official schema, and renders it as a Mermaid flowchart.
         [--inventory <repo>/brace-inventory.json] [--agent-config <repo>/config/agent.yaml]
     python tools/brace/topology.py validate topology.cdx.json
     python tools/brace/topology.py mermaid topology.cdx.json [-o topology.mmd]
+    python tools/brace/topology.py report topology.cdx.json [--findings brace-findings.json] -o topology.html
     python tools/brace/topology.py add-node|add-edge|set-zone <repo> --evidence path:line --quote "..." ...
     python tools/brace/topology.py record topology.cdx.json [--record .brace/topology.cdx.json] [--apply]
 
@@ -21,8 +22,9 @@ after the user confirms.
 
 Inputs: `.mcp.json` (MCP servers), the candidate inventory written by
 `skills/brace-review/scripts/review_coverage.py inventory`, and optionally an agent
-config with `agent.name`, `agent.model`, `agent.operational_owner` and
-`tools.allowlist`. Nothing is executed or contacted. The result is a declared,
+config with `agent.name`, `agent.model`, `agent.operational_owner`,
+`tools.allowlist` and `connections` (the services and stores the agent is meant to
+reach: `[{from, to, kind, name, label}]`). Nothing is executed or contacted. The result is a declared,
 script-derived starting point: it is always marked incomplete, and trust zones,
 boundary crossings and data flows stay unknown until a reviewer establishes them.
 
@@ -104,6 +106,11 @@ def line_of(path: Path, needle: str) -> int:
         if needle in text:
             return i
     return 1
+
+
+def quote_prop(entry: dict) -> dict:
+    """The verified code quote behind an overlay entry, kept so reports can show it."""
+    return prop("quote", json.dumps([entry["evidence"], entry["quote"]]))
 
 
 # --------------------------------------------------------------------------- build
@@ -234,6 +241,31 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
                              "properties": [prop("kind", "tool"), prop("source", "agent_config"), ev, *extra]})
             depend("agent", f"tool:{tool}")
 
+    # Declared connections: `connections: [{from, to, kind, name, label}]` in the agent config
+    # names the services and stores the agent is meant to reach (the intended egress).
+    declared = {c["bom-ref"]: c for c in [agent, *components, *services]}
+    for sv in services:
+        declared.update({t["bom-ref"]: t for t in sv.get("services", [])})
+    conns = cfg.get("connections") if isinstance(cfg.get("connections"), list) else []
+    text = agent_config.read_text() if agent_config and conns else ""
+    for c in conns:
+        if not isinstance(c, dict) or not c.get("to") or c.get("from", "agent") not in declared:
+            continue
+        src, dst = c.get("from", "agent"), str(c["to"])
+        ev = f"{cfg_rel}:{line_of(agent_config, f'to: {dst}') if f'to: {dst}' in text else 1}"
+        if dst not in declared:
+            kind = c.get("kind") if c.get("kind") in KINDS else "external_api"
+            node = {"bom-ref": dst, "name": c.get("name") or dst.split(":", 1)[-1],
+                    "properties": [prop("kind", kind), prop("source", "agent_config"), prop("evidence", ev)]}
+            if kind in SERVICE_KINDS:
+                node["properties"].append(prop("trust_zone", "unknown"))
+                services.append(node)
+            else:
+                components.append({"type": COMPONENT_TYPES.get(kind, "application"), **node})
+            declared[dst] = node
+        declared[src]["properties"].append(prop("declared_edge", f"{dst}|{c.get('label', '')}|{ev}"))
+        depend(src, dst)
+
     # Reviewer overlay: code-traced nodes, edges and trust zones, each re-verified now.
     stale: list[str] = []
     if overlay and overlay.exists():
@@ -247,10 +279,11 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
                 stale.append(f"node {n['ref']}: {err}")
                 continue
             if n["ref"] in existing:  # already declared: keep one node, add the traced evidence
-                existing[n["ref"]]["properties"].append(prop("traced_evidence", n["evidence"]))
+                existing[n["ref"]]["properties"] += [prop("traced_evidence", n["evidence"]), quote_prop(n)]
                 continue
             node = {"bom-ref": n["ref"], "name": n.get("name") or n["ref"].split(":", 1)[-1],
-                    "properties": [prop("kind", n["kind"]), prop("source", "traced"), prop("evidence", n["evidence"])]}
+                    "properties": [prop("kind", n["kind"]), prop("source", "traced"), prop("evidence", n["evidence"]),
+                                   quote_prop(n)]}
             if n["kind"] in SERVICE_KINDS:
                 node["properties"].append(prop("trust_zone", "unknown"))
                 services.append(node)
@@ -268,7 +301,7 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
             svc = index[z["ref"]]
             svc["trustZone"] = z["zone"]
             svc["properties"] = [p for p in svc["properties"] if p["name"] != "brace:trust_zone"]
-            svc["properties"].append(prop("zone_evidence", z["evidence"]))
+            svc["properties"] += [prop("zone_evidence", z["evidence"]), quote_prop(z)]
         for e in ov.get("edges", []):
             err = check_quote(repo, e["evidence"], e["quote"])
             if err or e["from"] not in index or e["to"] not in index:
@@ -277,6 +310,7 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
             depend(e["from"], e["to"])
             index[e["from"]]["properties"].append(
                 prop("edge", f"{e['to']}|{e.get('label', '')}|traced|{e['evidence']}|{','.join(e.get('risks', []))}"))
+            index[e["from"]]["properties"].append(quote_prop(e))
 
     all_refs = [c["bom-ref"] for c in components] + [s["bom-ref"] for s in services]
     for s in services:
@@ -635,6 +669,10 @@ def main(argv: list[str] | None = None) -> int:
         else:
             o.add_argument("--ref", required=True)
             o.add_argument("--zone", required=True)
+    w = sub.add_parser("report", help="write a self-contained web page: declared vs found-in-code map with findings")
+    w.add_argument("bom", type=Path)
+    w.add_argument("--findings", type=Path, help="brace-findings.json to show on the map")
+    w.add_argument("-o", "--output", type=Path, required=True, help="the .html file to write")
     r = sub.add_parser("record", help="compare with the recorded topology; create/update only with --apply")
     r.add_argument("bom", type=Path, help="freshly built topology")
     r.add_argument("--record", type=Path, default=Path(".brace/topology.cdx.json"))
@@ -678,6 +716,13 @@ def main(argv: list[str] | None = None) -> int:
             print(e)
         print("Valid" if not errors else f"{len(errors)} errors")
         return 1 if errors else 0
+    if a.cmd == "report":
+        import topology_report
+        m = topology_report.write(a.bom, a.findings, a.output)
+        s = m["summary"]
+        print(f"wrote {a.output}: {s['parts']} parts, {s['connections']} connections, "
+              f"{s['undeclared']} undeclared, {sum(s['findings'].values())} findings")
+        return 0
     if a.cmd == "record":
         errors, stale = validate(bom), stale_entries(bom)
         exists = a.record.exists()

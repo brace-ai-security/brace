@@ -55,12 +55,12 @@ flowchart LR
   n2 -->|"can call (should not) · changes things, money"| n7
   n6 -->|"reads · personal data"| n3
   n5 -->|"reads · personal data"| n3
+  n11 -->|"reads · outside text"| n4
+  n12 -->|"writes"| n4
   n7 -->|"sends refunds · changes things, money, network unknown"| n14
   n8 -->|"adds credits · changes things, money, network unknown"| n14
   n9 -->|"sends email · changes things, personal data, network unknown"| n15
   n10 -->|"opens tickets · changes things, network unknown"| n16
-  n11 -->|"reads · outside text"| n4
-  n12 -->|"writes"| n4
   n13 -->|"tool text returned · outside text"| n1
   classDef unknown stroke-dasharray: 5 5
   classDef traced stroke-width: 3px
@@ -68,7 +68,6 @@ flowchart LR
   classDef needs fill:#fff4d6,stroke:#b54708,color:#000
   classDef ok fill:#e3f4e8,stroke:#067647,color:#000
   class n14,n15,n16 unknown
-  class n3,n4,n14,n15,n16 traced
   class n8,n14,n9,n15,n7,n2,n13,n4,n11,n12 gap
   linkStyle 2,11,12,13,14,15,16,17,18,19,20 stroke:#b42318,stroke-width:3px
 ```
@@ -95,18 +94,18 @@ These connections could cause harm if someone misused the agent. Check them firs
 
 ## 3. Action list
 
-Fill in **Assigned to** with a person's name. The **Lead** is the team that owns the fix (see ROLES.md).
+The **Lead** is the role that usually owns the fix (see ROLES.md).
 
-| # | What to fix | Where | Priority | Lead | Assigned to |
-|---|---|---|---|---|---|
-| [A04](#a04) | The model can choose which customer company gets a credit, so it could credit another company's account. | issue_credit, payments API | Must fix before release (Blocker) | Agent team | _____ |
-| [B05](#b05) | The agent can email any address, give credits with no approval, and refund up to $500 with no approval. | send_reminder, mail API, issue_credit | Must fix before release (Blocker) | Agent team | _____ |
-| [B06](#b06) | One approval for a small refund can be reused to refund any amount, many times. | issue_refund, payments API | Must fix before release (Blocker) | Agent team | _____ |
-| [E08](#e08) | The letter-writing helper agent is meant to have no tools, but it gets all of them, including refunds and email. | src/drafter.py, issue_refund | Must fix before release (Blocker) | Agent team | _____ |
-| [B03](#b03) | A secret login token for the accounting server is saved in a settings file in the code. | accounting | Fix before release, or get a written risk approval (Required) | Infrastructure | _____ |
-| [E06](#e06) | The agent talks straight to the accounting server. Nothing in between checks, limits or logs each call. | accounting | Fix before release, or get a written risk approval (Required) | Infrastructure | _____ |
-| [R05](#r05) | Saved notes are filed by email address only, so two customer companies with the same contact share notes. | negotiation memory (Redis), recall_negotiation, save_negotiation_note | Fix soon; track until done (Detection) | Data and privacy | _____ |
-| [R02](#r02) | Text from the accounting server and saved notes reaches the model, but there is no test showing an attack in that text is stopped. | accounting, negotiation memory (Redis) | Show proof it works, or get a written risk approval (Required) | Security | _____ |
+| # | What to fix | Where | Priority | Lead |
+|---|---|---|---|---|
+| [A04](#a04) | The model can choose which customer company gets a credit, so it could credit another company's account. | issue_credit, payments API | Must fix before release (Blocker) | Agent team |
+| [B05](#b05) | The agent can email any address, give credits with no approval, and refund up to $500 with no approval. | send_reminder, mail API, issue_credit | Must fix before release (Blocker) | Agent team |
+| [B06](#b06) | One approval for a small refund can be reused to refund any amount, many times. | issue_refund, payments API | Must fix before release (Blocker) | Agent team |
+| [E08](#e08) | The letter-writing helper agent is meant to have no tools, but it gets all of them, including refunds and email. | src/drafter.py, issue_refund | Must fix before release (Blocker) | Agent team |
+| [B03](#b03) | A secret login token for the accounting server is saved in a settings file in the code. | accounting | Fix before release, or get a written risk approval (Required) | Infrastructure |
+| [E06](#e06) | The agent talks straight to the accounting server. Nothing in between checks, limits or logs each call. | accounting | Fix before release, or get a written risk approval (Required) | Infrastructure |
+| [R05](#r05) | Saved notes are filed by email address only, so two customer companies with the same contact share notes. | negotiation memory (Redis), recall_negotiation, save_negotiation_note | Fix soon; track until done (Detection) | Data and privacy |
+| [R02](#r02) | Text from the accounting server and saved notes reaches the model, but there is no test showing an attack in that text is stopped. | accounting, negotiation memory (Redis) | Show proof it works, or get a written risk approval (Required) | Security |
 
 ## 4. How to fix each one
 
@@ -118,7 +117,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 **Where:** issue_credit, payments API — `src/tools/payments.py:91`
 
-**Lead:** Agent team · **Assigned to:** _____ · **Effort:** small
+**Lead:** Agent team · **Effort:** small
 
 **Steps:**
 
@@ -138,7 +137,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 **Where:** send_reminder, mail API, issue_credit — `src/tools/comms.py:17`
 
-**Lead:** Agent team · **Assigned to:** _____ · **Effort:** medium
+**Lead:** Agent team · **Effort:** medium
 
 **Steps:**
 
@@ -158,7 +157,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 **Where:** issue_refund, payments API — `src/tools/payments.py:73`
 
-**Lead:** Agent team · **Assigned to:** _____ · **Effort:** medium
+**Lead:** Agent team · **Effort:** medium
 
 **Steps:**
 
@@ -179,7 +178,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 **Where:** src/drafter.py, issue_refund — `src/tools/registry.py:41`
 
-**Lead:** Agent team · **Assigned to:** _____ · **Effort:** small
+**Lead:** Agent team · **Effort:** small
 
 **Steps:**
 
@@ -198,7 +197,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 **Where:** accounting — `config/agent.yaml:50`
 
-**Lead:** Infrastructure · **Assigned to:** _____ · **Effort:** small
+**Lead:** Infrastructure · **Effort:** small
 
 **Steps:**
 
@@ -218,7 +217,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 **Where:** accounting — `.mcp.json:5`
 
-**Lead:** Infrastructure · **Assigned to:** _____ · **Effort:** large
+**Lead:** Infrastructure · **Effort:** large
 
 **Steps:**
 
@@ -238,7 +237,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 **Where:** negotiation memory (Redis), recall_negotiation, save_negotiation_note — `src/memory.py:25`
 
-**Lead:** Data and privacy · **Assigned to:** _____ · **Effort:** medium
+**Lead:** Data and privacy · **Effort:** medium
 
 **Steps:**
 
@@ -258,7 +257,7 @@ Fill in **Assigned to** with a person's name. The **Lead** is the team that owns
 
 **Where:** accounting, negotiation memory (Redis)
 
-**Lead:** Security · **Assigned to:** _____ · **Effort:** medium
+**Lead:** Security · **Effort:** medium
 
 **Steps:**
 

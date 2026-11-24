@@ -161,8 +161,7 @@ writes only with `--apply` (exit 3 means "a change is proposed").
         -o brace-action-plan.md --csv brace-actions.csv --strict
 
 The report has the map coloured by what needs fixing, the risky connections in
-plain words, an action list with a priority, a lead role and a blank "assigned
-to", and numbered fix steps. `--strict` fails if a finding names a part that is
+plain words, an action list with a priority and a lead role, and numbered fix steps. `--strict` fails if a finding names a part that is
 not on the map, if a gap has no fix steps, or if a step reads above grade 12
 (Flesch-Kincaid, with code names counted as short words). The CSV loads into
 most issue trackers.
@@ -182,6 +181,40 @@ More outputs from the same data:
 Exit codes: 0 written, 1 input notes with `--strict`, 2 bad input, 3 `--fail-on` matched.
 
 See [examples/billing-agent/](examples/billing-agent/) for a full example, including the web page.
+
+### Topology report: declared vs found in code
+
+`topology.py report` writes one web page that shows what the agent connects to.
+It needs no internet connection.
+
+    python tools/brace/topology.py report brace-topology.cdx.json --findings brace-findings.json -o topology.html
+
+The page compares two things:
+
+- **Declared**: what the settings list. That is `.mcp.json`, the tool list, and the
+  optional `connections:` list in the agent config. Each entry names a service or
+  store the agent is meant to reach, for example
+  `{from: tool:book_flight, to: api:fares, kind: external_api, name: fares API, label: books tickets}`.
+- **Found in code**: what the reviewer traced with `add-node` and `add-edge`.
+
+Each part and line has one of three states:
+
+| State | On the map | What to do |
+|---|---|---|
+| Confirmed | solid line | Nothing. It is declared and in the code. |
+| Declared only | dashed line | Remove it if it is not needed. |
+| Undeclared | thick purple line with a `!` | Check it. Then declare it or remove it. This is the most important state. |
+
+A reply from a service back to the agent counts as part of the declared call into that
+service, so it is not marked undeclared.
+
+Rows are trust zones. A zone nobody has shown is drawn hatched as "Unknown network".
+Findings show as badges. The shape gives the gate: octagon Blocker, triangle
+Required, circle Detection. Select a part or line to see its evidence, findings,
+the role that usually leads each fix, and the fix steps. Tables below the map list the same facts, for screen
+readers and print.
+
+See [examples/travel-agent/](examples/travel-agent/) for a full example.
 
 ## Run it as a GitHub Action
 

@@ -156,16 +156,16 @@ def render(data: dict, bom: dict) -> str:
     out.append("</div>")
 
     out += ["<h2>3. Action list</h2>",
-            "<p>Write a person's name under <b>Assigned to</b>. The <b>Lead</b> is the team that owns the fix.</p>",
+            "<p>The <b>Lead</b> is the role that usually owns the fix.</p>",
             "<div class=panel><table><thead><tr><th>#</th><th>What to fix</th><th>Where</th><th>Priority</th>"
-            "<th>Lead</th><th>Assigned to</th></tr></thead><tbody>"]
+            "<th>Lead</th></tr></thead><tbody>"]
     for a in data["actions"]:
         where = ", ".join(esc(names.get(c, c)) for c in a["components"]) or "not mapped"
         out.append(f"<tr><td><a href=#{esc(a['id'].lower())}>{esc(a['id'])}</a></td><td>{code_spans(a['problem'])}</td>"
                    f"<td>{where}</td><td><span class='badge {esc(a['rating'])}'>{esc(a['priority'])}</span></td>"
-                   f"<td>{esc(a['lead'])}</td><td>{esc(a['assignee']) if a['assignee'] else '<span class=blank>_____</span>'}</td></tr>")
+                   f"<td>{esc(a['lead'])}</td></tr>")
     if not data["actions"]:
-        out.append("<tr><td colspan=6>Nothing to fix or prove was found.</td></tr>")
+        out.append("<tr><td colspan=5>Nothing to fix or prove was found.</td></tr>")
     out.append("</tbody></table></div>")
 
     out.append("<h2>4. How to fix each one</h2>")
@@ -178,7 +178,6 @@ def render(data: dict, bom: dict) -> str:
                 f"<p class=problem>{code_spans(a['problem'])}</p>",
                 "<dl class=meta>",
                 f"<div><dt>Lead</dt><dd>{esc(a['lead'])}</dd></div>",
-                f"<div><dt>Assigned to</dt><dd>{esc(a['assignee']) if a['assignee'] else '<span class=blank>_____</span>'}</dd></div>",
                 f"<div><dt>Effort</dt><dd>{esc(a['effort'] or 'not stated')}</dd></div>",
                 f"<div><dt>Where in the code</dt><dd>{', '.join(f'<code>{esc(e)}</code>' for e in a['evidence']) or 'not stated'}</dd></div>",
                 "</dl>"]
