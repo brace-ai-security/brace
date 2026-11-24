@@ -12,13 +12,19 @@ from __future__ import annotations
 
 import argparse
 import html
+import json
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "CHECKLIST.md"
+RECIPES = ROOT / "CHECKLIST-VERIFICATION.md"
+ROLES = ROOT / "ROLES.md"
 OUTPUT = ROOT / "checklist" / "index.html"
+
+# Filled by parse(): the real item IDs, so only those become links.
+ITEM_IDS: set[str] = set()
 
 ASPECTS = {"B": "Build-time", "R": "Run-time", "A": "Agent", "C": "Configuration", "E": "Ecosystem"}
 ITEM_RE = re.compile(r"^- \[ \] \*\*([BRACE]\d\d) · (Blocker|Required|Detection) · (.+?) — (.+?)\*\*\s*(.*)$")
@@ -40,6 +46,23 @@ def rewrite_link(target: str) -> str | None:
         return "#priority-gates"
     if target.startswith("#"):
         return target
+    while target.startswith("../"):
+        target = target[3:]
+    m = re.match(r"(CHECKLIST|CHECKLIST-VERIFICATION|SELF-ASSESSMENT|otel-conventions|VENDOR-MATRIX|SOURCE-REVIEW"
+                 r"|mappings/nist-ai-rmf|mappings/iso-iec-42001|mappings/mitre-atlas)\.md(?:#(.*))?$", target)
+    if m:
+        page = {"CHECKLIST": "/checklist/", "CHECKLIST-VERIFICATION": "/verification/",
+                "SELF-ASSESSMENT": "/self-assessment/", "otel-conventions": "/otel-conventions/",
+                "VENDOR-MATRIX": "/vendor-matrix/", "SOURCE-REVIEW": "/source-review/",
+                "mappings/nist-ai-rmf": "/mappings/nist-ai-rmf/", "mappings/iso-iec-42001": "/mappings/iso-iec-42001/",
+                "mappings/mitre-atlas": "/mappings/mitre-atlas/"}[m.group(1)]
+        frag = m.group(2) or ""
+        if m.group(1) == "CHECKLIST":
+            # Aspect anchors on the checklist page are "build-time", not "b--build-time".
+            frag = re.sub(r"^[brace]--", "", frag)
+            if frag.startswith("priority-gates"):
+                frag = "priority-gates"
+        return page + (f"#{frag}" if frag else "")
     m = re.match(r"guides/([a-z-]+)/index\.html$", target)
     if m:
         return f"/guides/{m.group(1)}/"
@@ -83,12 +106,27 @@ def ref_labels(refs: str, names: dict[str, str]) -> list[tuple[str, str]]:
         labels.append((code, f"{kind} {num} – {names[code]}"))
     return labels
 
+def rule_name(iid: str) -> str:
+    """'R11' -> 'Run-time rule 11'."""
+    return f"{ASPECTS[iid[0]]} rule {int(iid[1:])}"
+
+
+def link_ids(s: str) -> str:
+    """Turn bare item codes such as E09 into links reading 'Ecosystem rule 9'."""
+    def sub(m: re.Match) -> str:
+        iid = m.group(1)
+        if iid not in ITEM_IDS:
+            return iid
+        return f'<a class="iref" href="/checklist/#{iid}" title="{iid}">{rule_name(iid)}</a>'
+    return re.sub(r"(?<![\w#/-])([BRACE]\d\d)(?![\w-])", sub, s)
+
+
 def inline(text: str) -> str:
     out = []
     pos = 0
     token = re.compile(r"`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)")
     for m in token.finditer(text):
-        out.append(emphasis(html.escape(text[pos:m.start()], quote=False)))
+        out.append(link_ids(emphasis(html.escape(text[pos:m.start()], quote=False))))
         if m.group(1) is not None:
             out.append(f"<code>{html.escape(m.group(1), quote=False)}</code>")
         else:
@@ -100,7 +138,7 @@ def inline(text: str) -> str:
                 ext = ' rel="noopener"' if href.startswith("http") else ""
                 out.append(f'<a href="{html.escape(href)}"{ext}>{label}</a>')
         pos = m.end()
-    out.append(emphasis(html.escape(text[pos:], quote=False)))
+    out.append(link_ids(emphasis(html.escape(text[pos:], quote=False))))
     return "".join(out)
 
 
@@ -118,6 +156,13 @@ def unbold(s: str) -> str:
 
 
 # ---------------------------------------------------------------- block markdown
+
+def gh_slug(heading: str) -> str:
+    """GitHub-style heading anchor: 'B — Build-time' -> 'b--build-time'."""
+    s = re.sub(r"[*`]|\[([^\]]*)\]\([^)]*\)", lambda m: m.group(1) or "", heading).lower()
+    s = re.sub(r"[^\w\- ]", "", s)
+    return s.replace(" ", "-")
+
 
 def blocks(lines: list[str]) -> str:
     """Render paragraphs, lists, tables and minor headings."""
@@ -145,7 +190,7 @@ def blocks(lines: list[str]) -> str:
             continue
         m = re.match(r"^(#{3,4}) (.*)$", s)
         if m:
-            out.append(f"<h4>{inline(unbold(m.group(2)))}</h4>")
+            out.append(f'<h4 id="{gh_slug(unbold(m.group(2)))}">{inline(unbold(m.group(2)))}</h4>')
             i += 1
             continue
         if re.match(r"^(- |\d+\. )", s):
@@ -263,7 +308,53 @@ def parse(text: str) -> dict:
     if len(ids) != len(set(ids)):
         raise ChecklistError("duplicate item IDs")
     doc["count"] = len(ids)
+    ITEM_IDS.clear()
+    ITEM_IDS.update(ids)
     return doc
+
+
+def load_recipes(ids: list[str]) -> dict[str, tuple[str, str]]:
+    """Item -> (test and expected result, evidence to keep) from CHECKLIST-VERIFICATION.md."""
+    recipes: dict[str, tuple[str, str]] = {}
+    for line in RECIPES.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^\| ([BRACE]\d\d) \|(.*)\|\s*$", line)
+        if not m:
+            continue
+        cells = [c.strip() for c in m.group(2).split("|")]
+        if len(cells) != 2 or not all(cells):
+            raise ChecklistError(f"recipe row for {m.group(1)} must have a test and an evidence cell")
+        if m.group(1) in recipes:
+            raise ChecklistError(f"two recipes for {m.group(1)}")
+        recipes[m.group(1)] = (cells[0], cells[1])
+    missing = [i for i in ids if i not in recipes]
+    if missing:
+        raise ChecklistError(f"no verification recipe in CHECKLIST-VERIFICATION.md for: {', '.join(missing)}")
+    return recipes
+
+
+def load_roles(ids: list[str]) -> dict[str, tuple[str, list[str]]]:
+    """Item -> (Lead, [Shares]) from the item tables in ROLES.md."""
+    roles: dict[str, tuple[str, list[str]]] = {}
+    for line in ROLES.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^\| ([BRACE]\d\d) \| (?:Blocker|Required|Detection) \|[^|]*\| \*\*([^*|]+)\*\* \|([^|]*)\|\s*$", line)
+        if m:
+            shares = [x.strip() for x in m.group(3).split(",") if x.strip() and x.strip() not in ("—", "-")]
+            roles[m.group(1)] = (m.group(2).strip(), shares)
+    missing = [i for i in ids if i not in roles]
+    if missing:
+        raise ChecklistError(f"no Lead role in ROLES.md for: {', '.join(missing)}")
+    return roles
+
+
+def guide_anchors() -> dict[str, str]:
+    """Item -> guide URL, where the aspect guide has an id on that item's rule entry."""
+    found = {}
+    for letter, name in ASPECTS.items():
+        page = ROOT / "guides" / name.lower() / "index.html"
+        if page.exists():
+            for iid in re.findall(r'<li class="r-[BRACE]" id="([BRACE]\d\d)"', page.read_text(encoding="utf-8")):
+                found[iid] = f"/guides/{name.lower()}/#{iid}"
+    return found
 
 
 # ---------------------------------------------------------------- rendering
@@ -291,35 +382,50 @@ def plain(s: str) -> str:
     return re.sub(r"<[^>]+>", "", inline(s))
 
 
-def render_item(it: dict) -> str:
+HOW_ICON = icon('<path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>')
+BOOK_ICON = icon('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7"/>')
+USER_ICON = icon('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>')
+
+
+def render_item(it: dict, extras: dict) -> str:
     iid = it["id"]
-    aspect = ASPECTS[iid[0]]
-    num = int(iid[1:])
     title = plain(it["title"])
     notes = ""
     for label, txt in it["notes"]:
         cls, paths = NOTE_STYLE.get(label, NOTE_STYLE["Tradeoffs you can accept"])
         notes += f'<div class="note {cls}"><div class="nl">{icon(paths)}{html.escape(label)}</div>{paras(txt)}</div>'
     extra = "".join(f"<p>{inline(x)}</p>" for x in it["extra"])
-    return f"""<li class="item" id="{iid}" data-gate="{it['gate']}">
-<input type="checkbox" class="cb" id="cb-{iid}" data-key="{iid}" aria-label="Mark “{title}” done">
+    lead, shares = extras["roles"][iid]
+    with_ = f' <span class="with">(with {html.escape(", ".join(shares))})</span>' if shares else ""
+    test, evidence = extras["recipes"][iid]
+    guide = extras["guides"].get(iid)
+    learn = (f'<p class="learn"><a href="{guide}">{BOOK_ICON}Learn why in the {ASPECTS[iid[0]]} guide</a></p>'
+             if guide else "")
+    top = ' data-top="1"' if it["top"] else ""
+    return f"""<li class="item" id="{iid}" data-gate="{it['gate']}"{top}>
+<button type="button" class="st" data-key="{iid}" aria-haspopup="menu" aria-expanded="false" aria-label="Status of “{title}”: Not started"></button>
 <details>
 <summary><span class="ttl">{inline(it['title'])}</span></summary>
 <div class="body">
-<p class="meta"><a class="self" href="#{iid}" title="{iid}: link to this check">{aspect} rule {num} · {inline(it['title'])}<span class="sid">{LINK_ICON}{iid}</span></a></p>
+<p class="meta"><a class="self" href="#{iid}" title="{iid}: link to this check">{rule_name(iid)} · {inline(it['title'])}<span class="sid">{LINK_ICON}{iid}</span></a></p>
 <p class="refs">Controls and requirements: {ref_links(it['refs'])}</p>
+<p class="owner">{USER_ICON}Usually led by: <strong>{html.escape(lead)}</strong>{with_}</p>
 <p class="req">{inline(it['body'])}</p>{extra}{notes}
+<div class="how"><div class="nl">{HOW_ICON}How to check it</div>
+<h4 class="hl">Test and expected result</h4><p>{inline(test)}</p>
+<h4 class="hl">Evidence to keep</h4><p>{inline(evidence)}</p></div>
+{learn}<div class="mine"><label for="note-{iid}">Your note <span>(evidence link or comment, saved in this browser)</span></label><textarea id="note-{iid}" data-note="{iid}" rows="2"></textarea></div>
 </div>
 </details>
 </li>"""
 
 
-def render_aspect(a: dict) -> str:
+def render_aspect(a: dict, extras: dict) -> str:
     letter = a["letter"]
     name = ASPECTS[letter]
     n = sum(len(g["items"]) for g in a["groups"])
     parts = [f"""<section class="aspect" id="{name.lower()}" data-aspect="{letter}">
-<div class="ahead"><span class="aletter" aria-hidden="true">{letter}</span><h2>{name}</h2><span class="prog"><span data-prog="{letter}">{n} items</span><span class="pbar" aria-hidden="true"><i data-bar="{letter}"></i></span></span></div>
+<div class="ahead"><span class="aletter" aria-hidden="true">{letter}</span><h2>{name}</h2><span class="prog"><span data-prog="{letter}">{n} checks</span><span class="pbar" aria-hidden="true"><i data-bar="{letter}"></i></span></span></div>
 <p class="question">{inline(a['question'])}</p>"""]
     if a["links"]:
         parts.append(f'<p class="alinks">{inline(a["links"])}</p>')
@@ -328,7 +434,7 @@ def render_aspect(a: dict) -> str:
         label = "If you do nothing else: top 3" if g["top"] else g["name"]
         star = icon('<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>') if g["top"] else ""
         parts.append(f'<div class="{cls}"><h3>{star}{inline(label)}</h3><ul class="items">')
-        parts += [render_item(it) for it in g["items"]]
+        parts += [render_item(it, extras) for it in g["items"]]
         parts.append("</ul></div>")
     if a["evidence"]:
         parts.append(f'<p class="evidence"><strong>Evidence to attach:</strong> {inline(a["evidence"])}</p>')
@@ -353,25 +459,31 @@ def render_tail(name: str, lines: list[str]) -> str:
 
 
 def render(doc: dict) -> str:
-    pre = [l for l in doc["preamble"]]
-    intro_html = blocks(pre).replace("<p><strong>High-risk deployments:</strong>",
-                                     '<p class="callout"><strong>High-risk deployments:</strong>', 1)
+    ids = [it["id"] for a in doc["aspects"] for g in a["groups"] for it in g["items"]]
+    extras = {"recipes": load_recipes(ids), "roles": load_roles(ids), "guides": guide_anchors()}
+    # The opening notes (high-risk note, when to run it, two kinds of trouble) live in the
+    # "How to use" panel, ahead of its numbered steps.
+    intro_html = blocks(doc["preamble"]).replace("<p><strong>High-risk deployments:</strong>",
+                                                 '<p class="callout"><strong>High-risk deployments:</strong>', 1)
     howto_name, howto_lines = doc["howto"]
     toc = "".join(f'<a href="#{ASPECTS[a["letter"]].lower()}" class="chip-{a["letter"]}"><b>{a["letter"]}</b> {ASPECTS[a["letter"]]}'
                   f'<span class="tc" data-prog="{a["letter"]}-toc"></span></a>' for a in doc["aspects"])
-    aspects = "\n".join(render_aspect(a) for a in doc["aspects"])
-    tail_sections = [(n, l) for n, l in doc["tail"]]
-    tail = "\n".join(render_tail(n, l) for n, l in tail_sections)
-    total = doc["count"]
+    aspects = "\n".join(render_aspect(a, extras) for a in doc["aspects"])
+    tail = "\n".join(render_tail(n, l) for n, l in doc["tail"])
+    items_js = ",".join(
+        '"%s":[%s,%s,%s]' % (it["id"], json.dumps(plain(it["title"])), json.dumps(extras["roles"][it["id"]][0]),
+                             json.dumps(", ".join(extras["roles"][it["id"]][1])))
+        for a in doc["aspects"] for g in a["groups"] for it in g["items"])
     return (TEMPLATE
             .replace("@@TITLE@@", html.escape(doc["title"]))
-            .replace("@@TOTAL@@", str(total))
+            .replace("@@TOTAL@@", str(doc["count"]))
             .replace("@@INTRO@@", intro_html)
             .replace("@@HOWTO_NAME@@", inline(howto_name))
             .replace("@@HOWTO@@", blocks(howto_lines))
             .replace("@@TOC@@", toc)
             .replace("@@ASPECTS@@", aspects)
-            .replace("@@TAIL@@", tail))
+            .replace("@@TAIL@@", tail)
+            .replace("@@ITEMS_JS@@", "{" + items_js.replace("</", "<\\/") + "}"))
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -434,8 +546,8 @@ TEMPLATE = r"""<!DOCTYPE html>
   .eyebrow{letter-spacing:.18em; text-transform:uppercase; font-size:12px; opacity:.85; margin:0 0 10px}
   h1{font-size:40px; line-height:1.06; margin:0 0 12px; font-weight:800; letter-spacing:-.5px}
   .lede{font-size:18px; line-height:1.5; margin:0; max-width:40em; opacity:.96}
-  .stats{display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; font-size:13px}
-  .stats span{background:rgba(255,255,255,.14); border-radius:999px; padding:4px 12px}
+  .start{display:inline-block; margin-top:18px; background:#fff; color:#1a4d6e; font-weight:700; font-size:15px; border-radius:999px; padding:8px 18px}
+  .start:hover{text-decoration:none; background:#eef5fc}
   .intro{padding-top:28px; padding-bottom:8px; font-size:16.5px}
   .intro p{margin:10px 0}
   .callout{background:var(--tint); border:1px solid var(--tint2); padding:14px 18px; border-radius:12px}
@@ -522,7 +634,81 @@ TEMPLATE = r"""<!DOCTYPE html>
   li.dc label{display:flex; gap:8px; cursor:pointer}
   li.dc .cb{margin-top:3px}
   footer{padding:30px 0; color:var(--muted); font-size:14px}
+  /* status control */
+  .st{display:none; flex:none; width:24px; height:24px; margin:10px 4px 0 0; padding:0; border-radius:50%; border:2px solid var(--rule); background:var(--card); color:var(--card); cursor:pointer; place-items:center}
+  .js .st{display:grid}
+  .st:hover{border-color:var(--a)}
+  .st:focus-visible,.stmenu button:focus-visible,.tools :focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .st svg{width:14px; height:14px}
+  li.s-done .st{background:var(--good); border-color:var(--good)}
+  li.s-notyet .st{border-color:var(--required); color:var(--required)}
+  li.s-na .st{background:var(--muted); border-color:var(--muted)}
+  li.s-done .ttl,li.s-na .ttl{color:var(--muted)}
+  li.s-done .ttl{text-decoration:line-through; text-decoration-color:var(--rule)}
+  .stmenu{position:absolute; z-index:20; background:var(--card); border:1px solid var(--rule); border-radius:10px; padding:5px; box-shadow:0 10px 28px -10px rgba(0,0,0,.35); min-width:170px}
+  .stmenu[hidden]{display:none}
+  .stmenu button{display:flex; width:100%; align-items:center; gap:9px; font:inherit; font-size:14px; color:var(--ink); background:none; border:0; border-radius:7px; padding:6px 10px; cursor:pointer; text-align:left}
+  .stmenu button:hover,.stmenu button:focus{background:var(--tint)}
+  .stmenu button[aria-checked="true"]{font-weight:700}
+  .stmenu i{display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; border:2px solid var(--rule); color:var(--card)}
+  .stmenu i svg{width:11px; height:11px}
+  .stmenu .m-done i{background:var(--good); border-color:var(--good)}
+  .stmenu .m-notyet i{border-color:var(--required); color:var(--required)}
+  .stmenu .m-na i{background:var(--muted); border-color:var(--muted)}
+  /* per-item panels */
+  .owner{display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:13.5px; color:var(--muted); margin:2px 0 8px !important}
+  .owner strong{color:var(--ink); font-weight:600}
+  .how{border-radius:10px; padding:4px 14px 8px; margin:14px 0; background:var(--tint); border:1px solid var(--tint2)}
+  .how .nl{display:flex; align-items:center; gap:7px; font-size:13px; font-weight:700; color:var(--primary); margin-top:8px}
+  .how h4.hl{font-size:12.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:10px 0 0}
+  .how p{margin:3px 0 6px; font-size:15.5px}
+  .learn{margin:10px 0 !important; font-size:15px}
+  .learn a{display:inline-flex; align-items:center; gap:6px; font-weight:600}
+  a.iref{white-space:nowrap; font-weight:600}
+  .mine{display:none; margin:14px 0 4px}
+  .js .mine{display:block}
+  .mine label{display:block; font-size:13px; font-weight:700; color:var(--ink); margin-bottom:4px}
+  .mine label span{font-weight:400; color:var(--muted)}
+  .mine textarea{display:block; width:100%; font:inherit; font-size:15px; color:var(--ink); background:var(--card); border:1px solid var(--rule); border-radius:8px; padding:7px 10px; resize:vertical; min-height:42px}
+  .mine textarea:focus{outline:2px solid var(--accent); outline-offset:0; border-color:transparent}
+  /* review */
+  .rvb{flex:none; align-self:center; font-size:11.5px; font-weight:700; border-radius:999px; padding:1px 9px; white-space:nowrap}
+  .rv-gap{color:var(--blocker); background:var(--blocker-bg)}
+  .rv-needs_evidence{color:var(--required); background:var(--required-bg)}
+  .rv-likely_pass{color:var(--good); background:var(--good-bg)}
+  .rv-na_candidate{color:var(--muted); background:var(--tint2)}
+  .review{border-radius:10px; padding:4px 14px 8px; margin:14px 0; border:1px solid var(--rule); border-left:4px solid var(--muted); background:var(--card); color:var(--ink)}
+  .review.rv-gap{border-left-color:var(--blocker)} .review.rv-needs_evidence{border-left-color:var(--required)} .review.rv-likely_pass{border-left-color:var(--good)}
+  .review .nl{font-size:13px; font-weight:700; margin-top:8px}
+  .review p{margin:5px 0}
+  .review ol{margin:6px 0; padding-left:1.4em; font-size:15px}
+  .revbar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:18px 0 0; padding:10px 14px; border-radius:10px; background:var(--tint); border:1px solid var(--tint2); font-size:14px}
+  .revbar[hidden],.nomatch[hidden]{display:none}
+  .revbar span{flex:1; min-width:12em}
+  .revbar button,.moremenu button{font:inherit; font-size:13px; color:var(--ink); background:var(--card); border:1px solid var(--rule); border-radius:6px; padding:4px 10px; cursor:pointer}
+  .nomatch{margin:24px 0; color:var(--muted)}
+  section.aspect.empty{display:none}
+  /* toolbar extras */
+  .tools{width:100%; flex-wrap:wrap}
+  .tools input[type=search]{font:inherit; font-size:14px; color:var(--ink); background:var(--card); border:1px solid var(--rule); border-radius:6px; padding:4px 10px; flex:1 1 160px; min-width:0}
+  .tools label.show{display:inline-flex; align-items:center; gap:5px; color:var(--muted)}
+  .morew{position:relative}
+  .moremenu{position:absolute; right:0; top:calc(100% + 6px); z-index:20; width:230px; background:var(--card); border:1px solid var(--rule); border-radius:10px; padding:8px; box-shadow:0 10px 28px -10px rgba(0,0,0,.35); display:flex; flex-direction:column; gap:2px}
+  .moremenu[hidden]{display:none}
+  .moremenu button{text-align:left; border:0; padding:7px 10px; font-size:14px; background:none}
+  .moremenu button[hidden]{display:none}
+  .moremenu button:hover{background:var(--tint)}
+  .mnote{margin:4px 10px 2px; font-size:12px; color:var(--muted); line-height:1.4}
+  .overall{margin-left:auto; white-space:nowrap}
+  .flash{font-size:13px; color:var(--good); width:100%; text-align:right}
+  .flash:empty{display:none}
+  section.aspect,section.tail{scroll-margin-top:110px}
+  li.item{scroll-margin-top:120px}
   @media (max-width:640px){
+    .tools input[type=search]{flex-basis:100%}
+    .bar{position:static}
+    .tools label.show .lbl{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0)}
+    .rvb{font-size:11px; padding:1px 7px}
     h1{font-size:30px} .lede{font-size:16px}
     .wrap{padding:0 16px}
     .tools{margin-left:0; width:100%; flex-wrap:wrap}
@@ -535,7 +721,9 @@ TEMPLATE = r"""<!DOCTYPE html>
     .body{padding-right:12px}
   }
   @media print{
-    .bar,.crumb,.cb-hide,footer .noprint{display:none !important}
+    .bar,.crumb,.cb-hide,footer .noprint,.st,.mine,.revbar button,.start,.stmenu{display:none !important}
+    details::details-content{content-visibility:visible; display:block}
+    .how,.note,.review{break-inside:avoid}
     header.hero{background:none; color:#000; padding:0}
     body{font-size:11pt; background:#fff; color:#000}
     li.item{break-inside:avoid-page}
@@ -553,14 +741,14 @@ TEMPLATE = r"""<!DOCTYPE html>
   <div class="wrap">
     <p class="eyebrow">BRACE · Sign-off checklist</p>
     <h1>@@TITLE@@</h1>
-    <p class="lede">@@TOTAL@@ checks in five groups. Each row is one check: tick it when the deployed setup meets it and you can link to proof. Open a row to read the full requirement.</p>
-    <div class="stats"><span>Start with the highlighted top 3 in each group</span></div>
+    <p class="lede">Welcome. These @@TOTAL@@ checks help your team see how well an AI agent is protected, one plain question at a time.</p>
+    <a class="start" href="#build-time">Start here: the top 3 in each area <span aria-hidden="true">→</span></a>
   </div>
 </header>
 
 <div class="wrap intro">
+<details class="more" id="priority-gates"><summary>@@HOWTO_NAME@@</summary><div>
 @@INTRO@@
-<details class="more" id="priority-gates"><summary>@@HOWTO_NAME@@ (full instructions)</summary><div>
 @@HOWTO@@
 </div></details>
 </div>
@@ -569,70 +757,286 @@ TEMPLATE = r"""<!DOCTYPE html>
   <div class="wrap">
     <div class="toc">@@TOC@@<a href="#final-sign-off">Sign-off</a></div>
     <div class="tools">
-      <span class="overall" id="overall" aria-live="polite"></span>
-      <label>Show <select id="gatefilter" aria-label="Filter items">
-        <option value="all">All items</option>
-        <option value="todo">Unchecked only</option>
+      <input type="search" id="q" placeholder="Search checks" aria-label="Search checks by title, requirement or rule name" autocomplete="off">
+      <label class="show"><span class="lbl">Show</span> <select id="gatefilter">
+        <option value="all">All checks</option>
+        <option value="top">Top 3 only</option>
+        <option value="todo">Not done yet</option>
       </select></label>
       <button type="button" id="toggleall">Expand all</button>
+      <div class="morew">
+        <button type="button" id="morebtn" aria-expanded="false" aria-controls="moremenu">More <span aria-hidden="true">▾</span></button>
+        <div class="moremenu" id="moremenu" hidden>
+          <button type="button" id="copymd">Copy as Markdown</button>
+          <button type="button" id="dlcsv">Download CSV</button>
+          <button type="button" id="loadrev">Load a review file…</button>
+          <button type="button" id="clearrev2" hidden>Clear review</button>
+          <input type="file" id="revfile" accept=".json,application/json" hidden>
+          <p class="mnote">Review files are read in this browser. Nothing is uploaded.</p>
+        </div>
+      </div>
+      <span class="overall" id="overall"></span>
+      <span class="flash" id="flash" role="status" aria-live="polite"></span>
     </div>
   </div>
 </nav>
 
 <main class="wrap">
+<div class="revbar" id="revbar" hidden><span id="revtext"></span><button type="button" id="clearrev">Clear review</button></div>
+<p class="nomatch" id="nomatch" hidden>No checks match. Try other words, or show all checks.</p>
 @@ASPECTS@@
 @@TAIL@@
 </main>
 
-<footer><div class="wrap">The BRACE Framework · <a href="/">braceframework.org</a> · CC BY 4.0. <span class="noprint">Your ticks are stored only in this browser.</span></div></footer>
+<footer><div class="wrap">The BRACE Framework · <a href="/">braceframework.org</a> · CC BY 4.0. <span class="noprint">Your statuses and notes are stored only in this browser.</span></div></footer>
 
 <script>
 (function(){
   var d=document; d.documentElement.className+=' js';
-  var KEY='brace-checklist-v1', state={};
-  try{ state=JSON.parse(localStorage.getItem(KEY)||'{}')||{}; }catch(e){ state={}; }
-  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
-  var boxes=[].slice.call(d.querySelectorAll('input.cb'));
+  var ITEMS=@@ITEMS_JS@@;
+  var AREA={B:'Build-time',R:'Run-time',A:'Agent',C:'Configuration',E:'Ecosystem'};
+  var LABEL={todo:'Not started',done:'Done',notyet:'Not yet',na:"Doesn't apply"};
+  var ORDER=['todo','done','notyet','na'];
+  var ICON={todo:'',
+    done:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    notyet:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M12 6v6l4 2.5"/></svg>',
+    na:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>'};
+  var RV={gap:'Gap',needs_evidence:'Needs evidence',likely_pass:'Likely pass',na_candidate:'N/A candidate'};
+  function load(k){ try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; } }
+  function store(k,v){ try{ if(v===null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  function each(sel,fn,root){ [].forEach.call((root||d).querySelectorAll(sel),fn); }
+
+  // Ticks for the sign-off decision boxes stay in the original key.
+  var KEY='brace-checklist-v1', ticks=load(KEY)||{};
+  // Item status: {ID:{s:'done'|'notyet'|'na', n:'note', src:'review'}}. Old ticks migrate to Done.
+  var SKEY='brace-status-v1', state=load(SKEY);
+  if(!state || typeof state!=='object'){ state={}; Object.keys(ticks).forEach(function(k){ if(ITEMS[k]&&ticks[k]) state[k]={s:'done'}; }); store(SKEY,state); }
+  function rec(id){ var r=state[id]; return (r&&typeof r==='object')?r:{}; }
+  function status(id){ var s=rec(id).s; return LABEL[s]?s:'todo'; }
+  function setRec(id,r){ if(!r.s||r.s==='todo') delete r.s; if(!r.n) delete r.n; if(!r.s) delete r.src; if(Object.keys(r).length) state[id]=r; else delete state[id]; store(SKEY,state); }
+  function complete(s){ return s==='done'||s==='na'; }
+
+  each('input.cb',function(b){
+    b.checked=!!ticks[b.getAttribute('data-key')];
+    b.addEventListener('change',function(){ var k=b.getAttribute('data-key'); if(b.checked) ticks[k]=1; else delete ticks[k]; store(KEY,ticks); });
+  });
+
+  function paint(li){
+    var id=li.id, s=status(id), b=li.querySelector('.st');
+    ORDER.forEach(function(x){ li.classList.toggle('s-'+x, x===s && x!=='todo'); });
+    b.innerHTML=ICON[s];
+    b.setAttribute('aria-label','Status of “'+ITEMS[id][0]+'”: '+LABEL[s]+'. Change status');
+    b.title=LABEL[s];
+  }
   function refresh(){
     var total=0, done=0;
-    [].forEach.call(d.querySelectorAll('section.aspect'), function(sec){
+    each('section.aspect',function(sec){
       var items=sec.querySelectorAll('li.item'), n=items.length, c=0;
-      [].forEach.call(items,function(li){ var on=li.querySelector('.cb').checked; li.classList.toggle('done',on); if(on)c++; });
+      [].forEach.call(items,function(li){ paint(li); if(complete(status(li.id))) c++; });
       total+=n; done+=c;
       var L=sec.getAttribute('data-aspect');
-      sec.querySelector('[data-prog="'+L+'"]').textContent=c+' of '+n+' checked';
+      sec.querySelector('[data-prog="'+L+'"]').textContent=c+' of '+n+' complete';
       var bar=sec.querySelector('[data-bar="'+L+'"]'); if(bar) bar.style.width=(n?Math.round(100*c/n):0)+'%';
       var t=d.querySelector('[data-prog="'+L+'-toc"]'); if(t) t.textContent=c+'/'+n;
     });
-    d.getElementById('overall').textContent=done+' of '+total+' checked';
+    d.getElementById('overall').textContent=done+' of '+total+' complete';
   }
-  boxes.forEach(function(b){
-    b.checked=!!state[b.getAttribute('data-key')];
-    b.addEventListener('change',function(){ var k=b.getAttribute('data-key'); if(b.checked) state[k]=1; else delete state[k]; save(); refresh(); applyFilter(); });
+
+  // ---- status menu (one shared menu, opened beside the clicked button)
+  var menu=d.createElement('div'); menu.className='stmenu'; menu.setAttribute('role','menu'); menu.hidden=true;
+  ORDER.forEach(function(s){
+    var b=d.createElement('button'); b.type='button'; b.className='m-'+s; b.setAttribute('role','menuitemradio'); b.setAttribute('data-s',s);
+    var i=d.createElement('i'); i.innerHTML=ICON[s]; b.appendChild(i); b.appendChild(d.createTextNode(LABEL[s])); menu.appendChild(b);
   });
-  var sel=d.getElementById('gatefilter');
+  d.body.appendChild(menu);
+  var menuFor=null;
+  function closeMenu(focus){ if(!menuFor) return; menu.hidden=true; menuFor.setAttribute('aria-expanded','false'); if(focus) menuFor.focus(); menuFor=null; }
+  function openMenu(btn){
+    closeMenu(); menuFor=btn; var id=btn.getAttribute('data-key'), s=status(id);
+    menu.setAttribute('aria-label','Status of '+id);
+    each('button',function(x){ x.setAttribute('aria-checked', x.getAttribute('data-s')===s?'true':'false'); },menu);
+    menu.hidden=false; btn.setAttribute('aria-expanded','true');
+    var r=btn.getBoundingClientRect();
+    var left=Math.min(r.left+window.scrollX, window.scrollX+d.documentElement.clientWidth-menu.offsetWidth-8);
+    menu.style.left=Math.max(8,left)+'px'; menu.style.top=(r.bottom+window.scrollY+4)+'px';
+    (menu.querySelector('[aria-checked="true"]')||menu.firstChild).focus();
+  }
+  menu.addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b||!menuFor) return;
+    var id=menuFor.getAttribute('data-key'), r=rec(id); r.s=b.getAttribute('data-s'); delete r.src; setRec(id,r);
+    closeMenu(true); refresh(); applyFilter();
+  });
+  menu.addEventListener('keydown',function(e){
+    var bs=[].slice.call(menu.querySelectorAll('button')), i=bs.indexOf(d.activeElement);
+    if(e.key==='ArrowDown'){ e.preventDefault(); bs[(i+1)%bs.length].focus(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); bs[(i-1+bs.length)%bs.length].focus(); }
+    else if(e.key==='Home'){ e.preventDefault(); bs[0].focus(); }
+    else if(e.key==='End'){ e.preventDefault(); bs[bs.length-1].focus(); }
+    else if(e.key==='Escape'||e.key==='Tab'){ e.preventDefault(); closeMenu(true); }
+  });
+  each('button.st',function(b){
+    b.addEventListener('click',function(e){ e.stopPropagation(); if(menuFor===b) closeMenu(true); else openMenu(b); });
+    b.addEventListener('keydown',function(e){ if(e.key==='ArrowDown'){ e.preventDefault(); openMenu(b); } });
+  });
+  d.addEventListener('click',function(e){
+    if(menuFor && !menu.contains(e.target)) closeMenu(false);
+    if(!more.hidden && !e.target.closest('.morew')) setMore(false);
+  });
+  window.addEventListener('resize',function(){ closeMenu(false); });
+
+  // ---- notes
+  each('textarea[data-note]',function(t){
+    var id=t.getAttribute('data-note'); t.value=rec(id).n||'';
+    t.addEventListener('input',function(){ var r=rec(id); r.n=t.value; setRec(id,r); });
+  });
+
+  // ---- search + filter
+  var sel=d.getElementById('gatefilter'), q=d.getElementById('q');
+  var hay={};
+  each('li.item',function(li){
+    hay[li.id]=(li.id+' '+li.querySelector('.ttl').textContent+' '+li.querySelector('.meta').textContent+' '+li.querySelector('.req').textContent).toLowerCase();
+  });
   function applyFilter(){
-    var v=sel.value;
-    [].forEach.call(d.querySelectorAll('li.item'),function(li){
-      var show = v==='all' || !li.querySelector('.cb').checked;
-      li.classList.toggle('hidden',!show);
+    var v=sel.value, words=q.value.toLowerCase().split(/\s+/).filter(Boolean), any=false;
+    each('li.item',function(li){
+      var show = v==='all' || (v==='top' && li.hasAttribute('data-top')) || (v==='todo' && !complete(status(li.id)));
+      if(show && words.length) show=words.every(function(w){ return hay[li.id].indexOf(w)>=0; });
+      li.classList.toggle('hidden',!show); if(show) any=true;
     });
-    [].forEach.call(d.querySelectorAll('.group'),function(g){
-      g.style.display = g.querySelector('li.item:not(.hidden)') ? '' : 'none';
-    });
+    each('.group',function(g){ g.style.display = g.querySelector('li.item:not(.hidden)') ? '' : 'none'; });
+    var narrowed = v!=='all' || words.length>0;
+    each('section.aspect',function(s){ s.classList.toggle('empty', narrowed && !s.querySelector('li.item:not(.hidden)')); });
+    d.getElementById('nomatch').hidden=any;
   }
   sel.addEventListener('change',applyFilter);
+  q.addEventListener('input',applyFilter);
+
   var tog=d.getElementById('toggleall');
   tog.addEventListener('click',function(){
     var open=tog.textContent==='Expand all';
-    [].forEach.call(d.querySelectorAll('li.item:not(.hidden) details'),function(x){ x.open=open; });
+    each('li.item:not(.hidden) details',function(x){ x.open=open; });
     tog.textContent=open?'Collapse all':'Expand all';
   });
+
+  // ---- More menu (disclosure)
+  var more=d.getElementById('moremenu'), moreBtn=d.getElementById('morebtn');
+  function setMore(open){ more.hidden=!open; moreBtn.setAttribute('aria-expanded',open?'true':'false'); }
+  moreBtn.addEventListener('click',function(){ setMore(more.hidden); if(!more.hidden) more.querySelector('button').focus(); });
+  more.addEventListener('keydown',function(e){ if(e.key==='Escape'){ setMore(false); moreBtn.focus(); } });
+  var flashT;
+  function flash(msg){ var f=d.getElementById('flash'); f.textContent=msg; clearTimeout(flashT); flashT=setTimeout(function(){ f.textContent=''; },5000); }
+
+  // ---- export
+  function rows(){
+    return Object.keys(ITEMS).map(function(id){
+      var it=ITEMS[id];
+      return [id, AREA[id[0]]+' rule '+parseInt(id.slice(1),10), it[0], AREA[id[0]], LABEL[status(id)], rec(id).n||'', it[1]+(it[2]?' (with '+it[2]+')':'')];
+    });
+  }
+  var HEAD=['ID','Rule','Title','Area','Status','Note','Owner'];
+  d.getElementById('copymd').addEventListener('click',function(){
+    function cell(x){ return String(x).replace(/\\/g,'\\\\').replace(/\|/g,'\\|').replace(/\r?\n/g,'<br>'); }
+    var md='| '+HEAD.join(' | ')+' |\n|'+HEAD.map(function(){return '---';}).join('|')+'|\n'+rows().map(function(r){ return '| '+r.map(cell).join(' | ')+' |'; }).join('\n')+'\n';
+    function done(){ flash('Copied 53 checks as Markdown.'); setMore(false); }
+    function fallback(){ var t=d.createElement('textarea'); t.value=md; t.style.position='fixed'; t.style.opacity='0'; d.body.appendChild(t); t.select(); try{ d.execCommand('copy'); done(); }catch(e){ flash('Copy failed in this browser.'); } d.body.removeChild(t); }
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(md).then(done,fallback); else fallback();
+  });
+  d.getElementById('dlcsv').addEventListener('click',function(){
+    function cell(x){ x=String(x); if(/^[=+\-@\t\r]/.test(x)) x="'"+x; return '"'+x.replace(/"/g,'""')+'"'; }
+    var csv=[HEAD].concat(rows()).map(function(r){ return r.map(cell).join(','); }).join('\r\n')+'\r\n';
+    var a=d.createElement('a'); a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'}));
+    a.download='brace-checklist-status.csv'; d.body.appendChild(a); a.click(); d.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(a.href); },1000);
+    flash('Downloaded brace-checklist-status.csv.'); setMore(false);
+  });
+
+  // ---- review file (read locally; every value from it is shown with textContent only)
+  var RKEY='brace-review-v1';
+  function str(x,max){ return typeof x==='string' ? x.slice(0,max||2000) : ''; }
+  function sanitize(data){
+    if(!data||typeof data!=='object'||!Array.isArray(data.findings)) throw new Error('This file has no "findings" list.');
+    var out={meta:{repo:str(data.repo,200), at:str(data.reviewed_at,40)}, f:{}}, n=0;
+    data.findings.forEach(function(f){
+      if(!f||typeof f!=='object'||!ITEMS[f.item]||!RV[f.rating]) return;
+      var fix=(f.fix&&typeof f.fix==='object')?f.fix:{};
+      out.f[f.item]={r:f.rating, s:str(f.summary), n:str(f.next_step),
+        steps:Array.isArray(fix.steps)?fix.steps.filter(function(x){return typeof x==='string';}).slice(0,30).map(function(x){return x.slice(0,1000);}):[],
+        dw:str(fix.done_when)};
+      n++;
+    });
+    if(!n) throw new Error('No findings in this file match checklist items.');
+    return out;
+  }
+  function clearReviewUI(){
+    each('.rvb, .review',function(x){ x.parentNode.removeChild(x); });
+    d.getElementById('revbar').hidden=true; d.getElementById('clearrev2').hidden=true;
+  }
+  function showReview(rv){
+    clearReviewUI(); if(!rv) return;
+    var ids=Object.keys(rv.f);
+    ids.forEach(function(id){
+      var f=rv.f[id], li=d.getElementById(id); if(!li) return;
+      var badge=d.createElement('span'); badge.className='rvb rv-'+f.r; badge.textContent=RV[f.r];
+      li.querySelector('summary').appendChild(badge);
+      var p=d.createElement('div'); p.className='review rv-'+f.r;
+      function add(tag,cls,text){ var e=d.createElement(tag); if(cls) e.className=cls; if(text) e.textContent=text; p.appendChild(e); return e; }
+      add('div','nl','From your review: '+RV[f.r]);
+      if(f.s) add('p','',f.s);
+      // `code` spans become <code>; every piece is still inserted as text, never as HTML.
+      function rich(el,text){ String(text).split('`').forEach(function(part,i){ if(!part) return; if(i%2){ var c=d.createElement('code'); c.textContent=part; el.appendChild(c); } else el.appendChild(d.createTextNode(part)); }); }
+      if(f.n){ var np=add('p',''); var b=d.createElement('strong'); b.textContent='Next step: '; np.appendChild(b); rich(np,f.n); }
+      if(f.steps.length){ var ol=add('ol',''); f.steps.forEach(function(s){ var x=d.createElement('li'); rich(x,s); ol.appendChild(x); }); }
+      if(f.dw){ var dp=add('p',''); var b2=d.createElement('strong'); b2.textContent='Done when: '; dp.appendChild(b2); rich(dp,f.dw); }
+      var body=li.querySelector('.body'); body.insertBefore(p, body.querySelector('.how'));
+    });
+    var gaps=ids.filter(function(id){ return rv.f[id].r==='gap'; }).length;
+    d.getElementById('revtext').textContent='Review loaded'+(rv.meta.repo?' for '+rv.meta.repo:'')+(rv.meta.at?' ('+rv.meta.at.slice(0,10)+')':'')+': '+ids.length+' findings, '+gaps+' gaps. Look for the badges below.';
+    d.getElementById('revbar').hidden=false; d.getElementById('clearrev2').hidden=false;
+  }
+  var review=load(RKEY); try{ showReview(review); }catch(e){ review=null; store(RKEY,null); }
+  var fileIn=d.getElementById('revfile');
+  d.getElementById('loadrev').addEventListener('click',function(){ fileIn.click(); });
+  fileIn.addEventListener('change',function(){
+    var file=fileIn.files&&fileIn.files[0]; fileIn.value=''; if(!file) return;
+    if(file.size>5*1024*1024){ flash('That file is too large to be a review file.'); return; }
+    var fr=new FileReader();
+    fr.onload=function(){
+      try{
+        review=sanitize(JSON.parse(fr.result));
+        Object.keys(review.f).forEach(function(id){
+          var r=rec(id), f=review.f[id];
+          if(!r.s && (f.r==='gap'||f.r==='needs_evidence')){ r.s='notyet'; r.src='review'; setRec(id,r); }
+        });
+        store(RKEY,review); showReview(review); refresh(); applyFilter(); setMore(false);
+        flash('Review loaded. Nothing was uploaded.');
+      }catch(e){ flash('Could not read that review file: '+(e&&e.message?e.message:'not valid JSON')); }
+    };
+    fr.onerror=function(){ flash('Could not read that file.'); };
+    fr.readAsText(file);
+  });
+  function clearReview(){
+    Object.keys(state).forEach(function(id){ var r=rec(id); if(r.src==='review'){ delete r.s; setRec(id,r); } });
+    review=null; store(RKEY,null); clearReviewUI(); refresh(); applyFilter(); setMore(false); flash('Review cleared.');
+  }
+  d.getElementById('clearrev').addEventListener('click',clearReview);
+  d.getElementById('clearrev2').addEventListener('click',clearReview);
+
+  // ---- open the target of a link such as /checklist/#E09
+  function openTarget(){
+    if(!location.hash) return;
+    var t; try{ t=d.getElementById(decodeURIComponent(location.hash.slice(1))); }catch(e){ return; }
+    if(!t) return;
+    if(t.classList.contains('item') && t.classList.contains('hidden')){ sel.value='all'; q.value=''; applyFilter(); }
+    if(t.classList.contains('item')) t.querySelector('details').open=true;
+    for(var p=t; p; p=p.parentElement){ if(p.tagName==='DETAILS') p.open=true; }
+    t.scrollIntoView();
+  }
+  window.addEventListener('hashchange',openTarget);
+
   var opened=[];
-  window.addEventListener('beforeprint',function(){ opened=[]; [].forEach.call(d.querySelectorAll('details'),function(x){ if(!x.open){ opened.push(x); x.open=true; } }); });
+  window.addEventListener('beforeprint',function(){ opened=[]; each('details',function(x){ if(!x.open){ opened.push(x); x.open=true; } }); });
   window.addEventListener('afterprint',function(){ opened.forEach(function(x){ x.open=false; }); });
-  if(location.hash){ var t=d.getElementById(location.hash.slice(1)); if(t&&t.classList.contains('item')) t.querySelector('details').open=true; }
-  refresh(); applyFilter();
+  refresh(); applyFilter(); openTarget();
 })();
 </script>
 </body>
