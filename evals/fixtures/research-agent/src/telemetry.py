@@ -25,7 +25,7 @@ def identity_attrs(instance_id: str, user: str) -> dict:
         "agent.accountable_party": CFG["accountable_party"],
         "agent.operational_owner": CFG["operational_owner"],
         "agent.tenant": CFG["tenant"],
-        "agent.type.id": agent_type_id(),
-        "agent.instance.id": instance_id,
+        "gen_ai.agent.version": agent_type_id(),
+        "service.instance.id": instance_id,
         "enduser.id": user,
     }

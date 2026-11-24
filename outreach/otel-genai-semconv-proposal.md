@@ -1,151 +1,39 @@
-# Proposal: agent identity and provenance attributes for GenAI semantic conventions
+# Request: clarify agent version and run identity guidance in GenAI semantic conventions
 
-> **Historical outreach draft — source review 2026-09-16:** Do not use its novelty, vendor-coverage, or incident-count claims as current evidence. See [SOURCE-REVIEW.md](../SOURCE-REVIEW.md), the [current checklist](../CHECKLIST.md), and [current telemetry proposal](../otel-conventions.md) before adapting this draft.
+> **Historical outreach draft — source review 2026-09-16, revised 2026-11-24:** Do not use its novelty, vendor-coverage, or incident-count claims as current evidence. See [SOURCE-REVIEW.md](../SOURCE-REVIEW.md), the [current checklist](../CHECKLIST.md), and the [current attribute guide](../otel-conventions.md) before adapting this draft.
 
 **To:** OpenTelemetry GenAI semantic-conventions working group / SIG
 **From:** The BRACE Project
-**Status:** Proposal — adopt as experimental attributes
+**Status:** Guidance clarification request (no new attributes requested)
 **License:** CC BY 4.0
 
 ## Summary
 
-This proposes four new attributes for the OpenTelemetry GenAI semantic conventions,
-scoped to autonomous AI agents: `agent.type.id`, `agent.instance.id`,
-`agent.context.size`, and `agent.parent.prompt`. They are additive and proposed at
-experimental stability. They let agent telemetry answer three questions it cannot
-answer today: which agent *type* took an action, how full the model's context was at
-the moment of a decision, and which parent spawned a given sub-agent.
+BRACE now uses only standard OTel attributes. It defines no custom attributes. We are not asking for new attributes. We ask the SIG to clarify two points in the guidance, so that BRACE's use matches the conventions' intent:
 
-## Motivation
+1. **`gen_ai.agent.version` may carry a content hash.** BRACE sets it to a hash (for example `sha256:9f1c...`) over the container digest, harness version, system prompt, model ID and version, and configuration. The hash changes when, and only when, one of those inputs changes. The human release label goes in `service.version`. Please confirm this is a valid use, or say what you would prefer.
+2. **How to identify a single agent run.** BRACE uses `service.instance.id` when one run is one process. Otherwise it treats the run's own `invoke_agent` span as the run, identified by its trace ID and span ID, with span links for async work. It never uses `gen_ai.agent.id` or `gen_ai.conversation.id` for this. Please confirm, or name the pattern you recommend.
 
-The GenAI conventions cover the model call well. They define prompt and completion
-content and per-call token counts (`gen_ai.usage.input_tokens`,
-`gen_ai.usage.output_tokens`). For a single LLM request that is enough.
+## What BRACE maps to standard attributes
 
-It is not enough for an autonomous agent: a loop that runs a model, calls tools on
-its behalf, accumulates context, and spawns sub-agents. Three concrete questions
-come up in production and post-incident review, and current agent telemetry cannot
-answer any of them.
+Checked on 2026-11-24 against [open-telemetry/semantic-conventions-genai](https://github.com/open-telemetry/semantic-conventions-genai). The `gen_ai.*` attributes have status Development.
 
-1. **Which agent *type* took this action?** Two agent deployments can share one
-   service-account credential and look identical in identity-provider logs, even if
-   one runs system-prompt v1.2 on one model and the other runs v1.3 on another. The
-   identity layer records *who authenticated*, not *what is running*. When an agent
-   misbehaves, "which exact build — container, harness, prompt, model, config —
-   produced this action?" is currently unanswerable from telemetry.
+- **Agent type**: content hash in `gen_ai.agent.version`; release label in `service.version`. Inputs shown with `gen_ai.agent.name`, `gen_ai.request.model`, `gen_ai.response.model`, `oci.manifest.digest` and `gen_ai.system_instructions_ref`.
+- **Agent run**: `service.instance.id`, or the run's `invoke_agent` span.
+- **Context size at decision time**: `gen_ai.usage.input_tokens` on the model-call span that produced the decision, with the cache counts and `gen_ai.conversation.compacted`.
+- **Parent-to-child provenance**: the agent-as-tool `execute_tool` span with `gen_ai.transfer.target.name` and `gen_ai.transfer.mode`. The child's own `invoke_agent` span carries `gen_ai.input.messages` or `gen_ai.input.messages_ref`. The parent link comes from trace context. Opt-in `gen_ai.tool.call.arguments` stays an option.
+- **End user**: `user.id`.
 
-2. **How full was the context when the agent decided?** Agents degrade as context
-   fills toward the limit. The existing token counts measure one call. They do not
-   record the live context occupancy at decision time, so near-limit degraded
-   behavior is invisible and anomaly baselines cannot be conditioned on it.
+## What BRACE keeps out of OTel
 
-3. **Which parent spawned this sub-agent, and what did it tell it to do?** In
-   multi-agent workflows, a parent spawns sub-agents and hands each a prompt. When a
-   sub-agent does something harmful, review cannot separate "the sub-agent type
-   misbehaved" from "the parent told it to" without the parent-passed prompt as
-   first-class telemetry.
-
-These are not exotic. They are the everyday attribution questions for any deployment
-running more than one agent type, any long-running agent, and any multi-agent system.
-
-## Proposed attributes
-
-Full definitions, types, requirement levels, examples, a worked span/log record, and
-the backward-compatibility analysis are in the companion reference
-(`otel-conventions.md`). Summary:
-
-| Attribute key | Type | Requirement level | Description |
-| --- | --- | --- | --- |
-| `agent.type.id` | string | Required | Content hash over container digest, harness version, system prompt, model id, and config. Fingerprint of the agent *type*. |
-| `agent.instance.id` | string | Required | Id of a specific running agent instance. Sub-agents are regular instances. |
-| `agent.context.size` | int | Recommended | Tokens in the model's context at the moment of the action or decision. |
-| `agent.parent.prompt` | string or reference | Conditionally required (when spawned by a parent) | The prompt the parent agent gave this sub-agent. May be the full body or a reference (hash). |
-
-## Rationale per attribute
-
-**`agent.type.id` (string, required).** The defining property of an agent is its
-content, not the identity it authenticates with. A content hash over container
-digest, harness version, system prompt, model id, and config gives a stable
-fingerprint of the agent *type*. It changes when, and only when, one of those inputs
-changes — which makes silent config or prompt drift detectable from telemetry alone.
-This cannot be derived from existing identity claims, because the identity provider
-sees the workload, not its content. This is why it is a new attribute and not a
-mapping onto an existing one.
-
-**`agent.instance.id` (string, required).** Fifty instances under one service account
-are indistinguishable in identity-provider logs. Per-instance attribution has to be
-emitted at the agent layer. Treating sub-agents as regular instances — each with its
-own `agent.type.id` and `agent.instance.id` — keeps the model uniform: there is no
-special "sub-agent" entity, only instances with parent edges in the trace context.
-
-**`agent.context.size` (int, recommended).** Context occupancy at decision time is a
-distinct signal from per-call token usage. A long-running agent emits a rising value
-across actions as its context fills. Recording it makes near-limit degradation
-visible and lets anomaly detection condition on how full the context was. Recommended
-rather than required because not every producer can cheaply measure live context
-occupancy, but it is low-cost where the harness already tracks it.
-
-**`agent.parent.prompt` (string or reference, conditionally required).** Required when
-the agent was spawned by a parent, because without the parent-passed prompt, review
-cannot attribute a sub-agent's action between the sub-agent type and the parent's
-instruction. It allows a reference form (hash on the span, body in a separate tier)
-because parent-passed prompts routinely carry customer data, tool output, and
-business logic, and emitting them inline can turn the trace store into a
-high-sensitivity store. The reference form keeps the provenance link while letting
-deployments manage the sensitive body separately.
-
-## Stability and backward compatibility
-
-The attributes are additive and proposed at **experimental** stability.
-
-- They add four new keys. They change no existing GenAI attribute and no existing
-  semantic.
-- `agent.context.size` sits alongside the existing `gen_ai.usage.*` token counts; it
-  does not replace or overload them.
-- Consumers that do not recognize the attributes ignore them, as with any unknown
-  attribute. Existing dashboards, exporters, and queries are unaffected.
-- Producers can adopt incrementally: `agent.type.id` and `agent.instance.id` first,
-  then `agent.context.size`, then `agent.parent.prompt` when sub-agents are spawned.
-- The attributes use the existing attribute model and types (string, int). No data
-  model, transport, or wire change is needed.
-
-Starting at experimental stability lets the names and requirement levels settle with
-SIG and implementer feedback before any stability commitment.
-
-## Prior art
-
-- **BRACE** — *A Unified Security Framework for Autonomous AI Agents* (CC BY
-  4.0). BRACE names three observability requirements that its controls depend
-  on: T1 required identity fields, T2 context size per action, and T3 sub-agent and
-  parent-prompt provenance. These four attributes are the OpenTelemetry expression of
-  the parts of T1/T2/T3 that are net-new at the agent layer. BRACE's analysis notes
-  that the GenAI conventions today define per-call token counts but no
-  agent-deployment-granularity attributes — specifically no required identity fields,
-  no context size at decision time, and no parent-passed prompt as a span attribute.
-- **Existing GenAI token-count attributes** — `gen_ai.usage.input_tokens` and
-  `gen_ai.usage.output_tokens`. These establish the convention of recording token
-  quantities on GenAI telemetry. `agent.context.size` follows that convention for a
-  different quantity: live context occupancy at decision time rather than per-call
-  usage.
-- **W3C Trace Context** — already propagated by OpenTelemetry. It carries the
-  parent-child call graph, including the parent edge for sub-agents.
-  `agent.parent.prompt` adds the *content* the parent passed; the *edge* is already
-  available in trace context, so this proposal does not duplicate it.
+Tenant, accountable party and operational owner have no OTel attribute. BRACE does not invent one. It records them in the audit record, from verified identity claims (OIDC or IdP tenant and org IDs, IAM tags, SPIFFE IDs), and joins the record to spans by trace ID. We mention this only so the SIG knows the gap exists. ECS `organization.*` is the closest well-known field outside OTel.
 
 ## Ask
 
-Adopt these four attributes as **experimental** attributes in the GenAI agent
-conventions:
+- Clarify in the `gen_ai.agent.version` description whether a content hash is an acceptable value.
+- Add guidance on how to identify one agent run, including sub-agent runs and async work.
 
-- `agent.type.id` (string, required)
-- `agent.instance.id` (string, required)
-- `agent.context.size` (int, recommended)
-- `agent.parent.prompt` (string or reference, conditionally required when spawned by
-  a parent)
-
-We are glad to bring this as a registry/attributes PR against the semantic-conventions
-repository, iterate on naming and requirement levels with the SIG, and supply the
-worked examples and backward-compatibility analysis from the companion reference.
+We are glad to supply worked examples from the companion guide.
 
 ---
 

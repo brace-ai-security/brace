@@ -6,7 +6,7 @@ Nothing here is fixed. The community's needs set the priorities. Open an issue t
 
 - **Sequence-pattern baselines for C7 (Behavioral)** — a portable spec for detecting multi-step attacks made of actions that are each allowed on their own (RFC).
 - **agent-type-id hashing spec** — the exact inputs to hash, and how the ID behaves when a hosted model changes without notice (RFC).
-- **OpenTelemetry `agent.*` attributes** — take the proposal through the GenAI SIG ([open-telemetry/semantic-conventions-genai#334](https://github.com/open-telemetry/semantic-conventions-genai/issues/334), open). The GenAI conventions themselves are still in Development.
+- **OpenTelemetry guidance** — ask the GenAI SIG to clarify how to record an agent content hash and a single agent run with existing attributes. BRACE defines no custom attributes. The GenAI conventions themselves are still in Development.
 - **Vendor worksheet evidence** — sourced, tested evidence for Amazon Bedrock AgentCore, Microsoft Entra Agent ID, and others (help wanted).
 - **Reference implementation** — the Tier 1 controls built on a popular open-source agent stack, emitting the OpenTelemetry attributes.
 - **Incident mapping** — collect public incident reports and map each one to the controls that would have prevented or contained it. No such collection exists yet.

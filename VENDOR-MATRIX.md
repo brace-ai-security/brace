@@ -41,7 +41,7 @@ These links are starting points, not verified ratings. The resource catalog has 
 | [Microsoft Entra Agent ID](https://learn.microsoft.com/en-us/entra/agent-id/what-is-microsoft-entra-agent-id) | How agent identities are issued and scoped, delegated authority, and revoking an agent without revoking its user. |
 | [OpenAI Agent Builder](https://developers.openai.com/api/docs/guides/agent-builder) | Workflow versioning and tool controls. OpenAI is deprecating Agent Builder. The official guide says it shuts down on November 30, 2026, and that ChatKit remains available. Plan a migration before you rely on it. |
 | [Anthropic trustworthy-agents guidance](https://www.anthropic.com/research/trustworthy-agents) | How duties split across the model, harness, tools, and environment. This guidance does not prove that any managed product has a given feature. |
-| [OpenTelemetry GenAI conventions](https://github.com/open-telemetry/semantic-conventions-genai/tree/main/docs/gen-ai) | Existing agent and model attributes and tracing. Status: Development. BRACE's proposed additions are tracked in [semantic-conventions-genai#334](https://github.com/open-telemetry/semantic-conventions-genai/issues/334). Check BRACE-specific fields and audit coverage separately. |
+| [OpenTelemetry GenAI conventions](https://github.com/open-telemetry/semantic-conventions-genai/tree/main/docs/gen-ai) | Existing agent and model attributes and tracing. Status: Development. BRACE maps its needs onto these attributes; see [OTel conventions](otel-conventions.md). Check BRACE-specific fields and audit coverage separately. |
 
 ## Reference designs and standards
 

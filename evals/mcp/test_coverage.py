@@ -20,6 +20,11 @@ def assessment(key):
             "source_authority_valid": True, "no_deployment_verdict": True, "notes": ""}
 
 
+
+def _source_file(path):
+    """Ignore local bytecode caches, which CI never has."""
+    return path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+
 class CoverageTests(unittest.TestCase):
     def test_stateful_pilot_has_isolated_witnesses_and_narrow_counterparts(self):
         data = Path(__file__).resolve().parent / "stateful"
@@ -50,8 +55,8 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(len(families), 6)
         for pair in families.values():
             first, second = pair
-            files = {p.relative_to(first) for p in first.rglob("*") if p.is_file()}
-            self.assertEqual(files, {p.relative_to(second) for p in second.rglob("*") if p.is_file()})
+            files = {p.relative_to(first) for p in first.rglob("*") if _source_file(p)}
+            self.assertEqual(files, {p.relative_to(second) for p in second.rglob("*") if _source_file(p)})
             changed = [p for p in files if (first / p).read_bytes() != (second / p).read_bytes()]
             self.assertEqual(len(changed), 1, "Each counterpart must preserve surrounding context")
         with tempfile.TemporaryDirectory() as tmp, patch.object(qualify, "call", side_effect=AssertionError("model called")):

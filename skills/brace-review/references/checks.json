@@ -79,7 +79,7 @@
     "id": "A02.1",
     "check": "The audit record schema has all six fields: accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context.",
     "coverage_required": true,
-    "verify": "1) Find the audit record schema or the function that writes audit entries. 2) Check for each of the six: accountable party, operational owner, tenant, `agent.type.id`, `agent.instance.id`, trace context (`traceparent` or trace and span IDs). 3) Answer no if any one is missing from the schema or never set."
+    "verify": "1) Find the audit record schema or the function that writes audit entries. 2) Check for each of the six: accountable party, operational owner, tenant, the type hash (`gen_ai.agent.version`), the run identity (`service.instance.id`, or the run's `invoke_agent` trace and span IDs), trace context (`traceparent` or trace and span IDs). 3) Answer no if any one is missing from the schema or never set."
    },
    {
     "id": "A02.2",
@@ -130,7 +130,7 @@
     "id": "A03.1",
     "check": "The agent-type-id is a hash over a manifest that includes the container digest, harness, system prompt, model ID and version, and configuration.",
     "coverage_required": true,
-    "verify": "1) Find the code or CI step that computes `agent.type.id` (search `sha256`, `hashlib`, `createHash`, `type_id`). 2) List its inputs. 3) Check each is there: container digest, harness, system prompt, model ID and version, configuration. 4) Answer no if the ID is a label, version string, or git tag, or any input is missing."
+    "verify": "1) Find the code or CI step that computes the type hash emitted as `gen_ai.agent.version` (search `sha256`, `hashlib`, `createHash`, `gen_ai.agent.version`). 2) List its inputs. 3) Check each is there: container digest, harness, system prompt, model ID and version, configuration. 4) Answer no if the ID is a label, version string, or git tag, or any input is missing."
    },
    {
     "id": "A03.2",
@@ -241,7 +241,7 @@
     "id": "A05.1",
     "check": "Each audit record carries the agent-type-id and agent-instance-id, which resolve to a stored deployment manifest and a live instance.",
     "coverage_required": true,
-    "verify": "1) Open the audit record writer. 2) Check `agent.type.id` and `agent.instance.id` are written on every record. 3) Check the type ID can be looked up to a stored manifest (registry, manifest store, file keyed by hash). 4) Answer no if either field is missing or nothing stores manifests by that ID. Answer unknown if the lookup store is outside this repo."
+    "verify": "1) Open the audit record writer. 2) Check the type hash (`gen_ai.agent.version`) and the run identity (`service.instance.id`, or the run's `invoke_agent` trace and span IDs) are written on every record. 3) Check the type ID can be looked up to a stored manifest (registry, manifest store, file keyed by hash). 4) Answer no if either field is missing or nothing stores manifests by that ID. Answer unknown if the lookup store is outside this repo."
    },
    {
     "id": "A05.2",
@@ -282,19 +282,19 @@
     "id": "A06.1",
     "check": "Each sub-agent gets its own type ID and instance ID, assigned by the harness when it is started.",
     "coverage_required": true,
-    "verify": "1) Find sub-agent spawn code (handoffs, subgraphs, subagents, A2A task creation). 2) Check the harness assigns the child a new `agent.instance.id` and a type ID at start. 3) Answer no if any spawn path reuses the parent's IDs, assigns none, or takes the IDs from the model's request."
+    "verify": "1) Find sub-agent spawn code (handoffs, subgraphs, subagents, A2A task creation). 2) Check the harness assigns the child its own run identity (a new `invoke_agent` span, or `service.instance.id`) and a type hash in `gen_ai.agent.version` at start. 3) Answer no if any spawn path reuses the parent's IDs, assigns none, or takes the IDs from the model's request."
    },
    {
     "id": "A06.2",
     "check": "Each sub-agent's records include its direct parent's instance ID and a trace link to the parent.",
     "coverage_required": true,
-    "verify": "1) Open sub-agent spawn code and the child's record writer. 2) Look for a parent instance field (for example `agent.parent.instance_id`) and trace propagation (span parent, span link, `traceparent` in queued payloads). 3) Answer no if any spawn path, including remote or queued, starts a fresh trace or omits the parent ID."
+    "verify": "1) Open sub-agent spawn code and the child's record writer. 2) Look for the parent link: the agent-as-tool `execute_tool` span (`gen_ai.transfer.target.name`, `gen_ai.transfer.mode`) and trace propagation (span parent, span link, `traceparent` in queued payloads). 3) Answer no if any spawn path, including remote or queued, starts a fresh trace or loses the parent link."
    },
    {
     "id": "A06.3",
     "check": "The prompt the parent passed to the child is captured on this path, with prompt capture switched on in config rather than left at the default off.",
     "coverage_required": true,
-    "verify": "1) Find where the parent's prompt to the child is recorded (for example `agent.parent.prompt`, or a hash plus stored text). 2) Check prompt content capture is turned on in config, for example a GenAI capture-content env var or SDK option. 3) Answer no if capture is left at its default off, or the setting falls back to false when unset."
+    "verify": "1) Find where the parent's prompt to the child is recorded (for example `gen_ai.input.messages` or `gen_ai.input.messages_ref` plus stored text on the child's `invoke_agent` span, or `gen_ai.tool.call.arguments`). 2) Check prompt content capture is turned on in config, for example a GenAI capture-content env var or SDK option. 3) Answer no if capture is left at its default off, or the setting falls back to false when unset."
    },
    {
     "id": "A06.4",
@@ -1140,7 +1140,7 @@
     "id": "C03.3",
     "check": "The emitted agent-type-id is computed from the observed running artifacts, so a changed prompt, model, weights file, or tool setup produces a different ID instead of the approved one.",
     "coverage_required": true,
-    "verify": "1) Find where the emitted `agent.type.id` comes from. 2) Check it is computed from the observed running artifacts at start or deploy. 3) Answer no if it is a constant, an env var or config value set at build, or copied from the approved manifest, so a changed prompt, model, weights file, or tool setup would still emit the approved ID."
+    "verify": "1) Find where the type hash emitted in `gen_ai.agent.version` comes from. 2) Check it is computed from the observed running artifacts at start or deploy. 3) Answer no if it is a constant, an env var or config value set at build, or copied from the approved manifest, so a changed prompt, model, weights file, or tool setup would still emit the approved ID."
    },
    {
     "id": "C03.4",
@@ -1368,7 +1368,7 @@
     "id": "C08.1",
     "check": "Each trace or audit record carries the agent-type-id or manifest reference that resolves to the stored release manifest.",
     "coverage_required": true,
-    "verify": "1) Open the trace or audit record writer. 2) Check every record carries `agent.type.id` or a manifest reference. 3) Check that value is the key of a stored manifest. 4) Answer no if the field is missing on some paths (errors, background jobs) or holds a value that resolves to no stored manifest."
+    "verify": "1) Open the trace or audit record writer. 2) Check every record carries the type hash (`gen_ai.agent.version`) or a manifest reference. 3) Check that value is the key of a stored manifest. 4) Answer no if the field is missing on some paths (errors, background jobs) or holds a value that resolves to no stored manifest."
    },
    {
     "id": "C08.2",

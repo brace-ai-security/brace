@@ -62,8 +62,7 @@ def run(question: str, user: str) -> str:
                     for attr, value in identity_attrs(instance_id, user).items():
                         span.set_attribute(attr, value)
                     span.set_attribute("gen_ai.tool.name", block.name)
-                    span.set_attribute("agent.context.size", resp.usage.input_tokens)
-                    span.set_attribute("agent.context.size.method", "measured")
+                    span.set_attribute("gen_ai.usage.input_tokens", resp.usage.input_tokens)
                     tool_calls += 1
                     if block.name not in TOOLS or tool_calls > B["max_tool_calls"] or _halted():
                         span.set_attribute("agent.decision", "deny")

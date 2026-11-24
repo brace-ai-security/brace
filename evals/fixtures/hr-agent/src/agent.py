@@ -52,7 +52,7 @@ class Agent:
         return RunState(messages=[{"role": "user", "content": user_text}], budget=budget, subject_token=subject_token)
 
     async def run(self, ctx: RunContext, state: RunState) -> RunState:
-        with tracer.start_as_current_span("agent.run", attributes={"agent.instance.id": ctx.agent_instance_id}):
+        with tracer.start_as_current_span("invoke_agent hr_agent", attributes={"gen_ai.operation.name": "invoke_agent"}):
             try:
                 await self._loop(ctx, state)
             except BudgetExceeded as exc:
@@ -121,7 +121,7 @@ class Agent:
         return await self._execute(ctx, state, step_id, tool_use_id, spec, target, args, approval_id=None)
 
     async def resume_with_approval(self, ctx: RunContext, state: RunState, approval_id: str) -> RunState:
-        with tracer.start_as_current_span("agent.resume", attributes={"agent.instance.id": ctx.agent_instance_id}):
+        with tracer.start_as_current_span("invoke_agent hr_agent", attributes={"gen_ai.operation.name": "invoke_agent"}):
             pending = await self.approvals.pending(approval_id)
             if pending is None or pending["run_id"] != ctx.run_id:
                 raise ApprovalInvalid("unknown approval for this run")

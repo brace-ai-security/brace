@@ -49,7 +49,7 @@ Mappings must stay vendor-neutral. We map what a product does; we don't endorse 
 
 ## Suggest OpenTelemetry attribute refinements
 
-The three observability requirements are Obs-T1 (identity fields), Obs-T2 (context-size logging), and Obs-T3 (sub-agent and parent-prompt provenance). BRACE expresses them as [proposed OpenTelemetry attributes](otel-conventions.md), so the same fields work across vendors. The proposal is tracked in [open-telemetry/semantic-conventions-genai#334](https://github.com/open-telemetry/semantic-conventions-genai/issues/334). To refine them, open an issue with:
+The three observability requirements are Obs-T1 (identity fields), Obs-T2 (context-size logging), and Obs-T3 (sub-agent and parent-prompt provenance). BRACE maps them onto [standard OpenTelemetry attributes](otel-conventions.md), so the same fields work across vendors. To refine them, open an issue with:
 
 - The attribute name(s) you'd change, add, or remove.
 - How it fits OpenTelemetry semantic-convention practice.
