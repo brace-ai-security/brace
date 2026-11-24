@@ -23,11 +23,9 @@ def action_span(identity: dict, tool_name: str, context_tokens: int | None):
     with tracer.start_as_current_span(f"execute_tool {tool_name}") as span:
         span.set_attribute("gen_ai.operation.name", "execute_tool")
         span.set_attribute("gen_ai.tool.name", tool_name)
-        span.set_attribute("agent.accountable_party", identity["accountable_party"])
-        span.set_attribute("agent.operational_owner", identity["operational_owner"])
-        span.set_attribute("agent.tenant", identity["tenant"])
+        span.set_attribute("gen_ai.agent.name", "support-agent")
         span.set_attribute("gen_ai.agent.version", identity["agent_type_id"])
-        span.set_attribute("service.instance.id", identity["agent_instance_id"])
+        # Tenant, owner and run ID go in the audit record (src/audit.py).
         if context_tokens is not None:
             # usage.input_tokens of the call that chose this tool = full prompt size at decision time
             span.set_attribute("gen_ai.usage.input_tokens", context_tokens)

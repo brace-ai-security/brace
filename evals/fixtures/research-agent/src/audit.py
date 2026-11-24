@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from opentelemetry import trace
 
-from src.telemetry import identity_attrs
+from src.telemetry import audit_identity
 
 
 def record(instance_id: str, user: str, event: str, details: dict) -> None:
@@ -13,7 +13,7 @@ def record(instance_id: str, user: str, event: str, details: dict) -> None:
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "event": event,
-        **identity_attrs(instance_id, user),
+        **audit_identity(instance_id, user),
         "trace_id": format(ctx.trace_id, "032x"),
         "span_id": format(ctx.span_id, "016x"),
         "details": details,

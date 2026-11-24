@@ -20,12 +20,23 @@ trace.set_tracer_provider(_provider)
 tracer = trace.get_tracer("research-agent")
 
 
-def identity_attrs(instance_id: str, user: str) -> dict:
+def span_attrs(user: str) -> dict:
+    """Standard attributes for the run's invoke_agent span. The span itself identifies the run."""
     return {
-        "agent.accountable_party": CFG["accountable_party"],
-        "agent.operational_owner": CFG["operational_owner"],
-        "agent.tenant": CFG["tenant"],
+        "gen_ai.operation.name": "invoke_agent",
+        "gen_ai.agent.name": "research-agent",
         "gen_ai.agent.version": agent_type_id(),
-        "service.instance.id": instance_id,
         "enduser.id": user,
+    }
+
+
+def audit_identity(instance_id: str, user: str) -> dict:
+    """Identity fields for the audit record, joined to spans by trace ID."""
+    return {
+        "accountable_party": CFG["accountable_party"],
+        "operational_owner": CFG["operational_owner"],
+        "tenant": CFG["tenant"],
+        "agent_type_id": agent_type_id(),
+        "agent_instance_id": instance_id,
+        "user": user,
     }

@@ -8,7 +8,7 @@ import yaml
 
 from src.audit import record
 from src.quota import RunLimitReached, charge_user_run
-from src.telemetry import identity_attrs, tracer
+from src.telemetry import span_attrs, tracer
 from src.tools import TOOL_SCHEMAS, TOOLS
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -33,7 +33,7 @@ def run(question: str, user: str) -> str:
     messages = [{"role": "user", "content": question}]
 
     with tracer.start_as_current_span("invoke_agent research-agent") as root:
-        for attr, value in identity_attrs(instance_id, user).items():
+        for attr, value in span_attrs(user).items():
             root.set_attribute(attr, value)
 
         for step in range(B["max_steps"]):
@@ -59,7 +59,7 @@ def run(question: str, user: str) -> str:
                 if block.type != "tool_use":
                     continue
                 with tracer.start_as_current_span(f"execute_tool {block.name}") as span:
-                    for attr, value in identity_attrs(instance_id, user).items():
+                    for attr, value in span_attrs(user).items():
                         span.set_attribute(attr, value)
                     span.set_attribute("gen_ai.tool.name", block.name)
                     span.set_attribute("gen_ai.usage.input_tokens", resp.usage.input_tokens)
