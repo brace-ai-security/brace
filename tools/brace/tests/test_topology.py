@@ -36,7 +36,10 @@ def test_declared_nodes(bom):
     mcp = svc["mcp:accounting"]
     assert mcp["endpoints"] == ["https://accounting-mcp.internal.ledgerly.io/mcp"]
     assert mcp["authenticated"] is True
-    assert {t["bom-ref"] for t in mcp["services"]} == {"mcp:accounting/get_customer", "mcp:accounting/list_payments"}
+    assert "services" not in mcp  # MCP tools are top-level services, linked with `provides`
+    dep = next(d for d in bom["dependencies"] if d["ref"] == "mcp:accounting")
+    assert set(dep["provides"]) == {"mcp:accounting/get_customer", "mcp:accounting/list_payments"}
+    assert {"mcp:accounting/get_customer", "mcp:accounting/list_payments"} <= set(svc)
     assert "tool:issue_refund" in svc
     refs = {c["bom-ref"] for c in bom["components"]}
     assert {"unit:src/agent.py", "unit:src/drafter.py", "data:audit-log"} <= refs
@@ -44,6 +47,7 @@ def test_declared_nodes(bom):
 
 def test_marked_incomplete_and_zone_unknown(bom):
     assert bom["compositions"][0]["aggregate"] == "incomplete"
+    assert "agent" not in bom["compositions"][0]["assemblies"]
     names = {p["name"]: p["value"] for p in bom["services"][0]["properties"]}
     assert names["brace:trust_zone"] == "unknown"
     assert "x-trust-boundary" not in bom["services"][0]
@@ -157,3 +161,11 @@ def test_tools_map_config(tmp_path):
     assert topology.validate(bom) == []
     refs = {x["bom-ref"] for x in bom["services"]}
     assert {"tool:file_leave_request", "tool:escalate_to_human", "tool:search_policies"} <= refs
+
+
+def test_provides_is_checked(bom):
+    bad = json.loads(json.dumps(bom))
+    bad["dependencies"].append({"ref": "tool:issue_refund", "provides": ["mcp:accounting/get_customer"]})
+    assert any("only an MCP server provides" in e for e in topology.validate(bad))
+    bad["dependencies"].append({"ref": "mcp:accounting", "provides": ["mcp:nope"]})
+    assert any("unknown bom-ref mcp:nope" in e for e in topology.validate(bad))

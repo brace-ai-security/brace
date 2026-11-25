@@ -10,7 +10,7 @@ official schema, and renders it as a Mermaid flowchart.
     python tools/brace/topology.py validate topology.cdx.json
     python tools/brace/topology.py mermaid topology.cdx.json [-o topology.mmd]
     python tools/brace/topology.py report topology.cdx.json [--findings brace-findings.json] -o topology.html
-    python tools/brace/topology.py add-node|add-edge|set-zone <repo> --evidence path:line --quote "..." ...
+    python tools/brace/topology.py add-node|add-edge|set-zone|add-tag <repo> --evidence path:line --quote "..." ...
     python tools/brace/topology.py record topology.cdx.json [--record .brace/topology.cdx.json] [--apply]
 
 Workflow: `build` seeds what files declare; the reviewer records code-traced nodes,
@@ -108,9 +108,16 @@ def line_of(path: Path, needle: str) -> int:
     return 1
 
 
-def quote_prop(entry: dict) -> dict:
-    """The verified code quote behind an overlay entry, kept so reports can show it."""
-    return prop("quote", json.dumps([entry["evidence"], entry["quote"]]))
+def quote_prop(entry: dict) -> list[dict]:
+    """The verified code quote behind an overlay entry, kept so reports can show it:
+    `brace:quote:file` (path:line) followed by `brace:quote:text`."""
+    return [prop("quote:file", entry["evidence"]), prop("quote:text", entry["quote"])]
+
+
+def node_quotes(node: dict) -> list[tuple[str, str]]:
+    files = [p["value"] for p in node.get("properties", []) if p["name"] == "brace:quote:file"]
+    texts = [p["value"] for p in node.get("properties", []) if p["name"] == "brace:quote:text"]
+    return list(zip(files, texts))
 
 
 # --------------------------------------------------------------------------- build
@@ -127,7 +134,8 @@ def tool_entries(cfg: dict) -> list[tuple[str, dict]]:
 
 
 def build(repo: Path, inventory: Path | None, agent_config: Path | None,
-          overlay: Path | None = None, tools_config: Path | None = None) -> dict:
+          overlay: Path | None = None, tools_config: Path | None = None,
+          host: list[dict] | None = None) -> dict:
     cfg = load_yaml(agent_config) if agent_config else {}
     agent_cfg = cfg.get("agent") or {}
     cfg_rel = agent_config.relative_to(repo).as_posix() if agent_config else None
@@ -241,6 +249,43 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
                              "properties": [prop("kind", "tool"), prop("source", "agent_config"), ev, *extra]})
             depend("agent", f"tool:{tool}")
 
+    # Found on host: MCP servers in client settings on the machine, or in scanner output.
+    # These are detected evidence (the server is configured where the agent runs), never
+    # declarations. Only names, keys and redacted shapes are kept (see host_scan.py).
+    for rec in host or []:
+        ref = f"mcp:{rec['name']}"
+        source = "scan" if rec.get("scanner") else "host"
+        where = f"{rec['client']}: {rec['file']}#{rec['key']}"
+        svc = by_server.get(rec["name"])
+        if svc is None:
+            svc = {"bom-ref": ref, "name": rec["name"],
+                   "properties": [prop("kind", "mcp_server"), prop("transport", rec["transport"] or "unknown"),
+                                  prop("source", source), prop("trust_zone", "unknown")]}
+            if rec.get("url"):
+                svc["endpoints"] = [rec["url"]]
+            if rec.get("command"):
+                svc["properties"].append(prop("command", rec["command"]))
+            services.append(svc)
+            by_server[rec["name"]] = svc
+            depend("agent", ref)
+        svc["properties"].append(prop("host_evidence", where))
+        for k in rec.get("env_keys", []) + rec.get("header_keys", []):
+            name = "credential_key" if SECRET_FLAG.search(k) or k.lower() == "authorization" else "config_key"
+            if prop(name, k) not in svc["properties"]:
+                svc["properties"].append(prop(name, k))
+        have = {t["name"] for t in svc.get("services", [])}
+        for tool in rec.get("tools", []):
+            if tool and tool not in have:
+                have.add(tool)
+                svc.setdefault("services", []).append(
+                    {"bom-ref": f"{ref}/{tool}", "name": tool,
+                     "properties": [prop("kind", "mcp_tool"), prop("source", source), prop("host_evidence", where)]})
+        for i in rec.get("issues", []):
+            svc["properties"] += [
+                prop("scan_issue:finding", f"{rec.get('scanner', '')}: {i['code']}" + (f" on {i['tool']}" if i["tool"] else "")
+                     + (f" ({i['severity']})" if i["severity"] else "")),
+                prop("scan_issue:text", i["message"])]
+
     # Declared connections: `connections: [{from, to, kind, name, label}]` in the agent config
     # names the services and stores the agent is meant to reach (the intended egress).
     declared = {c["bom-ref"]: c for c in [agent, *components, *services]}
@@ -279,11 +324,11 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
                 stale.append(f"node {n['ref']}: {err}")
                 continue
             if n["ref"] in existing:  # already declared: keep one node, add the traced evidence
-                existing[n["ref"]]["properties"] += [prop("traced_evidence", n["evidence"]), quote_prop(n)]
+                existing[n["ref"]]["properties"] += [prop("traced_evidence", n["evidence"]), *quote_prop(n)]
                 continue
             node = {"bom-ref": n["ref"], "name": n.get("name") or n["ref"].split(":", 1)[-1],
                     "properties": [prop("kind", n["kind"]), prop("source", "traced"), prop("evidence", n["evidence"]),
-                                   quote_prop(n)]}
+                                   *quote_prop(n)]}
             if n["kind"] in SERVICE_KINDS:
                 node["properties"].append(prop("trust_zone", "unknown"))
                 services.append(node)
@@ -301,7 +346,7 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
             svc = index[z["ref"]]
             svc["trustZone"] = z["zone"]
             svc["properties"] = [p for p in svc["properties"] if p["name"] != "brace:trust_zone"]
-            svc["properties"] += [prop("zone_evidence", z["evidence"]), quote_prop(z)]
+            svc["properties"] += [prop("zone_evidence", z["evidence"]), *quote_prop(z)]
         for e in ov.get("edges", []):
             err = check_quote(repo, e["evidence"], e["quote"])
             if err or e["from"] not in index or e["to"] not in index:
@@ -310,7 +355,33 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
             depend(e["from"], e["to"])
             index[e["from"]]["properties"].append(
                 prop("edge", f"{e['to']}|{e.get('label', '')}|traced|{e['evidence']}|{','.join(e.get('risks', []))}"))
-            index[e["from"]]["properties"].append(quote_prop(e))
+            index[e["from"]]["properties"] += quote_prop(e)
+
+    # Capability tags (B05): declared in the agent config, or recorded by a reviewer in the overlay.
+    index = {c["bom-ref"]: c for c in [agent, *components, *services]}
+    for s in services:
+        for t in s.get("services", []):
+            index[t["bom-ref"]] = t
+    cap_text = agent_config.read_text().splitlines() if agent_config else []
+    for ref, tags in capability_entries(cfg):
+        line = next((i for i, t in enumerate(cap_text, 1) if t.strip().startswith((f"{ref}:", f'"{ref}":'))), 1)
+        for tag in tags:
+            if ref not in index or tag not in CAPABILITIES and tag != "none":
+                stale.append(f"capability {ref} {tag}: {'unknown bom-ref' if ref not in index else 'unknown tag'}")
+                continue
+            index[ref]["properties"] += tag_props(tag, "declared", f"{cfg_rel}:{line}")
+    if overlay and overlay.exists():
+        for t in json.loads(overlay.read_text()).get("tags", []):
+            err = check_quote(repo, t["evidence"], t["quote"])
+            if not err and t["ref"] not in index:
+                err = "unknown bom-ref"
+            if not err and t["tag"] not in CAPABILITIES and t["tag"] != "none":
+                err = "unknown tag"
+            if err:
+                stale.append(f"capability {t['ref']} {t['tag']}: {err}")
+                continue
+            index[t["ref"]]["properties"] += [*tag_props(t["tag"], "reviewer", t["evidence"], t.get("reason", "")),
+                                              *quote_prop(t)]
 
     all_refs = [c["bom-ref"] for c in components] + [s["bom-ref"] for s in services]
     for s in services:
@@ -332,7 +403,101 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
         + [{"ref": r} for r in all_refs if r not in deps],
         "compositions": [{"aggregate": "incomplete", "assemblies": ["agent", *all_refs]}],
     }
+    finalize(bom)
+    infer_tags(bom)
+    for c in bom["components"]:  # data stores carry a CycloneDX data classification
+        if node_props(c).get("kind") == ["data_store"]:
+            cls = "private_data" if any(t["tag"] == "private_data" for t in node_tags(c)) else "unclassified"
+            c["data"] = [{"type": "dataset", "name": c["name"], "classification": cls}]
+    for c in combinations(bom):
+        key = f"combination:{c['type']}:{c['agent']}"
+        bom["metadata"]["properties"].append(prop(key, c["status"]))
+        bom["metadata"]["properties"] += [prop(f"{key}:{t}", r) for t, r in c["pick"].items()]
+        bom["metadata"]["properties"] += [prop(f"{key}:missing", t) for t in c["missing"]]
+        bom["metadata"]["properties"] += [prop(f"{key}:unknown", r) for r in c["unknown"]]
     return bom
+
+
+def flow_direction(risks: list[str], label: str) -> str:
+    """Which way the data mostly goes on a call: `call` (caller to callee), `return` or `both`."""
+    rs = set(risks)
+    send = bool(rs & {"writes", "money"}) or any(w in label.lower() for w in ("send", "post", "write", "book", "pay"))
+    recv = "untrusted_input" in rs or any(w in label.lower() for w in ("read", "fetch", "search", "get", "return"))
+    return "both" if send == recv else "call" if send else "return"
+
+
+def finalize(bom: dict) -> None:
+    """Turn the working structure into the published CycloneDX shape:
+
+    - MCP tools become top-level services, linked from their server with `provides`;
+    - `dependsOn` holds only call direction (caller -> callee); a service answering an
+      agent loop is a data flow, not a dependency;
+    - labels and risks of connections become `services[].data` flows; the evidence stays
+      in simple `brace:edge:<to>` and `brace:declared_edge:<to>` properties."""
+    services = bom["services"]
+    flat, provides = [], {}
+    for svc in services:
+        kids = svc.pop("services", [])
+        flat.append(svc)
+        if kids:
+            provides[svc["bom-ref"]] = [k["bom-ref"] for k in kids]
+            flat += kids
+    bom["services"] = flat
+    nodes = {bom["metadata"]["component"]["bom-ref"]: bom["metadata"]["component"],
+             **{n["bom-ref"]: n for n in [*bom["components"], *flat]}}
+    kind = {r: node_props(n).get("kind", [""])[0] for r, n in nodes.items()}
+    service_refs = {n["bom-ref"] for n in flat}
+    deps = {d["ref"]: list(d.get("dependsOn", [])) for d in bom["dependencies"]}
+
+    flows: dict[tuple, dict] = {}
+    for ref, n in nodes.items():
+        keep = []
+        for p in n.get("properties", []):
+            name = p["name"].removeprefix("brace:")
+            if name == "edge":
+                to, label, _, ev, risks = (p["value"].split("|") + [""] * 5)[:5]
+                keep.append(prop(f"edge:{to}", ev))
+                flows[(ref, to)] = {"label": label, "risks": [r for r in risks.split(",") if r]}
+            elif name == "declared_edge":
+                to, label, ev = (p["value"].split("|") + [""] * 3)[:3]
+                keep.append(prop(f"declared_edge:{to}", ev))
+                flows.setdefault((ref, to), {"label": label, "risks": []})
+            else:
+                keep.append(p)
+        n["properties"] = keep
+    # A service answering an agent loop is data coming back, not a call.
+    for (a, b) in list(flows):
+        if kind[b] in AGENT_KINDS and kind[a] not in AGENT_KINDS and b in deps.get(a, []):
+            deps[a].remove(b)
+    for (a, b), f in flows.items():
+        is_call = b in deps.get(a, [])
+        if b in service_refs and is_call:
+            host = b
+        elif a in service_refs:
+            host = a
+        else:
+            continue
+        way = flow_direction(f["risks"], f["label"]) if is_call else "call"
+        src, dst = (a, b) if way != "return" else (b, a)
+        if way == "both":
+            flow = "bi-directional"
+        else:
+            flow = "inbound" if dst == host else "outbound"
+        for cls in f["risks"] or ["unclassified"]:
+            nodes[host].setdefault("data", []).append(
+                {"flow": flow, "classification": cls, "name": f["label"] or f"{a} to {b}",
+                 "source": [src], "destination": [dst]})
+    out = []
+    for d in bom["dependencies"]:
+        entry = {"ref": d["ref"]}
+        if deps.get(d["ref"]):
+            entry["dependsOn"] = deps[d["ref"]]
+        if provides.get(d["ref"]):
+            entry["provides"] = provides[d["ref"]]
+        out.append(entry)
+    bom["dependencies"] = out
+    for c in bom["compositions"]:
+        c["assemblies"] = [r for r in c["assemblies"] if r != bom["metadata"]["component"]["bom-ref"]]
 
 
 # ------------------------------------------------------------------------ validate
@@ -368,9 +533,15 @@ def validate(bom: dict) -> list[str]:
             errors.append(f"brace: duplicate bom-ref {r}")
         seen.add(r)
     for d in bom.get("dependencies", []):
-        for r in [d["ref"], *d.get("dependsOn", [])]:
+        for r in [d["ref"], *d.get("dependsOn", []), *d.get("provides", [])]:
             if r not in seen:
                 errors.append(f"brace: dependency refers to unknown bom-ref {r}")
+    kinds = {n["bom-ref"]: node_props(n).get("kind", [""])[0]
+             for n in [*bom.get("components", []), *bom.get("services", [])]}
+    for d in bom.get("dependencies", []):
+        for r in d.get("provides", []):
+            if kinds.get(d["ref"]) != "mcp_server" or kinds.get(r) != "mcp_tool":
+                errors.append(f"brace: only an MCP server provides MCP tools ({d['ref']} provides {r})")
     return errors
 
 
@@ -407,16 +578,16 @@ def node_props(node: dict) -> dict[str, list[str]]:
 
 
 def all_nodes(bom: dict) -> dict[str, dict]:
+    """Every part by bom-ref. `_parent` is the MCP server that `provides` a tool."""
+    parent = {t: d["ref"] for d in bom.get("dependencies", []) for t in d.get("provides", [])}
     out = {}
-
-    def add(n, parent=None):
-        out[n["bom-ref"]] = {**n, "_parent": parent}
-        for t in n.get("services", []):
-            add(t, n["bom-ref"])
-    add(bom["metadata"]["component"])
-    for n in [*bom.get("components", []), *bom.get("services", [])]:
-        add(n)
+    for n in [bom["metadata"]["component"], *bom.get("components", []), *bom.get("services", [])]:
+        out[n["bom-ref"]] = {**n, "_parent": parent.get(n["bom-ref"])}
     return out
+
+
+def children_of(bom: dict) -> dict[str, list[str]]:
+    return {d["ref"]: list(d["provides"]) for d in bom.get("dependencies", []) if d.get("provides")}
 
 
 def zone_of(node: dict, nodes: dict) -> str:
@@ -430,31 +601,43 @@ def zone_of(node: dict, nodes: dict) -> str:
 def connections(bom: dict) -> list[dict]:
     """Every edge, with the reasons it matters for security (stated or derived)."""
     nodes = all_nodes(bom)
-    meta = {}
+    calls = [(d["ref"], to) for d in bom.get("dependencies", []) for to in d.get("dependsOn", [])]
+    call_set = set(calls)
+    meta: dict[tuple, dict] = {}
+    for n in nodes.values():
+        for f in n.get("data", []):
+            if "flow" not in f or not f.get("source") or not f.get("destination"):
+                continue
+            a, b = f["source"][0], f["destination"][0]
+            key = (b, a) if (b, a) in call_set and (a, b) not in call_set else (a, b)
+            m = meta.setdefault(key, {"label": "", "source": "declared", "evidence": "", "risks": []})
+            if f.get("name") and f["name"] != f"{key[0]} to {key[1]}":
+                m["label"] = f["name"]
+            if f.get("classification") and f["classification"] != "unclassified" and f["classification"] not in m["risks"]:
+                m["risks"].append(f["classification"])
     for ref, n in nodes.items():
-        for v in node_props(n).get("edge", []):
-            parts = v.split("|")
-            to, label, source, evidence = parts[:4]
-            risks = [r for r in (parts[4].split(",") if len(parts) > 4 else []) if r]
-            meta[(ref, to)] = {"label": label, "source": source, "evidence": evidence, "risks": risks}
+        for name, vals in node_props(n).items():
+            if name.startswith("edge:"):
+                m = meta.setdefault((ref, name[5:]), {"label": "", "source": "declared", "evidence": "", "risks": []})
+                m.update(source="traced", evidence=vals[0])
+    edges = calls + [k for k in meta if k not in call_set and k[0] in nodes and k[1] in nodes]
     out = []
-    for d in bom.get("dependencies", []):
-        for to in d.get("dependsOn", []):
-            m = meta.get((d["ref"], to), {"label": "", "source": "declared", "evidence": "", "risks": []})
-            src, dst = nodes[d["ref"]], nodes[to]
-            risks = list(m["risks"])
-            dp = node_props(dst)
-            if "credential_key" in dp or dst.get("authenticated"):
-                risks.append("credential")
-            if dp.get("kind", [""])[0] in OUTSIDE_KINDS:
-                zs, zd = zone_of(src, nodes), zone_of(dst, nodes)
-                if zd == "unknown":
-                    risks.append("unknown_zone")
-                elif zs != zd:
-                    risks.append("crosses_boundary")
-            if not m["evidence"]:
-                m = {**m, "evidence": dp.get("evidence", [""])[0]}
-            out.append({"from": d["ref"], "to": to, **m, "risks": list(dict.fromkeys(risks))})
+    for frm, to in edges:
+        m = meta.get((frm, to), {"label": "", "source": "declared", "evidence": "", "risks": []})
+        src, dst = nodes[frm], nodes[to]
+        risks = list(m["risks"])
+        dp = node_props(dst)
+        if "credential_key" in dp or dst.get("authenticated"):
+            risks.append("credential")
+        if dp.get("kind", [""])[0] in OUTSIDE_KINDS:
+            zs, zd = zone_of(src, nodes), zone_of(dst, nodes)
+            if zd == "unknown":
+                risks.append("unknown_zone")
+            elif zs != zd:
+                risks.append("crosses_boundary")
+        if not m["evidence"]:
+            m = {**m, "evidence": dp.get("evidence", [""])[0]}
+        out.append({"from": frm, "to": to, **m, "risks": list(dict.fromkeys(risks))})
     return out
 
 
@@ -481,13 +664,15 @@ def mermaid(bom: dict, status: dict[str, str] | None = None, counts: dict[str, i
     if focus is not None:
         keep = focus
 
-        def trim(n):
-            return {**n, "services": [t for t in n.get("services", []) if t["bom-ref"] in keep]}
         bom = {**bom,
                "components": [c for c in bom.get("components", []) if c["bom-ref"] in keep],
-               "services": [trim(x) for x in bom.get("services", []) if x["bom-ref"] in keep],
-               "dependencies": [{"ref": d["ref"], "dependsOn": [t for t in d.get("dependsOn", []) if t in keep]}
+               "services": [x for x in bom.get("services", []) if x["bom-ref"] in keep],
+               "dependencies": [{"ref": d["ref"], "dependsOn": [t for t in d.get("dependsOn", []) if t in keep],
+                                 "provides": [t for t in d.get("provides", []) if t in keep]}
                                 for d in bom.get("dependencies", []) if d["ref"] in keep]}
+    kids = children_of(bom)
+    child_refs = {t for ts in kids.values() for t in ts}
+    by_ref = {x["bom-ref"]: x for x in bom.get("services", [])}
     ids: dict[str, str] = {}
 
     def nid(ref: str) -> str:
@@ -531,12 +716,12 @@ def mermaid(bom: dict, status: dict[str, str] | None = None, counts: dict[str, i
         if s not in quiet:
             lines.append(node_line(s))
     for s in bom.get("services", []):
-        if s in local_tools:
+        if s in local_tools or s["bom-ref"] in child_refs:
             continue
         zone = s.get("trustZone") or node_props(s).get("trust_zone", ["unknown"])[0]
         lines.append(f'  subgraph z_{nid(s["bom-ref"])}["network: {zone}"]')
         lines.append(node_line(s, "    "))
-        for t in s.get("services", []):
+        for t in (by_ref[r] for r in kids.get(s["bom-ref"], []) if r in by_ref):
             lines.append(node_line(t, "    "))
             lines.append(f'    {nid(s["bom-ref"])} --- {nid(t["bom-ref"])}')
             links += 1
@@ -581,6 +766,196 @@ def mermaid(bom: dict, status: dict[str, str] | None = None, counts: dict[str, i
     return "\n".join(lines) + "\n"
 
 
+# ---------------------------------------------------------------- capabilities (B05)
+# What a part can do, in the terms of BRACE B05 (destructive-action interception): an
+# agent that can read untrusted input, reach sensitive data and talk to the outside in
+# one context can be tricked into leaking data; one that reads untrusted input and can
+# change things can be tricked into harmful actions.
+CAPABILITIES = {
+    "untrusted_input": "reads text an outsider could write (web, email, tickets, uploads, third-party tool output)",
+    "private_data": "reaches customer, personal, secret or internal data",
+    "external_send": "can send data out (email, requests to outside services, posting)",
+    "destructive": "can change or delete things, or move money",
+}
+CAP_SHORT = {"untrusted_input": "outside text", "private_data": "private data",
+             "external_send": "sends out", "destructive": "changes or deletes"}
+TAG_SOURCES = ("declared", "reviewer", "inferred")
+COMBOS = {
+    "leak": ("untrusted_input", "private_data", "external_send"),
+    "harm": ("untrusted_input", "destructive"),
+}
+# Kinds whose capabilities are not judged here: the agent side, the model, approvals, logs.
+NO_CAPABILITY_KINDS = {"agent", "agent_unit", "model", "human_approval", "audit_sink"}
+AGENT_KINDS = {"agent", "agent_unit"}
+
+
+def capability_entries(cfg: dict) -> list[tuple[str, list[str]]]:
+    """`capabilities: {bom-ref: [tag, ...]}` in the agent config."""
+    caps = cfg.get("capabilities")
+    if not isinstance(caps, dict):
+        return []
+    out = []
+    for ref, tags in caps.items():
+        tags = [tags] if isinstance(tags, str) else tags if isinstance(tags, list) else []
+        out.append((str(ref), [str(t) for t in tags]))
+    return out
+
+
+def tag_props(tag: str, source: str, evidence: str, reason: str = "") -> list[dict]:
+    """`brace:capability:<tag>` = source, plus optional `...:<source>:evidence` and `...:<source>:reason`."""
+    out = [prop(f"capability:{tag}", source)]
+    if evidence:
+        out.append(prop(f"capability:{tag}:{source}:evidence", evidence))
+    if reason:
+        out.append(prop(f"capability:{tag}:{source}:reason", reason))
+    return out
+
+
+def node_tags(node: dict) -> list[dict]:
+    p = node_props(node)
+    out = []
+    for name, values in p.items():
+        bits = name.split(":")
+        if len(bits) != 2 or bits[0] != "capability":
+            continue
+        for source in values:
+            pre = f"{name}:{source}"
+            out.append({"tag": bits[1], "source": source, "evidence": p.get(pre + ":evidence", [""])[0],
+                        "reason": p.get(pre + ":reason", [""])[0]})
+    return out
+
+
+def infer_tags(bom: dict) -> None:
+    """Add conservative tags only where the type or a stated connection risk makes them obvious."""
+    nodes = all_nodes(bom)
+    targets = {r: n for r, n in nodes.items()}
+    # The real node objects (all_nodes copies them), so properties can be added in place.
+    real = {bom["metadata"]["component"]["bom-ref"]: bom["metadata"]["component"]}
+
+    def walk(n):
+        real[n["bom-ref"]] = n
+        for t in n.get("services", []):
+            walk(t)
+    for n in [*bom.get("components", []), *bom.get("services", [])]:
+        walk(n)
+
+    def add(ref, tag, reason):
+        n = real[ref]
+        have = {(t["tag"]) for t in node_tags(n)}
+        if tag not in have and "none" not in have:
+            n.setdefault("properties", []).extend(tag_props(tag, "inferred", "", reason))
+
+    for ref, n in targets.items():
+        kind = node_props(n).get("kind", [""])[0]
+        if kind in ("data_store", "secret"):
+            add(ref, "private_data", f"it is a {kind.replace('_', ' ')}")
+    kind_of = {r: node_props(n).get("kind", [""])[0] for r, n in targets.items()}
+    for c in connections(bom):
+        a, b, risks = c["from"], c["to"], set(c["risks"])
+        if "untrusted_input" in risks:
+            far = a if kind_of[b] in AGENT_KINDS else b
+            if kind_of[far] not in NO_CAPABILITY_KINDS:
+                add(far, "untrusted_input", f"the connection {a} -> {b} is marked as bringing in outside text")
+        if "personal_data" in risks and kind_of[b] in ("data_store", "secret"):
+            add(b, "private_data", f"the connection {a} -> {b} is marked as carrying personal data")
+        if "money" in risks and kind_of[b] not in NO_CAPABILITY_KINDS:
+            add(b, "destructive", f"the connection {a} -> {b} is marked as moving money")
+        if "writes" in risks and kind_of[b] in ("external_api", "mcp_server", "mcp_tool") \
+                and zone_of(targets[b], targets) != "agent":
+            add(b, "external_send", f"the connection {a} -> {b} sends or changes data in another system")
+
+
+def reach(bom: dict, start: str) -> dict[str, list[str]]:
+    """Every part `start` can reach, with the shortest path to it (list of bom-refs).
+
+    Follows connections; reaching an MCP server reaches its tools and the reverse (a tool's
+    calls go through its server). Agent loops are entered only from another agent loop
+    (delegation), so a service replying to the agent does not count as the service reaching
+    the agent's other tools."""
+    nodes = all_nodes(bom)
+    kind = {r: node_props(n).get("kind", [""])[0] for r, n in nodes.items()}
+    out: dict[str, list[str]] = {}
+    for d in bom.get("dependencies", []):
+        out.setdefault(d["ref"], []).extend(d.get("dependsOn", []))
+    for r, n in nodes.items():
+        if n.get("_parent"):
+            out.setdefault(n["_parent"], []).append(r)
+            out.setdefault(r, []).append(n["_parent"])
+    paths = {start: [start]}
+    queue = [start]
+    while queue:
+        cur = queue.pop(0)
+        for nxt in out.get(cur, []):
+            if nxt in paths or nxt not in nodes:
+                continue
+            if kind[nxt] in AGENT_KINDS and kind[cur] not in AGENT_KINDS:
+                continue
+            paths[nxt] = paths[cur] + [nxt]
+            queue.append(nxt)
+    return paths
+
+
+def combinations(bom: dict) -> list[dict]:
+    """Dangerous combinations per agent and agent loop (B05). A combination is `present` when
+    every capability is reached; `possible` when the rest are only not ruled out, because some
+    reachable part has no established capabilities."""
+    nodes = all_nodes(bom)
+    kind = {r: node_props(n).get("kind", [""])[0] for r, n in nodes.items()}
+    tags = {r: node_tags(n) for r, n in nodes.items()}
+    has_out = {d["ref"] for d in bom.get("dependencies", []) if d.get("dependsOn")}
+    kids = children_of(bom)
+    agents = [r for r in nodes if kind[r] in AGENT_KINDS]
+    found = []
+    for ag in agents:
+        paths = reach(bom, ag)
+        by_tag: dict[str, list[str]] = {}
+        unknown = []
+        for r in paths:
+            if r == ag or kind[r] in NO_CAPABILITY_KINDS:
+                continue
+            ts = {t["tag"] for t in tags[r]}
+            for t in ts - {"none"}:
+                by_tag.setdefault(t, []).append(r)
+            # A part is unknown when nothing says what it can do: no tags, not marked
+            # "none", and no traced connection onward that would show its effect.
+            parent = nodes[r].get("_parent")
+            if parent and (tags[parent] or parent in has_out):
+                continue  # an MCP tool is judged by its server's tags and connections
+            if not ts and r not in has_out and r not in kids:
+                unknown.append(r)
+        for ctype, need in COMBOS.items():
+            have = [t for t in need if by_tag.get(t)]
+            if len(have) == len(need):
+                status = "present"
+            elif unknown and len(have) == len(need) - 1:
+                status = "possible"
+            else:
+                continue
+            rank = {"reviewer": 0, "declared": 1, "inferred": 2}
+
+            def best(r, t):  # the strongest evidence first, then the shortest path
+                src = min((rank.get(x["source"], 3) for x in tags[r] if x["tag"] == t), default=3)
+                return (src, len(paths[r]), r)
+            pick = {t: min(by_tag[t], key=lambda r: best(r, t)) for t in have}
+            path_refs = sorted({x for r in pick.values() for x in paths[r]}, key=list(nodes).index)
+            found.append({"id": f"{ctype}:{ag}", "type": ctype, "agent": ag, "status": status,
+                          "nodes": {t: sorted(by_tag.get(t, [])) for t in need},
+                          "pick": pick, "missing": [t for t in need if t not in have],
+                          "paths": {t: paths[r] for t, r in pick.items()},
+                          "path_refs": path_refs, "unknown": sorted(unknown)})
+    # The root agent reaches everything its loops reach; keep a loop's combination only when
+    # it adds something (a different set of parts), so the list stays short.
+    root = bom["metadata"]["component"]["bom-ref"]
+    keep = []
+    for c in found:
+        if c["agent"] != root:
+            twin = next((x for x in found if x["agent"] == root and x["type"] == c["type"]), None)
+            if twin and twin["status"] == c["status"] and twin["pick"] == c["pick"]:
+                continue
+        keep.append(c)
+    return keep
+
+
 # ------------------------------------------------------------------------- overlay
 def overlay_add(repo: Path, overlay: Path, section: str, entry: dict) -> str | None:
     """Verify the entry's quote against the code, then add or replace it in the overlay."""
@@ -588,8 +963,8 @@ def overlay_add(repo: Path, overlay: Path, section: str, entry: dict) -> str | N
     if err:
         return err
     data = json.loads(overlay.read_text()) if overlay.exists() else {}
-    data.setdefault("nodes", []), data.setdefault("edges", []), data.setdefault("zones", [])
-    key = ("from", "to") if section == "edges" else ("ref",)
+    data.setdefault(section, [])
+    key = ("from", "to") if section == "edges" else ("ref", "tag") if section == "tags" else ("ref",)
     data[section] = [x for x in data[section] if tuple(x[k] for k in key) != tuple(entry[k] for k in key)]
     data[section].append(entry)
     overlay.write_text(json.dumps(data, indent=2) + "\n")
@@ -607,12 +982,13 @@ def summary(bom: dict) -> tuple[dict, set]:
         nodes[n["bom-ref"]] = {"name": n.get("name"), "kind": p.get("brace:kind"),
                                "trustZone": n.get("trustZone", p.get("brace:trust_zone")),
                                "endpoints": n.get("endpoints"), "authenticated": n.get("authenticated")}
-        for t in n.get("services", []):
-            add(t)
     add(bom["metadata"]["component"])
     for n in [*bom.get("components", []), *bom.get("services", [])]:
         add(n)
     edges = {(d["ref"], t) for d in bom.get("dependencies", []) for t in d.get("dependsOn", [])}
+    edges |= {(d["ref"], t) for d in bom.get("dependencies", []) for t in d.get("provides", [])}
+    edges |= {(f["source"][0], f["destination"][0]) for n in bom.get("services", []) for f in n.get("data", [])
+              if f.get("source") and f.get("destination")}
     return nodes, edges
 
 
@@ -633,6 +1009,25 @@ def stale_entries(bom: dict) -> list[str]:
     return [p["value"] for p in bom["metadata"].get("properties", []) if p["name"] == "brace:stale_overlay"]
 
 
+def host_evidence(repo: Path, host_config: bool, host_files: list[Path], scans: list[Path],
+                  home: Path | None = None, system: str | None = None) -> tuple[list[dict], list[str]]:
+    import platform
+
+    import host_scan
+    home = home or Path.home()
+    sources = host_scan.host_sources(home, system or platform.system()) if host_config else []
+    sources += [{"client": "settings file", "path": f, "keys": ["mcpServers", "servers", "projects.*.mcpServers"]}
+                for f in host_files]
+    recs, notes = host_scan.read_host(sources)
+    for f in scans:
+        r, n = host_scan.import_scan(f)
+        recs += r
+        notes += n
+    for r in recs:  # show the home folder as ~ so a user name is not copied into the map
+        r["file"] = r["file"].replace(str(home), "~")
+    return recs, notes
+
+
 # ---------------------------------------------------------------------------- main
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
@@ -644,6 +1039,13 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--agent-config", type=Path, help="YAML with agent.* and tools.allowlist")
     b.add_argument("--tools-config", type=Path, help="YAML with a `tools:` list or map, if not in the agent config")
     b.add_argument("--overlay", type=Path, help="reviewer overlay; default: <repo>/brace-topology.overlay.json")
+    b.add_argument("--host-config", action="store_true",
+                   help="also read MCP server settings on this machine (Claude Desktop, Claude Code, Cursor, "
+                        "VS Code, Windsurf) as found-on-host evidence; env and header values are never copied")
+    b.add_argument("--host-file", type=Path, action="append", default=[],
+                   help="read one client settings file (mcpServers or servers map) as found-on-host evidence")
+    b.add_argument("--import-scan", type=Path, action="append", default=[],
+                   help="Snyk Agent Scan --json or Cisco mcp-scanner --format raw output, as detected evidence")
     v = sub.add_parser("validate", help="validate against CycloneDX 1.7 and BRACE ref rules")
     v.add_argument("bom", type=Path)
     m = sub.add_parser("mermaid", help="render a topology as a Mermaid flowchart")
@@ -651,7 +1053,8 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("-o", "--output", type=Path)
     for name, hlp in (("add-node", "record a code-traced component"),
                       ("add-edge", "record a code-traced connection"),
-                      ("set-zone", "record a service's trust zone")):
+                      ("set-zone", "record a service's trust zone"),
+                      ("add-tag", "record what a part can do (B05 capability)")):
         o = sub.add_parser(name, help=hlp + " (quote must appear at path:line)")
         o.add_argument("repo", type=Path)
         o.add_argument("--overlay", type=Path, help="default: <repo>/brace-topology.overlay.json")
@@ -666,6 +1069,10 @@ def main(argv: list[str] | None = None) -> int:
             o.add_argument("--to", required=True)
             o.add_argument("--label", default="", help="what the connection does, e.g. 'sends refunds'")
             o.add_argument("--risk", default="", help="comma list of: " + ", ".join(RISKS))
+        elif name == "add-tag":
+            o.add_argument("--ref", required=True)
+            o.add_argument("--tag", required=True, choices=[*CAPABILITIES, "none"])
+            o.add_argument("--reason", default="", help="why, in plain words")
         else:
             o.add_argument("--ref", required=True)
             o.add_argument("--zone", required=True)
@@ -680,8 +1087,11 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     if a.cmd == "build":
+        host, notes = host_evidence(a.repo, a.host_config, a.host_file, a.import_scan)
+        for x in notes:
+            print(f"host/scan note: {x}", file=sys.stderr)
         bom = build(a.repo, a.inventory or a.repo / "brace-inventory.json", a.agent_config,
-                    a.overlay or a.repo / "brace-topology.overlay.json", a.tools_config)
+                    a.overlay or a.repo / "brace-topology.overlay.json", a.tools_config, host)
         errors = validate(bom)
         a.output.write_text(json.dumps(bom, indent=2) + "\n")
         for e in errors:
@@ -693,7 +1103,7 @@ def main(argv: list[str] | None = None) -> int:
         stale = stale_entries(bom)
         print(f"stale overlay entries: {len(stale)}" + ("" if stale else " (none)"))
         return 1 if errors else 0
-    if a.cmd in ("add-node", "add-edge", "set-zone"):
+    if a.cmd in ("add-node", "add-edge", "set-zone", "add-tag"):
         base = {"evidence": a.evidence, "quote": a.quote}
         if a.cmd == "add-node":
             section, entry = "nodes", {"ref": a.ref, "kind": a.kind, **({"name": a.name} if a.name else {}), **base}
@@ -704,6 +1114,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             section, entry = "edges", {"from": a.src, "to": a.to, "label": a.label,
                                        "risks": [r for r in a.risk.split(",") if r], **base}
+        elif a.cmd == "add-tag":
+            section, entry = "tags", {"ref": a.ref, "tag": a.tag, **({"reason": a.reason} if a.reason else {}), **base}
         else:
             section, entry = "zones", {"ref": a.ref, "zone": a.zone, **base}
         err = overlay_add(a.repo, a.overlay or a.repo / "brace-topology.overlay.json", section, entry)

@@ -154,6 +154,8 @@ References below support the related principle, not every BRACE-specific impleme
 - **S55:** [AEGIS (research architecture)](https://arxiv.org/abs/2608.20481). Checked 2026-10-16.
 - **S56:** [Enterprise MCP authentication architecture (research)](https://arxiv.org/abs/2608.10760). Checked 2026-10-16.
 - **S57:** [MCP lifecycle/threat survey](https://arxiv.org/abs/2503.23278). Checked 2026-10-16.
+- **S58:** [OWASP Top 10 for Agentic Applications for 2026](https://genai.owasp.org/top-10-for-agentic-applications-2026/) (released 9 December 2025), used for the [Agentic Top 10 mapping](mappings/owasp-agentic-top-10.md). Checked 2026-11-24.
+- **S59:** [OWASP MCP Top 10](https://github.com/OWASP/www-project-mcp-top-10), 2025 edition, beta (repository commit `165fe0f`, 29 July 2026), used for the [MCP Top 10 mapping](mappings/owasp-mcp-top-10.md). Checked 2026-11-24.
 
 ## Review coverage: all 53 items
 

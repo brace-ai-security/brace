@@ -47,6 +47,12 @@ PAGES = [
     {"src": ROOT / "mappings" / "mitre-atlas.md", "out": ROOT / "mappings" / "mitre-atlas" / "index.html",
      "path": "/mappings/mitre-atlas/", "crumb": "MITRE ATLAS mapping", "eyebrow": "BRACE · Standards mapping",
      "desc": "Every MITRE ATLAS technique mapped to the BRACE checklist items that prevent or contain it.", "cards": False},
+    {"src": ROOT / "mappings" / "owasp-agentic-top-10.md", "out": ROOT / "mappings" / "owasp-agentic-top-10" / "index.html",
+     "path": "/mappings/owasp-agentic-top-10/", "crumb": "OWASP Agentic Top 10 mapping", "eyebrow": "BRACE · Standards mapping",
+     "desc": "Each OWASP Top 10 for Agentic Applications (2026) risk mapped to BRACE controls and checklist items.", "cards": False},
+    {"src": ROOT / "mappings" / "owasp-mcp-top-10.md", "out": ROOT / "mappings" / "owasp-mcp-top-10" / "index.html",
+     "path": "/mappings/owasp-mcp-top-10/", "crumb": "OWASP MCP Top 10 mapping", "eyebrow": "BRACE · Standards mapping",
+     "desc": "Each OWASP MCP Top 10 (2025, beta) risk mapped to BRACE controls and checklist items.", "cards": False},
 ]
 
 

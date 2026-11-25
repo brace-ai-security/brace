@@ -214,7 +214,92 @@ Required, circle Detection. Select a part or line to see its evidence, findings,
 the role that usually leads each fix, and the fix steps. Tables below the map list the same facts, for screen
 readers and print.
 
+Findings are listed most urgent first: by gate, then by reach. Reach is how many
+connections and dangerous combinations the finding's parts touch, shown in words
+such as "Affects 4 connections, 1 dangerous combination." A finding may carry an
+optional OWASP AIVSS score (`"aivss": {"score": 7.4, "version": "0.8", "vector": "..."}`).
+The page shows it when present. It is never required.
+
 See [examples/travel-agent/](examples/travel-agent/) for a full example.
+
+### Dangerous combinations (B05)
+
+BRACE item B05 (Destructive-action interception) asks which agents can read
+outside text, reach private data or systems, and change things or talk to the
+outside, all in one context. The map records this as capability tags on parts:
+
+| Tag | Meaning |
+|---|---|
+| `untrusted_input` | Reads text an outsider can write: web pages, email, tickets, uploads, third-party tool output. |
+| `private_data` | Reaches customer or personal data, secrets, or internal stores. |
+| `external_send` | Can send data out: email, requests to outside services, posting. |
+| `destructive` | Can change or delete things, or move money. |
+
+Tags come from three places, and the page shows which one:
+
+- **declared**: `capabilities: {tool:send_itinerary: [external_send]}` in the agent config;
+- **reviewer**: `topology.py add-tag . --ref api:analytics --tag external_send --evidence src/x.py:17 --quote "..."`.
+  The quote must be on that line, as for other overlay entries. `--tag none` records that a part has none of the four;
+- **inferred**: only where it is obvious. A data store has private data. A connection
+  marked `money` makes its target destructive, and one marked `untrusted_input` tags the outside end.
+
+For each agent and agent loop, the tool follows calls (including MCP server tools and
+sub-agents) to find every tagged part it can reach. It flags two combinations:
+
+- outside text + private data + sending out: **can be tricked into leaking data**;
+- outside text + changing things: **can be tricked into harmful actions**.
+
+A part with no tags and no traced onward connection is **unknown**, not safe. When
+only one tag is missing and some reachable parts are unknown, the combination is
+shown as **possible**. The overview lists each combination with a plain explanation,
+the parts involved, a "Show on the map" button that highlights the path, and four
+ways to fix it: remove a tool, split the agent, add human approval, or limit what the
+sending tool can reach. The CycloneDX file keeps tags as `brace:capability:<tag>`
+properties and combinations as `brace:combination:<type>:<agent>` properties on the metadata.
+
+The map does not know whether an approval step already guards an action. Record
+that in the B05 finding.
+
+### Found on the host, and scanner output
+
+`build` can also read MCP server settings from the machine where the agent runs,
+and the output of two MCP scanners. These count as "found", like traced code:
+
+    python tools/brace/topology.py build . -o map.cdx.json --host-config          # this machine's client settings
+    python tools/brace/topology.py build . -o map.cdx.json --host-file ~/.cursor/mcp.json
+    python tools/brace/topology.py build . -o map.cdx.json --import-scan agent-scan.json --import-scan cisco.json
+
+`--host-config` reads Claude Desktop, Claude Code (`~/.claude.json`, managed
+`managed-mcp.json`), Cursor, VS Code and Windsurf settings for the current operating
+system. `host_scan.py` lists the paths and their sources. `--import-scan` reads
+Snyk Agent Scan `--json` output (v0.5 and v0.6 layouts) and Cisco mcp-scanner
+`--format raw` output. Neither runs a scan.
+
+Only names are kept: the file and JSON key, server name, transport, command name, URL
+without user, query or fragment, and the *names* of `env` keys and headers. Values of
+`env`, headers and secret-looking arguments are never copied. Files over 5 MB are
+refused, and all text is treated as untrusted. See [examples/host-scan/](examples/host-scan/).
+
+### CycloneDX shape
+
+MCP tools are top-level services. Their server lists them in its dependency entry
+with `provides`. `dependsOn` only means "calls". What moves along a connection is
+a `data` flow on the service (`flow`, `classification`, `name`, `source`,
+`destination`). Data stores carry a `data` entry with a classification. Evidence uses
+simple properties: `brace:edge:<to>`, `brace:declared_edge:<to>`, `brace:quote:file`
+and `brace:quote:text`. The `brace:` names are provisional.
+
+### SPDX 3 output: not planned for now (recommendation, not a decision)
+
+SPDX 3.0 has AI and Dataset profiles, so BRACE could emit SPDX 3 JSON-LD: the
+model maps to `ai_AIPackage`, data stores to `dataset_DatasetPackage`, agent units
+and tools to `software_Package`, and edges to `Relationship` (`dependsOn`, `uses`,
+`trainedOn`). But SPDX 3 has no service, endpoint, trust-zone or data-flow element,
+which is most of what the map is for, so those would become `comment` text or
+`Annotation`s that other tools ignore. A one-way export would take about two to
+three days plus a validator in CI (`spdx3-validate`) and ongoing upkeep of a second
+format. The recommendation is to keep CycloneDX 1.7 as the only output and add an
+SPDX 3 export only if a buyer or regulator asks for SPDX by name.
 
 ## Run it as a GitHub Action
 
@@ -237,6 +322,67 @@ to `.github/workflows/`; it uses the vendored copy with `uses: ./tools/brace/act
 
 Outputs: `actions`, `gaps`, `blocker-gaps`, `record-status`, `report-dir`.
 The review itself (the `brace-review` skill) runs before this, outside the Action.
+
+## Import red-team and eval results
+
+Some items need test results, such as R02 (prompt injection) or B05 (destructive
+actions). If you test your agent with an attack tool, `import-results` can read the
+tool's results file and add it as evidence in `record.yaml`.
+
+    python tools/brace/brace.py import-results garak results/garak.report.jsonl
+    python tools/brace/brace.py import-results garak results/garak.report.jsonl --item R02 --item B05
+
+The first command only reads the file. It prints the tool and version, the run date,
+how many tests passed and failed, the attack types it found, and the items those
+attack types suggest. It writes nothing. The second command adds one evidence entry
+to each item you name. You can also use `--suggested` to add it to every suggested item.
+
+| Tool | File to give it | How to make the file |
+|---|---|---|
+| `garak` | `report.jsonl` | garak writes it on every run (not the hitlog or HTML report). |
+| `promptfoo` | JSON results | `promptfoo eval -o results.json` (also `promptfoo redteam eval`). |
+| `pyrit` | JSON list or JSONL of attack results or scores | `[r.model_dump(mode="json") for r in memory.get_attack_results()]`, saved with `json.dump`. Scores work the same way. |
+| `inspect` | Eval log in JSON | `inspect eval ... --log-format=json`, or `inspect log convert --to json` for a `.eval` file. |
+
+Each evidence entry has a `link` to the results file, the run `date`, and a `note`. The
+note gives the tool and version, pass and fail counts, attack types and the file's
+SHA-256 hash, so a reviewer can tell if the file was changed later. Importing the same
+file again is skipped.
+
+What the command will and won't do:
+
+- **It never marks an item `pass`.** A clean run is evidence, but a person still decides
+  whether it covers the item.
+- **A run where any attack got through is evidence of a gap.** An item still at
+  `not_reviewed` becomes `gap`. If the item is already `pass` or `na`, it stays as it is
+  and you get a warning to review it. The command exits with code 1.
+- **It treats the file as untrusted.** It reads JSON only and never runs anything from
+  the file. Files over 50 MB are refused (change this with `--max-bytes`). Text from the file
+  is cleaned and shortened before it is printed or saved.
+- **It keeps the comments in `record.yaml`** when it can. If the file layout is unusual,
+  it rewrites the file as plain YAML and tells you.
+
+Other options: `--link URL` stores a link (for example a CI artifact) instead of the
+file path. `--date YYYY-MM-DD` sets the date. `--tool-version` fills in a version the
+file doesn't record (PyRIT files usually don't). `--dry-run` shows the changes without
+writing them.
+
+How results are counted:
+
+- **garak:** each probe and detector pair. "Failed" means the detector found a hit.
+- **promptfoo:** each test row. Rows that errored are counted apart from passes and fails.
+- **PyRIT:** an attack whose outcome is `success`, or a true/false score of `true`, means
+  the attack worked. That counts as failed. Undetermined results and other score types
+  are counted apart.
+- **Inspect:** the task decides what a score means. By default a correct score (`C` or 1)
+  means the defense held. If your task scores the attack instead, add `--invert`.
+
+The attack types come from probe, plugin or task names. They map to items like this:
+prompt injection → R02, R01, B05; jailbreak → R02, R10; data exfiltration → R03, B09;
+excessive agency → B01, B02, B05, E08; tool misuse → B05, R01, E04, E06; personal data
+or system prompt leakage → R03. These are suggestions only. A tool name doesn't prove
+the test matched the checklist recipe. Check the test against
+[the verification guide](../../CHECKLIST-VERIFICATION.md) before you rely on it.
 
 ## Other commands
 

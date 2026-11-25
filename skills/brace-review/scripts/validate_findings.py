@@ -17,7 +17,9 @@ Usage:
                    optional `components` must name bom-refs in it.
 
 Optional action fields on a finding: `components` (list of bom-refs) and `fix`
-({"steps": [...], "done_when": "...", "effort": "small|medium|large"}). Their shape is always checked.
+({"steps": [...], "done_when": "...", "effort": "small|medium|large"}), and `aivss`, an OWASP
+AIVSS score ({"score": 0-10, "version": "0.8", "vector": "...", "severity": "..."}); only
+`score` is required inside it. AIVSS is never required. Their shape is always checked.
 
 Exit 0 if valid, 1 if not, 2 on bad usage.
 """
@@ -353,6 +355,18 @@ def action_fields(item, f, topo=None):
                 errors.append(f"{item}: fix.effort must be one of {sorted(EFFORT)}")
             if f.get("rating") in ("likely_pass", "na_candidate") and steps:
                 errors.append(f"{item}: a {f['rating']} has nothing to fix; remove fix")
+    a = f.get("aivss")
+    if a is not None:
+        if not isinstance(a, dict) or isinstance(a.get("score"), bool) \
+                or not isinstance(a.get("score"), (int, float)) or not 0 <= a["score"] <= 10:
+            errors.append(f"{item}: aivss must be an object with a score from 0 to 10")
+        else:
+            for k in ("version", "vector", "severity"):
+                if a.get(k) is not None and not isinstance(a[k], str):
+                    errors.append(f"{item}: aivss.{k} must be a string")
+            extra = set(a) - {"score", "version", "vector", "severity"}
+            if extra:
+                errors.append(f"{item}: aivss has unknown fields {sorted(extra)}")
     for c in f.get("checks") or []:
         for kind in ("coverage", "deviations"):
             for row in (c.get(kind) or []) if isinstance(c, dict) else []:

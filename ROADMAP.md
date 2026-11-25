@@ -15,7 +15,7 @@ Nothing here is fixed. The community's needs set the priorities. Open an issue t
 
 - A **controls-layer companion to the OWASP Top 10 for Agentic Applications** (proposal in `outreach/`).
 - A **scoring / aggregation model** for the self-assessment.
-- **Expanded threat mappings** — the [MITRE ATLAS mapping](mappings/mitre-atlas.md) is published (ATLAS v2026.09); keep it current with new ATLAS releases. Still planned: a mapping to Google DeepMind's [TRAIT&R](https://arxiv.org/abs/2607.13087) taxonomy of tactics a misaligned agent could use.
+- **Expanded threat mappings** — the [MITRE ATLAS mapping](mappings/mitre-atlas.md) is published (ATLAS v2026.09); keep it current with new ATLAS releases. The [OWASP Agentic Top 10](mappings/owasp-agentic-top-10.md) and [OWASP MCP Top 10](mappings/owasp-mcp-top-10.md) mappings are published; recheck the MCP mapping when that list leaves beta. Still planned: a mapping to Google DeepMind's [TRAIT&R](https://arxiv.org/abs/2607.13087) taxonomy of tactics a misaligned agent could use.
 - **Compliance mappings** — mappings to the [NIST AI RMF](mappings/nist-ai-rmf.md) and [ISO/IEC 42001](mappings/iso-iec-42001.md) are published. The ISO mapping uses only public control titles; check it against the full standard. Still planned: SOC 2 and [ISO/IEC 27001](https://www.iso.org/standard/27001).
 
 ## How to help

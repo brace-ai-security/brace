@@ -59,7 +59,7 @@ STATUS_TEXT = {"confirmed": "Declared and found in code",
 STATUS_SHORT = {"confirmed": "confirmed", "declared": "declared only", "undeclared": "undeclared"}
 RATING_TEXT = {"gap": "Gap", "needs_evidence": "Needs proof"}
 DECLARED_SOURCES = {"agent_config", "mcp_config", "repository", "inventory"}
-DETECTED_SOURCES = {"traced", "inventory"}
+DETECTED_SOURCES = {"traced", "inventory", "host", "scan"}
 
 # Layout (SVG user units).
 NODE_W, NODE_H, COL_GAP, V_GAP = 232, 50, 136, 14
@@ -93,12 +93,8 @@ def build_model(bom: dict, findings: dict | None = None) -> dict:
     root = bom["metadata"]["component"]["bom-ref"]
     quotes: dict[str, str] = {}
     for n in nodes.values():
-        for v in topology.node_props(n).get("quote", []):
-            try:
-                at, q = json.loads(v)
-                quotes.setdefault(at, q)
-            except (ValueError, TypeError):
-                pass
+        for at, q in topology.node_quotes(n):
+            quotes.setdefault(at, q)
 
     parts: dict[str, dict] = {}
     for ref, n in nodes.items():
@@ -114,12 +110,17 @@ def build_model(bom: dict, findings: dict | None = None) -> dict:
             "kind_label": KIND_LABEL.get(kind, kind), "about": KIND_TEXT.get(kind, ""),
             "parent": parent, "zone": topology.zone_of(n, nodes),
             "declared": ref == root or source in DECLARED_SOURCES,
-            "detected": ref == root or source in DETECTED_SOURCES or bool(p.get("traced_evidence")),
+            "detected": ref == root or source in DETECTED_SOURCES or bool(p.get("traced_evidence"))
+            or bool(p.get("host_evidence")),
+            "on_host": [{"at": h, "quote": ""} for h in p.get("host_evidence", [])] + scan_issues(p),
             "declared_in": decl_ev, "found_in": [{"at": e, "quote": quotes.get(e, "")} for e in code_ev],
             "endpoints": [str(x) for x in n.get("endpoints", [])], "transport": p.get("transport", [""])[0],
             "credential_keys": p.get("credential_key", []), "owner": p.get("owner", [""])[0],
             "zone_evidence": [{"at": e, "quote": quotes.get(e, "")} for e in p.get("zone_evidence", [])],
             "children": [], "findings": [], "badge": [], "note": "",
+            "tags": [{**t, "text": topology.CAPABILITIES.get(t["tag"], "reviewed: none of the four"),
+                      "source_text": TAG_SOURCE_TEXT.get(t["source"], t["source"]),
+                      "quote": quotes.get(t["evidence"], "")} for t in topology.node_tags(n)],
         }
     for ref, part in parts.items():
         if part["parent"]:
@@ -128,22 +129,18 @@ def build_model(bom: dict, findings: dict | None = None) -> dict:
     declared_edges: dict[tuple, str] = {}
     traced_edges: set[tuple] = set()
     for ref, n in nodes.items():
-        p = topology.node_props(n)
-        for v in p.get("declared_edge", []):
-            to, _, at = v.split("|")[:3]
-            declared_edges[(ref, to)] = at
-        for v in p.get("edge", []):
-            bits = v.split("|")
-            if len(bits) > 2 and bits[2] == "traced":
-                traced_edges.add((ref, bits[0]))
+        for name, vals in topology.node_props(n).items():
+            if name.startswith("declared_edge:"):
+                declared_edges[(ref, name[len("declared_edge:"):])] = vals[0]
+            elif name.startswith("edge:"):
+                traced_edges.add((ref, name[len("edge:"):]))
     for a, b in traced_edges:  # anything a traced connection touches exists in code
         for r in (a, b):
             if r in parts:
                 parts[r]["detected"] = True
 
     # Settings-made edges (agent -> tool, agent -> MCP server) and declared connections.
-    traced_only = {(d["ref"], t) for d in bom.get("dependencies", []) for t in d.get("dependsOn", [])
-                   if (d["ref"], t) in traced_edges and (d["ref"], t) not in declared_edges}
+    traced_only = {k for k in traced_edges if k not in declared_edges}
     declared_into: dict[str, set] = {}
     for d in bom.get("dependencies", []):
         for t in d.get("dependsOn", []):
@@ -165,7 +162,7 @@ def build_model(bom: dict, findings: dict | None = None) -> dict:
         if key in declared_edges or reply:
             declared = True
         else:  # edges made from settings (agent -> tool, agent -> MCP server) or the code scan
-            declared = not traced
+            declared = not traced and (dst["declared"] or dst["parent"] is not None)
         detected = traced or (not traced and dst["detected"] and (src["detected"] or src["ref"] == root))
         if not traced and key not in declared_edges and "inventory" in (
                 topology.node_props(nodes[c["from"]]).get("source", []) + topology.node_props(nodes[c["to"]]).get("source", [])):
@@ -216,7 +213,14 @@ def build_model(bom: dict, findings: dict | None = None) -> dict:
             "problem": a["summary"], "steps": a["steps"], "done_when": a["done_when"], "effort": a["effort"],
             "lead": action_plan.ROLE_NAMES.get(a["lead_role"], a["lead_role"]),
             "evidence": a["evidence"], "where": [parts[r]["name"] for r in a["components"]], "targets": targets,
+            "components": a["components"], "aivss": aivss_text(a.get("aivss")),
         })
+    combos = combos_model(bom, parts, edges)
+    for f in out_findings:  # reach: how much of the map a fix would make safer
+        comps = set(f["components"])
+        f["reach_edges"] = sum(1 for e in edges if e["from"] in comps or e["to"] in comps)
+        f["reach_combos"] = sum(1 for c in combos if comps & set(c["path_refs"]))
+        f["reach_text"] = reach_text(f["reach_edges"], f["reach_combos"])
     zones = sorted({p["zone"] for p in parts.values()}, key=lambda z: (z != "agent", z == "unknown", z))
     summary = {
         "parts": len(parts), "connections": len(edges),
@@ -225,14 +229,108 @@ def build_model(bom: dict, findings: dict | None = None) -> dict:
         "crossings": sum(e["crosses"] for e in edges),
         "unknown_zone": sum(p["zone"] == "unknown" for p in parts.values() if not p["parent"]),
         "findings": {g: sum(f["gate"] == g for f in out_findings) for g in GATES},
+        "combos": sum(c["status"] == "present" for c in combos),
+        "combos_possible": sum(c["status"] == "possible" for c in combos),
     }
     limits = [p["value"] for p in bom["metadata"].get("properties", []) if p["name"] == "brace:limitations"]
     limits += [f"Left off the map because its code changed: {x}" for x in topology.stale_entries(bom)]
     return {"agent": bom["metadata"]["component"]["name"], "root": root,
-            "owner": parts[root]["owner"], "parts": parts, "edges": edges, "findings": out_findings,
+            "owner": parts[root]["owner"], "parts": parts, "edges": edges, "findings": out_findings, "combos": combos,
             "zones": zones, "summary": summary, "limits": limits,
             "repo": (findings or {}).get("repo"), "commit": (findings or {}).get("commit"),
             "reviewed_at": (findings or {}).get("reviewed_at")}
+
+
+TAG_SOURCE_TEXT = {"declared": "declared in the agent settings", "reviewer": "recorded by a reviewer from the code",
+                   "inferred": "inferred by the tool from its type or a connection"}
+COMBO_TITLE = {"leak": "Can be tricked into leaking data", "harm": "Can be tricked into harmful actions"}
+COMBO_FIX = [
+    "Remove a tool the agent does not need for this task.",
+    "Split the work into separate agents, so no single agent has all of these.",
+    "Add a human approval step before it sends or acts.",
+    "Limit what the sending or acting tool can reach (fixed destinations, fixed accounts, allowlists).",
+]
+B05_NAME = "B05 · Destructive-action interception"
+
+
+def combo_text(c: dict, parts: dict) -> str:
+    """A plain explanation, at about a grade-12 reading level."""
+    nm = {t: parts[r]["name"] for t, r in c["pick"].items()}
+    who = parts[c["agent"]]["name"]
+    if c["type"] == "leak":
+        text = (f"{who} reads text that an outsider can write ({nm.get('untrusted_input', 'not shown yet')}). "
+                f"It can also reach private data ({nm.get('private_data', 'not shown yet')}) and send data out "
+                f"({nm.get('external_send', 'not shown yet')}). Hidden instructions in that outside text could make "
+                "it copy the private data and send it away.")
+    else:
+        text = (f"{who} reads text that an outsider can write ({nm.get('untrusted_input', 'not shown yet')}). "
+                f"It can also change or delete things, or move money ({nm.get('destructive', 'not shown yet')}). "
+                "Hidden instructions in that outside text could make it take a harmful action.")
+    if c["status"] == "possible":
+        miss = ", ".join(topology.CAPABILITIES[t].split(" (")[0] for t in c["missing"])
+        text += (f" Nobody has shown whether it also {miss}, because some parts it reaches have no recorded "
+                 "capabilities. Treat this as real until someone shows it is not.")
+    return text
+
+
+def combos_model(bom: dict, parts: dict, edges: list) -> list[dict]:
+    edge_of = {(e["from"], e["to"]): e["id"] for e in edges}
+    out = []
+    for c in topology.combinations(bom):
+        ids, eids = set(), set()
+        for path in c["paths"].values():
+            for a, b in zip(path, path[1:]):
+                if (a, b) in edge_of:
+                    eids.add(edge_of[(a, b)])
+            ids |= {parts[r]["id"] for r in path}
+        for r in list(c["path_refs"]):
+            if parts[r]["parent"]:
+                ids.add(parts[parts[r]["parent"]]["id"])
+        out.append({
+            "id": "c" + str(len(out)), "type": c["type"], "status": c["status"], "agent": c["agent"],
+            "title": COMBO_TITLE[c["type"]], "text": combo_text(c, parts),
+            "picks": [{"tag": t, "label": topology.CAP_SHORT[t], "ref": r, "name": parts[r]["name"],
+                       "source": next((x["source"] for x in parts[r]["tags"] if x["tag"] == t), "")}
+                      for t, r in c["pick"].items()],
+            "missing": [topology.CAP_SHORT[t] for t in c["missing"]],
+            "unknown": [parts[r]["name"] for r in c["unknown"]],
+            "others": {topology.CAP_SHORT[t]: [parts[r]["name"] for r in refs if r != c["pick"].get(t)]
+                       for t, refs in c["nodes"].items()},
+            "highlight": sorted(ids | eids, key=lambda x: (x[0], int(x[1:]))),
+            "path_refs": c["path_refs"],
+        })
+    return out
+
+
+def reach_text(n_edges: int, n_combos: int) -> str:
+    bits = [f"{n_edges} connection{'s' if n_edges != 1 else ''}"]
+    if n_combos:
+        bits.append(f"{n_combos} dangerous combination{'s' if n_combos != 1 else ''}")
+    return "Affects " + ", ".join(bits) + "."
+
+
+def aivss_text(a) -> str:
+    """Optional OWASP AIVSS score on a finding: {"score": 0-10, "version": "0.8", "vector": "..."}."""
+    if not isinstance(a, dict) or not isinstance(a.get("score"), (int, float)):
+        return ""
+    text = f"AIVSS {a['score']:g}"
+    if a.get("version"):
+        text += f" (v{a['version']})"
+    if a.get("vector"):
+        text += f", {a['vector']}"
+    return text
+
+
+def ranked(findings: list[dict]) -> list[dict]:
+    """Most urgent first: gate, then reach (dangerous combinations, then connections), then gaps before
+    needs-proof, then item ID."""
+    return sorted(findings, key=lambda f: (GATES.index(f["gate"]) if f["gate"] in GATES else 9,
+                                           -f.get("reach_combos", 0), -f.get("reach_edges", 0),
+                                           f["rating"] != "gap", f["item"]))
+
+
+def scan_issues(p: dict) -> list[dict]:
+    return [{"at": a, "quote": q} for a, q in zip(p.get("scan_issue:finding", []), p.get("scan_issue:text", []))]
 
 
 def status_of(declared: bool, detected: bool) -> str:
@@ -615,6 +713,22 @@ details summary{cursor:pointer}
 .links button{text-align:left;width:100%;border-color:transparent;background:var(--tint)}
 .why{margin:6px 0;padding-left:1.2em}
 .callout{border:2px solid var(--undecl);background:var(--undecl-bg);color:var(--ink);border-radius:8px;padding:6px 10px;font-size:.92rem}
+.tile.combo{border:2px solid var(--blocker)}.tile.combo b{color:var(--blocker)}
+.combos-h{margin:18px 0 4px;font-size:1.1rem;color:var(--head)}
+.combo-list{list-style:none;padding:0;margin:8px 0;display:grid;gap:10px}
+.combo-card{background:var(--card);border:1px solid var(--rule);border-left:6px solid var(--blocker);border-radius:10px;padding:10px 14px}
+.combo-card.possible{border-left-style:dashed;border-left-color:var(--required)}
+.combo-card .top{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.cstat{font-size:.8rem;font-weight:700;padding:1px 8px;border-radius:6px;border:2px solid var(--blocker);color:var(--blocker)}
+.cstat.possible{border-style:dashed;border-color:var(--required);color:var(--required)}
+.picks{padding-left:1.1em;margin:6px 0}.picks li{margin:2px 0}
+.cap{display:inline-block;font-size:.78rem;font-weight:700;padding:0 7px;border-radius:5px;border:1.5px solid var(--edge);margin-right:4px}
+.cap.unknown{border-style:dashed;color:var(--muted)}
+.fixline{font-size:.92rem}.reach{font-size:.88rem;color:var(--muted);margin:4px 0}
+.combo-btn[aria-pressed=true]{border-color:var(--focus);background:var(--tint2);font-weight:600}
+#map.combo .node.cp .box{stroke:var(--blocker);stroke-width:4}
+#map.combo .edge.cp .line{stroke:var(--blocker);stroke-width:4;stroke-dasharray:none}
+#map.combo .node:not(.cp),#map.combo .edge:not(.cp){opacity:.18}
 /* tables */
 .tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--rule);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem}
@@ -632,7 +746,7 @@ td ol{margin:4px 0;padding-left:1.2em}
  .layout{display:block}.scroller{overflow:visible;max-height:none}
  #map{width:100% !important;height:auto !important}
  .mapcard,.tablewrap,.tile{border-color:#999}
- h2{break-after:avoid}tr,.fcard{break-inside:avoid}
+ h2{break-after:avoid}tr,.fcard,.combo-card{break-inside:avoid}.combo-btn{display:none}
  .node.off,.edge.off{opacity:1 !important}
 }
 @media (prefers-reduced-motion:reduce){.node,.edge{transition:none}}
@@ -682,7 +796,7 @@ function findingCard(i) {
   const f = D.findings[i];
   const card = el('div', {class: 'fcard ' + f.gate.toLowerCase()},
     el('div', {class: 'top'}, chip(f.gate), el('strong', {}, f.item + ' ' + f.title), el('span', {class: 'st'}, f.rating_text)),
-    el('p', {}, rich(f.problem)),
+    el('p', {}, rich(f.problem)), el('p', {class: 'reach'}, f.reach_text + (f.aivss ? ' ' + f.aivss + '.' : '')),
     el('div', {class: 'who'}, 'Lead role: ', el('b', {}, f.lead || 'not set')));
   const steps = el('ol'); f.steps.forEach(s => steps.append(el('li', {}, rich(s))));
   const det = el('details', {}, el('summary', {}, 'How to fix (' + f.steps.length + ' steps' + (f.effort ? ', ' + f.effort + ' effort' : '') + ')'), steps);
@@ -718,9 +832,17 @@ function show(id) {
     if (x.note) panel.append(el('p', {class: 'lede'}, x.note));
     if (x.zone === 'unknown') panel.append(el('p', {class: 'lede'}, 'Nobody has shown which network this is in. Treat it as untrusted until someone does.'));
   }
+  if (!isEdge) {
+    if (x.tags.length) {
+      const ul = el('ul', {class: 'why'});
+      x.tags.forEach(t => ul.append(el('li', {}, t.text + ' (' + t.source_text + ')', t.evidence ? el('code', {}, t.evidence) : null)));
+      panel.append(el('h3', {}, 'What it can do (BRACE B05)'), ul);
+    } else if (!D.no_cap_kinds.includes(x.kind)) panel.append(el('h3', {}, 'What it can do (BRACE B05)'),
+      el('p', {class: 'lede'}, 'Unknown: nobody has recorded what this part can do. It is not assumed safe.'));
+  }
   if (x.status === 'undeclared') panel.append(el('p', {class: 'callout'}, 'Found in code but not declared. Check it is meant to exist, then declare it or remove it.'));
   if (x.status === 'declared') panel.append(el('p', {class: 'lede'}, 'Declared in the settings, but the reviewer did not find code that uses it. If it is not needed, remove it.'));
-  for (const part of [evList('Declared in', x.declared_in), evList('Found in code', x.found_in), evList('Trust zone shown by', x.zone_evidence || [])])
+  for (const part of [evList('Declared in', x.declared_in), evList('Found in code', x.found_in), evList('Found on the host or by a scanner', x.on_host || []), evList('Trust zone shown by', x.zone_evidence || [])])
     if (part) panel.append(...part);
   panel.append(el('h3', {}, x.findings.length ? 'BRACE findings (' + x.findings.length + ')' : 'BRACE findings'));
   if (!x.findings.length) panel.append(el('p', {class: 'lede'}, 'None recorded here.'));
@@ -762,7 +884,8 @@ svg.querySelectorAll('.node,.edge').forEach(g => {
   g.addEventListener('focus', () => highlight(id));
   g.addEventListener('blur', () => highlight(selected));
 });
-document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && selected) { const s = selected; select(null); document.getElementById(s).focus(); } });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && svg.classList.contains('combo')) showCombo(null);
+  if (ev.key === 'Escape' && selected) { const s = selected; select(null); document.getElementById(s).focus(); } });
 
 // Filters: everything stays in place; filtered-out parts fade so the layout never jumps.
 const form = document.getElementById('filters');
@@ -786,6 +909,19 @@ function applyFilters() {
 }
 form.addEventListener('change', applyFilters);
 
+// Dangerous combinations: show the agent, the parts and the connections between them.
+const comboBtns = document.querySelectorAll('.combo-btn');
+function showCombo(cid) {
+  svg.querySelectorAll('.cp').forEach(n => n.classList.remove('cp'));
+  comboBtns.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.combo === cid)));
+  svg.classList.toggle('combo', !!cid);
+  if (!cid) return;
+  const c = D.combos.find(x => x.id === cid);
+  c.highlight.forEach(i => { const g = document.getElementById(i); if (g) g.classList.add('cp'); });
+  document.getElementById('map-h').scrollIntoView({block: 'start'});
+}
+comboBtns.forEach(b => b.addEventListener('click', () => showCombo(b.getAttribute('aria-pressed') === 'true' ? null : b.dataset.combo)));
+
 // Zoom keeps the drawing sharp (it is vector) and scrolls inside its box.
 const W = +svg.getAttribute('width'), H = +svg.getAttribute('height'); let z = 1;
 function zoom(f) { z = f === 0 ? Math.min(1, document.querySelector('.scroller').clientWidth / W) : Math.max(.4, Math.min(2.5, z * f));
@@ -808,12 +944,51 @@ def gate_chip(g: str) -> str:
     return (f"<span class='chip {g.lower()}'><svg viewBox='-6 -6 12 12' aria-hidden=true>{shape}</svg>{esc(g)}</span>")
 
 
+def tags_cell(p: dict) -> str:
+    if p["tags"]:
+        return "<br>".join(f"{esc(topology.CAP_SHORT.get(t['tag'], 'none of the four'))} "
+                           f"<span class=lede>({esc(t['source'])})</span>" for t in p["tags"])
+    if p["kind"] in topology.NO_CAPABILITY_KINDS:
+        return "<span class=lede>not judged</span>"
+    return "<span class=lede>unknown</span>"
+
+
+def combos_html(m: dict) -> str:
+    combos = m["combos"]
+    out = ["<h3 id=combos-h class=combos-h>Dangerous combinations</h3>",
+           f"<p class=lede>BRACE item <b>{esc(B05_NAME)}</b> asks you to record which agents can read outside text, "
+           "reach private data or change things, and talk to the outside, all in one context. When one agent can do "
+           "all of these, treat every action it takes as high-impact.</p>"]
+    if not combos:
+        out.append("<p>None found in the parts and capabilities recorded so far. Parts with no recorded "
+                   "capabilities are listed in the parts table as unknown.</p>")
+        return "<div class=combos>" + "".join(out) + "</div>"
+    out.append("<ol class=combo-list>")
+    for c in combos:
+        picks = "".join(f"<li><span class=cap>{esc(x['label'])}</span> {esc(x['name'])}"
+                        f" <span class=lede>({esc(x['source'] or 'unknown source')})</span></li>" for x in c["picks"])
+        picks += "".join(f"<li><span class='cap unknown'>{esc(t)}</span> <span class=lede>not shown yet "
+                         f"(unknown, not assumed safe)</span></li>" for t in c["missing"])
+        others = "; ".join(f"{esc(k)}: {esc(', '.join(v))}" for k, v in c["others"].items() if v)
+        out.append(
+            f"<li class='combo-card {c['status']}' id={c['id']}-card><div class=top>"
+            f"<span class='cstat {c['status']}'>{'Present' if c['status'] == 'present' else 'Possible'}</span>"
+            f"<strong>{esc(c['title'])}</strong></div><p>{esc(c['text'])}</p><ul class=picks>{picks}</ul>"
+            + (f"<p class=lede>Also reaches: {others}.</p>" if others else "")
+            + (f"<p class=lede>Capabilities unknown for: {esc(', '.join(c['unknown']))}.</p>" if c["unknown"] else "")
+            + "<p class=fixline><b>Fix one way:</b> " + " ".join(f"({i + 1}) {esc(x)}" for i, x in enumerate(COMBO_FIX))
+            + f"</p><p class=lede>See BRACE item {esc(B05_NAME)}.</p>"
+            f"<button type=button class=combo-btn data-combo={c['id']} aria-pressed=false>Show on the map</button></li>")
+    out.append("</ol>")
+    return "<div class=combos>" + "".join(out) + "</div>"
+
+
 def render(m: dict) -> str:
     s = m["summary"]
     parts, edges, findings = m["parts"], m["edges"], m["findings"]
     data = {
-        "parts": list(parts.values()), "edges": edges, "findings": findings,
-        "status_text": STATUS_TEXT, "zone_names": {z: zone_name(z) for z in m["zones"]},
+        "parts": list(parts.values()), "edges": edges, "findings": findings, "combos": m["combos"],
+        "status_text": STATUS_TEXT, "no_cap_kinds": sorted(topology.NO_CAPABILITY_KINDS), "zone_names": {z: zone_name(z) for z in m["zones"]},
     }
     blob = json.dumps(data).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     kinds = sorted({p["kind"] for p in parts.values() if not p["parent"]},
@@ -827,7 +1002,7 @@ def render(m: dict) -> str:
         meta.append(esc(m["reviewed_at"]))
     if m.get("owner"):
         meta.append(f"owner {esc(m['owner'])}")
-    ordered = sorted(findings, key=lambda f: (GATES.index(f["gate"]) if f["gate"] in GATES else 9, f["rating"] != "gap", f["item"]))
+    ordered = ranked(findings)
 
     out = ["<!doctype html><html lang=en><head><meta charset=utf-8>",
            "<meta name=viewport content='width=device-width,initial-scale=1'>",
@@ -838,6 +1013,8 @@ def render(m: dict) -> str:
            "with what a reviewer found in the code. Start with the numbers, then select any part or line on the map "
            "to see the evidence, the BRACE findings and how to fix them.</p>",
            "<section aria-labelledby=ov><h2 id=ov style='margin-top:20px'>Overview</h2><div class=tiles>",
+           f"<div class='tile combo'><b>{s['combos']}</b><span>dangerous combinations"
+           + (f" (and {s['combos_possible']} possible)" if s["combos_possible"] else "") + "</span></div>",
            f"<div class=tile><b>{s['parts']}</b><span>parts on the map</span></div>",
            f"<div class=tile><b>{s['connections']}</b><span>connections</span></div>",
            f"<div class='tile undecl'><b>{s['undeclared']}</b><span>undeclared: in code, not in settings</span></div>",
@@ -846,7 +1023,7 @@ def render(m: dict) -> str:
            "<div class=tile><span>open BRACE findings</span><div class=gates>"
            + "".join(f"<div>{gate_chip(g)} <b style='display:inline;font-size:1.1rem'>{s['findings'][g]}</b></div>" for g in GATES)
            + "</div></div>",
-           "</div></section>"]
+           "</div>", combos_html(m), "</section>"]
 
     filt = ["<form id=filters class=toolbar onsubmit='return false'>",
             "<fieldset><legend>Show</legend>"]
@@ -887,7 +1064,7 @@ def render(m: dict) -> str:
              "the code, its BRACE findings and how to fix them. Press Escape to come back here.</p>"
              "<h3>Fix first</h3><ol style='padding-left:1.2em;margin:4px 0'>"
              + "".join(f"<li>{gate_chip(f['gate'])} <b>{esc(f['item'])}</b> {esc(f['title'])}: "
-                       f"{esc(', '.join(f['where']) or 'not mapped')}</li>" for f in ordered[:5])
+                       f"{esc(', '.join(f['where']) or 'not mapped')}. <span class=lede>{esc(f['reach_text'])}</span></li>" for f in ordered[:5])
              + "</ol>" if findings else
              "<h2>How to read the map</h2><p>Select a part or a line to see its evidence. No findings were given.</p>")
 
@@ -898,13 +1075,15 @@ def render(m: dict) -> str:
 
     # ---- text equivalent
     out.append("<h2 id=tables tabindex=-1>BRACE findings</h2>")
-    out.append("<div class=tablewrap><table><caption>Most urgent first. Open “How to fix” for the steps.</caption>"
+    out.append("<div class=tablewrap><table><caption>Most urgent first: by gate, then by how many connections and dangerous combinations the fix touches. Open “How to fix” for the steps.</caption>"
                "<thead><tr><th>Item</th><th>Gate</th><th>What is wrong</th><th>Where</th><th>Lead role</th></tr></thead><tbody>")
     for f in ordered:
         steps = "".join(f"<li>{code_spans(x)}</li>" for x in f["steps"])
         out.append(
             f"<tr><td><b>{esc(f['item'])}</b><br>{esc(f['title'])}</td><td>{gate_chip(f['gate'])}<br>"
-            f"<span class=lede>{esc(f['rating_text'])}</span></td><td>{code_spans(f['problem'])}"
+            f"<span class=lede>{esc(f['rating_text'])}</span>"
+            + (f"<br><span class=lede>{esc(f['aivss'])}</span>" if f["aivss"] else "")
+            + f"</td><td>{code_spans(f['problem'])}<p class=reach>{esc(f['reach_text'])}</p>"
             f"<details><summary>How to fix</summary><ol>{steps}</ol>"
             + (f"<p class=done><b>Done when:</b> {code_spans(f['done_when'])}</p>" if f["done_when"] else "")
             + (f"<p>Where in the code: {', '.join(f'<code>{esc(e)}</code>' for e in f['evidence'])}</p>" if f["evidence"] else "")
@@ -914,17 +1093,19 @@ def render(m: dict) -> str:
     out.append("</tbody></table></div>")
 
     out.append("<h2>Every part</h2><div class=tablewrap><table><caption>Grouped by trust zone.</caption><thead><tr>"
-               "<th>Part</th><th>Type</th><th>Trust zone</th><th>Status</th><th>Evidence</th><th>Findings</th>"
+               "<th>Part</th><th>Type</th><th>Trust zone</th><th>Status</th><th>Can do (B05)</th><th>Evidence</th><th>Findings</th>"
                "</tr></thead><tbody>")
     for z in m["zones"]:
         for p in sorted((p for p in parts.values() if p["zone"] == z),
                         key=lambda p: (KIND_ORDER.index(p["kind"]) if p["kind"] in KIND_ORDER else 50, p["name"])):
             ev = [f"declared <code>{esc(x)}</code>" for x in p["declared_in"]]
             ev += [f"code <code>{esc(x['at'])}</code>" for x in p["found_in"]]
+            ev += [f"host <code>{esc(x['at'])}</code>" for x in p["on_host"]]
             fl = ", ".join(esc(findings[i]["item"]) for i in p["findings"]) or "none"
             inside = f" <span class=lede>(in {esc(parts[p['parent']]['name'])})</span>" if p["parent"] else ""
             out.append(f"<tr><td>{esc(p['name'])}{inside}</td><td>{esc(p['kind_label'])}</td><td>{esc(zone_name(z))}</td>"
                        f"<td><span class='st {p['status']}'>{esc(STATUS_SHORT[p['status']])}</span></td>"
+                       f"<td>{tags_cell(p)}</td>"
                        f"<td>{'<br>'.join(ev) or '<span class=lede>none</span>'}</td><td>{fl}</td></tr>")
     out.append("</tbody></table></div>")
 

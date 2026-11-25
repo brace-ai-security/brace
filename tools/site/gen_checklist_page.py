@@ -49,13 +49,15 @@ def rewrite_link(target: str) -> str | None:
     while target.startswith("../"):
         target = target[3:]
     m = re.match(r"(CHECKLIST|CHECKLIST-VERIFICATION|SELF-ASSESSMENT|otel-conventions|VENDOR-MATRIX|SOURCE-REVIEW"
-                 r"|mappings/nist-ai-rmf|mappings/iso-iec-42001|mappings/mitre-atlas)\.md(?:#(.*))?$", target)
+                 r"|mappings/nist-ai-rmf|mappings/iso-iec-42001|mappings/mitre-atlas|mappings/owasp-agentic-top-10|mappings/owasp-mcp-top-10)\.md(?:#(.*))?$", target)
     if m:
         page = {"CHECKLIST": "/checklist/", "CHECKLIST-VERIFICATION": "/verification/",
                 "SELF-ASSESSMENT": "/self-assessment/", "otel-conventions": "/otel-conventions/",
                 "VENDOR-MATRIX": "/vendor-matrix/", "SOURCE-REVIEW": "/source-review/",
                 "mappings/nist-ai-rmf": "/mappings/nist-ai-rmf/", "mappings/iso-iec-42001": "/mappings/iso-iec-42001/",
-                "mappings/mitre-atlas": "/mappings/mitre-atlas/"}[m.group(1)]
+                "mappings/mitre-atlas": "/mappings/mitre-atlas/",
+                "mappings/owasp-agentic-top-10": "/mappings/owasp-agentic-top-10/",
+                "mappings/owasp-mcp-top-10": "/mappings/owasp-mcp-top-10/"}[m.group(1)]
         frag = m.group(2) or ""
         if m.group(1) == "CHECKLIST":
             # Aspect anchors on the checklist page are "build-time", not "b--build-time".

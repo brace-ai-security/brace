@@ -200,3 +200,12 @@ def test_html_escapes_untrusted_text(example):
     assert "&lt;script&gt;alert(1)" in page
     assert page.count("<script") == 1  # only the Mermaid loader
     assert "securityLevel:'strict'" in page
+
+
+def test_validator_checks_optional_aivss():
+    ok = {"aivss": {"score": 7.4, "version": "0.8", "vector": "AIVSS:0.8/example"}}
+    assert validate_findings.action_fields("B05", ok, None) == []
+    assert validate_findings.action_fields("B05", {}, None) == []  # never required
+    for bad in ({"aivss": 7}, {"aivss": {"score": 11}}, {"aivss": {"score": True}},
+                {"aivss": {"score": 5, "version": 8}}, {"aivss": {"score": 5, "extra": 1}}):
+        assert any("aivss" in e for e in validate_findings.action_fields("B05", bad, None)), bad

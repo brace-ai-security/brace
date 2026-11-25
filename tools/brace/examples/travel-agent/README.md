@@ -12,7 +12,12 @@ What it shows:
   are in the settings, but no code uses them;
 - an MCP server (`travel-docs`) with its own outside API;
 - a data store, trust zones, and an unknown zone;
-- findings for all three gates, each with the role that usually leads the fix.
+- findings for all three gates, each with the role that usually leads the fix;
+- two **dangerous combinations** (BRACE B05): the agent reads outside advisory text,
+  reaches traveler profiles, and can send data to the undeclared marketing service, so it
+  can be tricked into leaking data. It can also book and pay for flights, so it can be
+  tricked into harmful actions. Tags come from `capabilities:` in `config/agent.yaml`,
+  the `tags` in the overlay, and a few inferred from part types.
 
 | File | What it is |
 |---|---|

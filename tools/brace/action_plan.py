@@ -169,6 +169,7 @@ def actions_from(findings: dict, nodes: dict, repo: Path | None = None) -> tuple
             "plain": bool(steps), "done_when": fix.get("done_when", ""), "effort": fix.get("effort", ""),
             "test": fix.get("test") if isinstance(fix.get("test"), dict) else None,
             "evidence": evidence, "violates": f.get("violates", []), "also_affects": f.get("also_affects", []),
+            "aivss": f.get("aivss") if isinstance(f.get("aivss"), dict) else None,
         })
     actions.sort(key=lambda a: (a["rank"], a["id"]))
     return actions, problems

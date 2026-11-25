@@ -8,6 +8,7 @@ deployments receive FINDINGS, never a GO/NO-GO deployment verdict.
   brace.py items [--json]
   brace.py hash  [--dir .] [--manifest .brace/manifest.yaml]
   brace.py check [--dir .] [--approvals github|git|off] [--strict] [--json out.json]
+  brace.py import-results garak|pyrit|promptfoo|inspect FILE [--item R02 ...] [--dir .]
 
 Exit codes: 0 record conditions met, 1 unresolved findings, 2 invalid input/usage.
 These codes do not authorize deployment.
@@ -943,6 +944,91 @@ def cmd_check(args) -> int:
     return EXIT_NOGO if res["reasons"] else EXIT_GO
 
 
+
+# --------------------------------------------------------------------------
+# import-results
+# --------------------------------------------------------------------------
+
+def cmd_import_results(args) -> int:
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    import results_import as ri
+
+    base = Path(args.dir)
+    record_path = base / ".brace" / "record.yaml"
+    results_path = Path(args.file)
+    try:
+        summary, digest = ri.summarize(args.tool, results_path, args.max_bytes, args.invert)
+    except ri.ImportProblem as exc:
+        raise InputError(exc.args[0])
+    if args.tool_version:
+        summary.version = ri.clean_name(args.tool_version, 40)
+    known = {i["id"] for i in load_items()}
+    suggested = summary.suggested_items(known)
+
+    print(f"Read {results_path.name}: {summary.tool} {summary.version}, run date {summary.run_date or 'unknown'}.")
+    print(f"  {summary.passed} passed, {summary.failed} failed"
+          + (f", {summary.other} {summary.other_label}." if summary.other else "."))
+    print(f"  Attack categories: {summary.category_text()}.")
+    for n in summary.notes:
+        print(f"  Note: {ri.clean(n, 200)}")
+    print(f"  Suggested items: {', '.join(suggested) or 'none (no category maps to a BRACE item)'}.")
+    if summary.total == 0:
+        raise InputError(f"{results_path.name} has no tests with a pass or fail result, so it can't be evidence.")
+
+    items: list[str] = []
+    for raw in args.item or []:
+        for part in raw.split(","):
+            part = part.strip().upper()
+            if part and part not in items:
+                items.append(part)
+    if args.suggested:
+        items += [i for i in suggested if i not in items]
+    bad = [i for i in items if i not in known]
+    if bad:
+        raise InputError(f"Not BRACE item IDs: {', '.join(ri.clean(b, 10) for b in bad)}. Run brace.py items to see the list.")
+    if not items:
+        print("Nothing written. Choose the items this run is evidence for with --item (for example "
+              f"--item {suggested[0] if suggested else 'R02'}), or use --suggested to take the suggestions.")
+        return EXIT_GO
+    if not record_path.is_file():
+        raise InputError(f"{record_path} not found. Run brace.py init first.")
+
+    link = args.link
+    if not link:
+        try:
+            link = os.path.relpath(results_path.resolve(), base.resolve()).replace(os.sep, "/")
+        except ValueError:
+            link = results_path.resolve().as_posix()
+        if link.startswith("../"):
+            link = results_path.resolve().as_posix()
+            print(f"  Warning: {results_path} is outside the repository. Keep a copy where reviewers can find it, "
+                  "or pass --link with its stored location.")
+    run_date = args.date or summary.run_date or _dt.date.today().isoformat()
+    entry = {"link": ri.clean(link, 500), "date": run_date, "note": ri.evidence_note(summary, digest)}
+    try:
+        results, warnings = ri.apply_to_record(
+            record_path, items, entry, digest, summary.failed, args.dry_run,
+            validate=lambda d: validate("record", d, str(record_path)))
+    except ri.ImportProblem as exc:
+        raise InputError(exc.args[0])
+
+    verb = "Would add" if args.dry_run else "Added"
+    for r in results:
+        if r.action == "skipped":
+            print(f"{r.item}: skipped, {r.message}.")
+        else:
+            change = f"; outcome {r.outcome_before} -> {r.outcome_after}" if r.outcome_after != r.outcome_before else ""
+            print(f"{r.item}: {verb.lower()} evidence{change}.")
+    for w in warnings:
+        print(f"Warning: {w}", file=sys.stderr)
+    print("Outcomes are never set to pass by this command. A person reviews the evidence and decides.")
+    if summary.failed:
+        print(f"{summary.failed} attack(s) got through. Treat this as a gap until it is fixed and re-tested.")
+        return EXIT_NOGO
+    return EXIT_GO
+
+
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
@@ -978,7 +1064,28 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--strict", action="store_true", help="treat unverified approvals as blocking")
     s.add_argument("--json", metavar="FILE", help="also write the result as JSON to FILE ('-' for stdout)")
     s.set_defaults(func=cmd_check)
+
+    s = sub.add_parser("import-results", help="add red-team or eval results as evidence for items")
+    s.add_argument("tool", choices=["garak", "pyrit", "promptfoo", "inspect"], help="the tool that made the file")
+    s.add_argument("file", help="the results file (garak report.jsonl, promptfoo -o JSON, PyRIT JSON export, Inspect JSON log)")
+    s.add_argument("--item", action="append", metavar="ID", help="item the run is evidence for; repeat or use commas")
+    s.add_argument("--suggested", action="store_true", help="also add the evidence to every suggested item")
+    s.add_argument("--dir", default=".", help="repository root holding .brace/ (default: .)")
+    s.add_argument("--link", help="link to store instead of the file path (for example a CI artifact URL)")
+    s.add_argument("--date", type=_date_arg, help="evidence date YYYY-MM-DD (default: the run date in the file, else today)")
+    s.add_argument("--tool-version", help="tool version, when the file doesn't record it (PyRIT)")
+    s.add_argument("--invert", action="store_true", help="Inspect only: a correct score means the attack succeeded")
+    s.add_argument("--max-bytes", type=int, default=50 * 1024 * 1024, help="largest file to read (default: 50 MB)")
+    s.add_argument("--dry-run", action="store_true", help="show what would change without writing")
+    s.set_defaults(func=cmd_import_results)
     return p
+
+
+def _date_arg(v: str) -> str:
+    try:
+        return _dt.date.fromisoformat(v).isoformat()
+    except ValueError:
+        raise argparse.ArgumentTypeError("use the form YYYY-MM-DD")
 
 
 def main(argv: list[str] | None = None) -> int:
