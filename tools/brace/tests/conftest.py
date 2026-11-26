@@ -1,6 +1,8 @@
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -10,6 +12,37 @@ TOOL_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(TOOL_DIR))
 
 import brace  # noqa: E402
+
+MAX_WORKERS = 8  # more workers than this only add start-up and scheduling cost on a busy machine
+
+
+def pytest_xdist_auto_num_workers(config):
+    """`-n auto` (pytest.ini): one worker per CPU, at most MAX_WORKERS."""
+    return max(1, min(MAX_WORKERS, len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count() or 1))
+
+
+# The wall-clock budget of the default suite: over the target is reported loudly, over the
+# limit fails the run, so a slow test cannot creep in unnoticed.
+BUDGET_TARGET, BUDGET_LIMIT = 5 * 60, 10 * 60
+_started = time.monotonic()
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    if hasattr(config, "workerinput"):
+        return
+    took = time.monotonic() - _started
+    if took > BUDGET_LIMIT:
+        terminalreporter.section("TEST BUDGET EXCEEDED", red=True, bold=True)
+        terminalreporter.line(f"the suite took {took:.0f} s; the limit is {BUDGET_LIMIT} s", red=True)
+    elif took > BUDGET_TARGET:
+        terminalreporter.section("TEST BUDGET WARNING", yellow=True, bold=True)
+        terminalreporter.line(f"the suite took {took:.0f} s; the target is under {BUDGET_TARGET} s", yellow=True)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if not hasattr(session.config, "workerinput") and time.monotonic() - _started > BUDGET_LIMIT and exitstatus == 0:
+        session.exitstatus = 1
+
 
 ITEMS = json.loads((TOOL_DIR / "brace_items.json").read_text(encoding="utf-8"))
 GATE = {i["id"]: i["gate"] for i in ITEMS}

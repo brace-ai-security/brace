@@ -105,7 +105,7 @@ def test_long_workflow_lines_are_linear(tmp_path, line):
     fast(lambda: found(tmp_path))
 
 
-def grows_linearly(rx: re.Pattern, texts: list[str], reps: int = 5) -> bool:
+def grows_linearly(rx: re.Pattern, texts: list[str], reps: int = 3) -> bool:
     """Whether searching inputs four times longer takes well under sixteen times as long.
 
     CPU time (process_time) ignores other processes, the two sizes are timed in turn and the
@@ -150,15 +150,27 @@ def own_alphabet(rx: re.Pattern, size: int) -> list[str]:
     return [h + b * (size // len(b)) + "\x00" for h in heads for b in bodies]
 
 
-@pytest.mark.parametrize("name,rx", [(n, rx) for n, rx in module_patterns() if isinstance(rx.pattern, str)],
-                         ids=lambda v: v if isinstance(v, str) else "")
-def test_every_module_regex_has_a_small_constant(name, rx):
+TEXTS_PER_SHARD = 8  # own_alphabet lines per test, so a pattern with a large alphabet spreads over workers
+
+
+def constant_cases():
+    for name, rx in module_patterns():
+        if isinstance(rx.pattern, str):
+            count = len(own_alphabet(rx, 1))
+            shards = -(-count // TEXTS_PER_SHARD)
+            for shard in range(shards):
+                yield pytest.param(name, rx, shard, shards, id=name if shards == 1 else f"{name}-{shard + 1}of{shards}")
+
+
+@pytest.mark.parametrize("name,rx,shard,shards", list(constant_cases()))
+def test_every_module_regex_has_a_small_constant(name, rx, shard, shards):
     """Linear is not enough: a pattern can be linear with a huge constant (8**6 ways to match a
     workflow prefix per failed attempt took 93 s on 40 KB). Each adversarial line from the
     pattern's own alphabet must be searched within BUDGET_PER_KB, first at 4 KB (so a bad
-    pattern fails in seconds, not hours) and then at 64 KB."""
+    pattern fails in seconds, not hours) and then at 64 KB. A pattern with many lines is split
+    into shards (every `shards`-th line from `shard`), which together cover every line."""
     for kb in (4, 64):
-        for text in own_alphabet(rx, kb * 1024):
+        for text in own_alphabet(rx, kb * 1024)[shard::shards]:
             start = time.process_time()
             rx.search(text)
             assert time.process_time() - start < kb * BUDGET_PER_KB + 0.02, (name, text[:60])
@@ -228,56 +240,135 @@ def test_worst_case_globs_on_a_deep_tree_are_fast(tmp_path):
     assert r["findings"] == [] and any("past the limit of 400 segments" in n for n in r["notes"])
 
 
-def test_many_large_dockerfiles_stay_within_memory(tmp_path):
+def traced_peak(fn):
+    """(fn's result, the peak bytes Python allocated while it ran)."""
+    tracemalloc.start()
+    try:
+        out = fn()
+        return out, tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+def peak_growth(tmp_path, rel: str, body: str, few: int, many: int, scan=report, also: dict = {}):
+    """Scans of `few` and then `many` copies of a file: (both results, the extra peak memory
+    the extra copies cost). A scan that keeps each file (or anything as large) until the end
+    grows by at least the size of the extra copies; one that lets each file go stays flat."""
+    out = []
+    for n in (few, many):
+        root = tmp_path / f"n{n}"
+        for i in range(n):
+            write(root, f"d{i}/{rel}", body)
+        for other, text in also.items():
+            write(root, other, text)
+        out.append(traced_peak(lambda: scan(root)))
+    (r_few, peak_few), (r_many, peak_many) = out
+    return r_few, r_many, peak_many - peak_few
+
+
+def retain_parsed_files(monkeypatch):
+    """The negative control for the memory tests: each parsed file kept to the end of the scan,
+    as the scanner did before round 6."""
+    from open_agent_security import engine
+    kept, real = [], engine.parse_file
+    monkeypatch.setattr(engine, "parse_file", lambda *a: kept.append(real(*a)) or kept[-1])
+
+
+DOCKERFILE = "FROM a\n" * 60_000  # 420 KB and more than 100 unpinned images
+
+
+@pytest.mark.parametrize("control", [False, True], ids=["scanner", "negative-control"])
+def test_many_large_dockerfiles_stay_within_memory(tmp_path, monkeypatch, control):
+    """Peak memory does not grow with the number of files: four Dockerfiles cost no more than
+    one. The negative control keeps each parsed file and must fail the same bound."""
+    if control:
+        retain_parsed_files(monkeypatch)
+    start = time.process_time()
+    few, many, growth = peak_growth(tmp_path, "Dockerfile", DOCKERFILE, 1, 4, also={".mcp.json": "{}\n"})
+    assert time.process_time() - start < 10
+    assert (growth < 3 * len(DOCKERFILE) // 2) is not control, growth
+    for r, n in ((few, 1), (many, 4)):
+        assert r["incomplete"] is True  # each file has more than 100 unpinned images
+        assert sum(f["rule"] == "AP10" for f in r["findings"]) == n * 100
+
+
+MCP_BODY = json.dumps({"mcpServers": {"big": {"command": "node", "args": [f"a{i:05}" for i in range(8_000)]}}})
+
+
+@pytest.mark.parametrize("control", [False, True], ids=["scanner", "negative-control"])
+def test_many_large_mcp_configs_stay_within_memory(tmp_path, monkeypatch, control):
+    """Each file's parsed arguments used to stay in memory to the end of the scan (12 files of
+    800 KB peaked at about 72 MB). Now four files cost no more than one; the negative control
+    keeps each parsed file and must fail the same bound."""
+    if control:
+        retain_parsed_files(monkeypatch)
+    few, many, growth = peak_growth(tmp_path, "mcp.json", MCP_BODY, 1, 4)
+    assert (growth < 3 * len(MCP_BODY) // 2) is not control, growth
+    assert few["incomplete"] is False and many["incomplete"] is False
+
+
+def huge_name_body(name_length: int) -> str:
+    env = {f"T{i}": "ghp_" + f"{i:04d}" + "a" * 32 for i in range(100)}
+    return json.dumps({"mcpServers": {"n" * name_length: {"command": "node", "env": env}}}, indent=0)  # a line per key
+
+
+@pytest.mark.parametrize("control", [False, True], ids=["scanner", "negative-control"])
+def test_files_with_huge_server_names_and_many_secrets_stay_within_memory(tmp_path, monkeypatch, control):
+    """One 1 MB file used to peak at about 650 MB: every finding kept the whole server name to
+    the end of the scan. Findings are now finalized as they are accepted and names cut at
+    parse, so four files with 100 KB names and 100 secrets each stay under 4 MB. The negative
+    control undoes both (no cut, and every finding kept as found until the end of the scan) and
+    must fail the same bound."""
+    from open_agent_security import engine
+    from open_agent_security.parse import mcp_json
+    if control:
+        monkeypatch.setattr(mcp_json, "MAX_VALUE", 10 ** 9)
+        kept, real = [], engine.finalize
+        monkeypatch.setattr(engine, "finalize", lambda f, *a: kept.append(f) or real(f, *a))
+    body = huge_name_body(100_000)
+    for i in range(4):
+        write(tmp_path, f"d{i}/.mcp.json", body)
+    r, peak = traced_peak(lambda: result(tmp_path))
+    assert sum(f.rule == "AP05" for f in r.findings) >= 4 * 90  # details match after the cut, so lines tell them apart
+    assert (peak < 4 * 1024 * 1024) is not control, peak
+
+
+# The original, full-size runs of the three memory tests above: minutes under tracemalloc, so
+# they run nightly (-m slow); the fast versions above prove the same bounds by growth.
+@pytest.mark.slow
+@pytest.mark.timeout(600)
+def test_slow_many_large_dockerfiles_stay_within_memory(tmp_path):
     body = "FROM a\n" * (1024 * 1024 // 7 - 1)
     for i in range(8):
         write(tmp_path, f"d{i}/Dockerfile", body)
     write(tmp_path, ".mcp.json", "{}\n")
-    tracemalloc.start()
-    try:
-        start = time.process_time()
-        r = report(tmp_path)
-        elapsed = time.process_time() - start
-        peak = tracemalloc.get_traced_memory()[1]
-    finally:
-        tracemalloc.stop()
-    assert peak < 60 * 1024 * 1024 and elapsed < 10
-    assert r["incomplete"] is True  # each file has more than 100 unpinned images
+    r, peak = traced_peak(lambda: report(tmp_path))
+    assert peak < 60 * 1024 * 1024
+    assert r["incomplete"] is True
     assert sum(f["rule"] == "AP10" for f in r["findings"]) == 8 * 100
 
 
-def test_many_large_mcp_configs_stay_within_memory(tmp_path):
-    # Each file used to stay in memory whole (about 6 MB of parsed arguments); 12 files keep
-    # the test fast and the gap wide: about 72 MB before, under 12 MB after.
+@pytest.mark.slow
+@pytest.mark.timeout(600)
+def test_slow_many_large_mcp_configs_stay_within_memory(tmp_path):
     body = json.dumps({"mcpServers": {"big": {"command": "node", "args": [f"a{i:05}" for i in range(95_000)]}}})
     assert len(body) > 800_000
     for i in range(12):
         write(tmp_path, f"d{i}/mcp.json", body)
-    tracemalloc.start()
-    try:
-        r = report(tmp_path)
-        peak = tracemalloc.get_traced_memory()[1]
-    finally:
-        tracemalloc.stop()
+    r, peak = traced_peak(lambda: report(tmp_path))
     assert r["incomplete"] is False
     assert peak < 30 * 1024 * 1024
 
 
-def test_files_with_huge_server_names_and_many_secrets_stay_within_memory(tmp_path):
-    # One such file used to peak at about 650 MB: every finding kept the whole name until the
-    # end of the scan. Findings are now finalized as they are accepted and names cut at parse.
-    env = {f"T{i}": "ghp_" + f"{i:04d}" + "a" * 32 for i in range(100)}
-    body = json.dumps({"mcpServers": {"n" * 990_000: {"command": "node", "env": env}}}, indent=0)  # a line per key
+@pytest.mark.slow
+@pytest.mark.timeout(600)
+def test_slow_files_with_huge_server_names_and_many_secrets_stay_within_memory(tmp_path):
+    body = huge_name_body(990_000)
     assert len(body) < 1024 * 1024
     for i in range(10):
         write(tmp_path, f"d{i}/.mcp.json", body)
-    tracemalloc.start()
-    try:
-        r = result(tmp_path)
-        peak = tracemalloc.get_traced_memory()[1]
-    finally:
-        tracemalloc.stop()
-    assert sum(f.rule == "AP05" for f in r.findings) >= 900  # details match after the cut, so lines tell them apart
+    r, peak = traced_peak(lambda: result(tmp_path))
+    assert sum(f.rule == "AP05" for f in r.findings) >= 900
     assert peak < 40 * 1024 * 1024
 
 

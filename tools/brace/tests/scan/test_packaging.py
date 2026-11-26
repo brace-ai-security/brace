@@ -68,6 +68,7 @@ def test_action_exit_2_message_names_the_config_file():
     assert "malformed .open-agent-security.toml" in action
 
 
+@pytest.mark.timeout(300)  # a wheel build, a venv and a pip install: wall-clock bound, slow on a busy machine
 def test_the_wheel_installs_and_runs(tmp_path):
     tool = build_tool()
     if tool is None:
