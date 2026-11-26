@@ -3,6 +3,7 @@ scanner output. It pins what the map shows while the host reader shares the scan
 Regenerate on purpose with OAS_UPDATE_GOLDEN=1 and review the diff."""
 import json
 import os
+import re
 from pathlib import Path
 
 import topology
@@ -10,6 +11,13 @@ from conftest import TOOL_DIR
 
 HS = TOOL_DIR / "examples" / "host-scan"
 GOLDEN = TOOL_DIR / "tests" / "fixtures" / "host_evidence.json"
+
+
+def normalise_checkout(text: str) -> str:
+    """Replace where this checkout lives with TOOL_DIR, however the path is written (absolute, or
+    ~/ relative to whatever home folder the host reader resolved), so the snapshot is the same on
+    every machine and in CI."""
+    return re.sub(r'(?<=")[^"\n]*?(?=/examples/host-scan/)', "TOOL_DIR", text)
 
 
 def test_host_evidence_golden(tmp_path):
@@ -23,7 +31,8 @@ def test_host_evidence_golden(tmp_path):
                                   "odd": {"serverUrl": "https://odd.example/sse", "args": ["--token", "short"]}}}}}))
     recs, notes = topology.host_evidence(Path("/w/app"), True, [HS / "claude_desktop_config.json"],
                                          sorted(HS.glob("*scan*.json")), home=home, system="Linux")
-    text = json.dumps({"records": recs, "notes": notes}, indent=2, sort_keys=True).replace(str(tmp_path), "TMP") + "\n"
+    text = json.dumps({"records": recs, "notes": notes}, indent=2, sort_keys=True).replace(str(tmp_path), "TMP")
+    text = normalise_checkout(text) + "\n"
     if os.environ.get("OAS_UPDATE_GOLDEN"):
         GOLDEN.write_text(text, encoding="utf-8")
     assert text == GOLDEN.read_text(encoding="utf-8")
