@@ -1,16 +1,21 @@
-"""Read MCP server settings from the machine where an agent runs, or import scanner output.
+"""Read MCP server settings from the machine where an agent runs.
 
-Used by `topology.py build --host-config ... --import-scan ...`. Nothing here starts a
-server, contacts a network or scans tools: it only reads JSON files that already exist.
+The scanner's --host reads the files host_sources() lists; `topology.py build --host-config`
+also turns them into records with read_host(). Nothing here starts a server, contacts a
+network or scans tools: it only reads JSON files that already exist. What counts as a server
+and where its URL and environment are come from parse/mcp_json.py, the scanner's own reader,
+so the scan and the map cannot disagree.
 
 What is kept from each server entry: the client, the file, the JSON key that holds the
-entry, the server name, the transport, the command name and arguments (secret-looking
-argument values redacted), and the URL without user info, query or fragment. Never kept:
+entry, the server name, the transport, the command name and arguments (a command written
+as one string is split first; secret-looking argument values redacted), and the URL without
+user info, query or fragment. Every kept string except file paths is redacted. Never kept:
 `env` values, header values, tokens. Only the *names* of `env` keys and headers are kept.
 
 All file content is untrusted. Files over MAX_BYTES are refused, at most MAX_SERVERS
-servers are read per file, and every string is cut to MAX_TEXT characters. Callers escape
-the text when they show it.
+servers are read per file, and every string is cut to MAX_TEXT characters. Arguments go
+through the scanner's redactor (secrets.redact_command). Callers escape the text when they
+show it.
 
 Host config locations (checked against vendor documentation, November 2026):
 
@@ -36,21 +41,25 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-MAX_BYTES = 5 * 1024 * 1024
+from .fsio import ReadFailure, read
+from .jsonc import load_json_text
+from .limits import HOST_FILE_BYTES, MAX_VALUE
+from .output import clean
+from .parse.mcp_json import common_shape, entry_url, servers_at, split_words
+from .secrets import redact_command
+
+MAX_BYTES = HOST_FILE_BYTES
 MAX_SERVERS = 500
 MAX_TEXT = 300
-SECRET_FLAG = re.compile(r"(token|secret|password|passwd|api[-_]?key|credential|auth)", re.I)
-SECRET_VALUE = re.compile(r"^(sk-|ghp_|gho_|xox[abp]-|AKIA|lgr_pat_|eyJ)|[A-Za-z0-9_\-]{32,}")
 
 
-def _cut(x) -> str:
-    s = "" if x is None else str(x)
-    s = "".join(ch for ch in s if ch.isprintable())
-    return s if len(s) <= MAX_TEXT else s[: MAX_TEXT - 1] + "…"
+def cut(x, redact: bool = True) -> str:
+    """Printable, secret-redacted text of at most MAX_TEXT characters ('' for None). Only file
+    paths pass redact=False: a path is shown as it is on disk."""
+    return "" if x is None else clean(x, MAX_TEXT, redact=redact)
 
 
 def host_sources(home: Path, system: str, project: Path | None = None, env: dict | None = None) -> list[dict]:
@@ -90,14 +99,16 @@ def host_sources(home: Path, system: str, project: Path | None = None, env: dict
     return out
 
 
-def load_json(path: Path):
-    """Read a JSON file as untrusted input. Returns (data, error)."""
-    try:
-        if path.stat().st_size > MAX_BYTES:
-            return None, f"{path.name} is larger than {MAX_BYTES // (1024 * 1024)} MB; skipped"
-        return json.loads(path.read_text(encoding="utf-8", errors="replace")), None
-    except (OSError, ValueError) as e:
-        return None, f"{path.name}: {type(e).__name__}"
+def load_json(path: Path, limit: int | None = None):
+    """Read a JSON (or JSONC) file as untrusted input. Returns (data, error)."""
+    limit = MAX_BYTES if limit is None else limit
+    text = read(path, follow=True, limit=limit)
+    if isinstance(text, ReadFailure):
+        if text.reason == "oversized":
+            return None, f"{path.name} is larger than {limit // (1024 * 1024)} MB; skipped"
+        return None, f"{path.name}: {text.reason}"
+    data, err = load_json_text(text)
+    return (None, f"{path.name}: {err}") if err else (data, None)
 
 
 def clean_url(url: str) -> str:
@@ -112,70 +123,32 @@ def clean_url(url: str) -> str:
         port = None
     if port:
         host += f":{port}"
-    return _cut(urlunsplit((u.scheme, host, u.path, "", "")))
-
-
-def redact_args(args) -> list[str]:
-    out, hide = [], False
-    for a in map(str, args if isinstance(args, list) else []):
-        if hide:
-            out.append("<redacted>")
-            hide = False
-        elif "=" in a and SECRET_FLAG.search(a.split("=", 1)[0]):
-            out.append(a.split("=", 1)[0] + "=<redacted>")
-        elif SECRET_VALUE.search(a) and not a.startswith(("-", "/", ".", "@")):
-            out.append("<redacted>")
-        else:
-            out.append(_cut(a))
-            hide = a.startswith("-") and bool(SECRET_FLAG.search(a))
-    return out
+    return cut(urlunsplit((u.scheme, host, u.path, "", "")))
 
 
 def server_record(name: str, entry: dict, client: str, file: str, key: str) -> dict:
-    entry = entry if isinstance(entry, dict) else {}
+    entry = common_shape(entry if isinstance(entry, dict) else {})
+    url = entry_url(entry)
     transport = entry.get("type") or entry.get("transport") or ("stdio" if entry.get("command") else
-                                                                 "http" if entry.get("url") else "unknown")
-    rec = {"name": _cut(name), "client": client, "file": _cut(file), "key": _cut(key), "transport": _cut(transport),
-           "url": clean_url(entry["url"]) if entry.get("url") else "",
-           "command": _cut(Path(str(entry.get("command"))).name) if entry.get("command") else "",
-           "args": redact_args(entry.get("args"))[:40],
-           "env_keys": sorted(_cut(k) for k in (entry.get("env") or {}) if isinstance(entry.get("env"), dict))[:50],
-           "header_keys": sorted(_cut(k) for k in (entry.get("headers") or {}) if isinstance(entry.get("headers"), dict))[:50]}
-    return rec
+                                                                 "http" if url else "unknown")
+    env, headers = entry.get("env"), entry.get("headers")
+    command = entry.get("command")
+    command = str(command) if isinstance(command, (str, int, float)) else ""
+    args = entry.get("args")
+    args = [a for a in args if isinstance(a, (str, int, float))] if isinstance(args, list) else []
+    if not args and len(command.split()) > 1:  # `"command": "npx --api-key=... pkg"`
+        command, *args = split_words(command[:MAX_VALUE])
+    return {"name": cut(name), "client": client, "file": cut(file, redact=False), "key": cut(key),
+            "transport": cut(transport), "url": clean_url(url) if url else "",
+            "command": cut(Path(command.replace("\\", "/")).name) if command else "",
+            "args": [cut(a) for a in redact_command(args[:40])],
+            "env_keys": sorted(cut(k) for k in env)[:50] if isinstance(env, dict) else [],
+            "header_keys": sorted(cut(k) for k in headers)[:50] if isinstance(headers, dict) else []}
 
 
-def servers_in(data, key: str):
-    """Yield (json key, name, entry) for a key such as `mcpServers` or `projects.*.mcpServers`."""
-    if not isinstance(data, dict):
-        return
-    head, _, rest = key.partition(".")
-    if head == "*":
-        for k, v in data.items():
-            for jk, n, e in servers_in(v, rest):
-                yield f"{json.dumps(k)}.{jk}", n, e
-        return
-    val = data.get(head)
-    if rest:
-        for jk, n, e in servers_in(val, rest):
-            yield f"{head}.{jk}", n, e
-    elif isinstance(val, dict):
-        for n, e in val.items():
-            yield f"{head}.{n}", n, e
-
-
-def project_servers(data, project: Path | None):
-    """Yield (json key, name, entry) from `projects["<project>"].mcpServers` for the one
-    repository being built only; other projects' servers on the same machine are not read."""
-    if project is None or not isinstance(data, dict) or not isinstance(data.get("projects"), dict):
-        return
-    p = Path(project).expanduser()
-    p = p.resolve() if p.exists() else p.absolute()
-    for cand in dict.fromkeys((str(p), str(Path(project).expanduser().absolute()))):
-        servers = data["projects"].get(cand)
-        if isinstance(servers, dict) and isinstance(servers.get("mcpServers"), dict):
-            for n, e in servers["mcpServers"].items():
-                yield f"projects.{json.dumps(cand)}.mcpServers.{n}", n, e
-            return
+def json_key(path: tuple) -> str:
+    """A server's JSON path as shown: `mcpServers.name`, or `projects."/path".mcpServers.name`."""
+    return ".".join(json.dumps(p) if i == 1 and path[0] == "projects" else str(p) for i, p in enumerate(path))
 
 
 def read_host(sources: list[dict], project: Path | None = None) -> tuple[list[dict], list[str]]:
@@ -191,130 +164,11 @@ def read_host(sources: list[dict], project: Path | None = None) -> tuple[list[di
         if err:
             notes.append(err)
             continue
-        n = 0
-        for key in src["keys"]:
-            found = project_servers(data, project) if key == "projects.*.mcpServers" else servers_in(data, key)
-            for jk, name, entry in found:
-                if n >= MAX_SERVERS:
-                    notes.append(f"{path.name}: more than {MAX_SERVERS} servers; the rest skipped")
-                    break
-                records.append(server_record(name, entry, src["client"], str(path), jk))
-                n += 1
+        # `projects.*.mcpServers` is read only for the project being mapped, never for others.
+        keys = [k for k in src["keys"] if project is not None or k != "projects.*.mcpServers"]
+        found = servers_at(data, keys, project)
+        if len(found) > MAX_SERVERS:
+            notes.append(f"{path.name}: more than {MAX_SERVERS} servers; the rest skipped")
+        for jpath, name, entry in found[:MAX_SERVERS]:
+            records.append(server_record(name, entry, src["client"], str(path), json_key(jpath)))
     return records, notes
-
-
-# ------------------------------------------------------------------ scanner imports
-def import_scan(path: Path) -> tuple[list[dict], list[str]]:
-    """Import Snyk Agent Scan (`--json`, v0.5 path-keyed or v0.6 `scan_path_responses`)
-    or Cisco mcp-scanner (`--format raw`) output. Returns (records, notes); each record is
-    a server with `issues` [{tool, code, severity, message}]."""
-    data, err = load_json(path)
-    if err:
-        return [], [err]
-    notes: list[str] = []
-    if isinstance(data, dict) and "scan_results" in data and "server_url" in data:
-        return _cisco([data], path, notes), notes
-    if isinstance(data, list) and data and all(isinstance(x, dict) and "scan_results" in x for x in data):
-        return _cisco(data, path, notes), notes
-    if isinstance(data, dict) and isinstance(data.get("scan_path_responses"), list):
-        return _snyk_v06(data["scan_path_responses"], path, notes), notes
-    if isinstance(data, dict) and data and all(isinstance(v, dict) and "servers" in v for v in data.values()):
-        return _snyk_v05(data, path, notes), notes
-    return [], [f"{path.name}: not a recognised Snyk Agent Scan or Cisco mcp-scanner JSON file"]
-
-
-def _scanner_record(name, client, file, key, server: dict | None, scanner: str) -> dict:
-    rec = server_record(name, server or {}, client, file, key)
-    rec["scanner"] = scanner
-    rec["issues"] = []
-    return rec
-
-
-def _list(x, what: str, path: Path, notes: list[str]) -> list:
-    """`x` if it is a list (None counts as empty); otherwise a note and an empty list."""
-    if x is None or isinstance(x, list):
-        return x or []
-    notes.append(f"{path.name}: {_cut(what)} is not a list; skipped")
-    return []
-
-
-def _dict(x, what: str, path: Path, notes: list[str]) -> dict:
-    if x is None or isinstance(x, dict):
-        return x or {}
-    notes.append(f"{path.name}: {_cut(what)} is not an object; skipped")
-    return {}
-
-
-def _snyk_v05(data: dict, path: Path, notes: list[str]) -> list[dict]:
-    out = []
-    for scan_path, res in list(data.items())[:MAX_SERVERS]:
-        servers = _list(res.get("servers"), f"{scan_path} servers", path, notes)
-        recs = []
-        for i, s in enumerate(servers[:MAX_SERVERS]):
-            if not isinstance(s, dict):
-                continue
-            rec = _scanner_record(s.get("name") or f"server-{i}", _cut(res.get("client") or "unknown client"),
-                                  str(path), f"{_cut(scan_path)}#servers[{i}]", s.get("server"), "Snyk Agent Scan")
-            tools = _list(s["signature"].get("tools"), "signature.tools", path, notes) \
-                if isinstance(s.get("signature"), dict) else []
-            rec["tools"] = [_cut(t.get("name")) for t in tools[:200] if isinstance(t, dict)]
-            recs.append(rec)
-            out.append(rec)
-        for issue in _list(res.get("issues"), f"{scan_path} issues", path, notes)[:2000]:
-            if not isinstance(issue, dict):
-                continue
-            ref = issue.get("reference") or [None, None]
-            si = ref[0] if isinstance(ref, list) and ref and isinstance(ref[0], int) else None
-            if si is None or not 0 <= si < len(recs):
-                continue
-            ti = ref[1] if len(ref) > 1 and isinstance(ref[1], int) else None
-            tools = recs[si].get("tools", [])
-            recs[si]["issues"].append({"tool": tools[ti] if ti is not None and 0 <= ti < len(tools) else "",
-                                       "code": _cut(issue.get("code")), "severity": "",
-                                       "message": _cut(issue.get("message"))})
-    return out
-
-
-def _snyk_v06(responses: list, path: Path, notes: list[str]) -> list[dict]:
-    out = []
-    for resp in responses[:MAX_SERVERS]:
-        if not isinstance(resp, dict):
-            continue
-        for i, s in enumerate(_list(resp.get("server_risks"), "server_risks", path, notes)[:MAX_SERVERS]):
-            if not isinstance(s, dict):
-                continue
-            rec = _scanner_record(s.get("name") or f"server-{i}", _cut(resp.get("client") or "unknown client"),
-                                  str(path), f"{_cut(resp.get('path'))}#server_risks[{i}]", None, "Snyk Agent Scan")
-            ents = [e for e in _list(s.get("entities"), "entities", path, notes) if isinstance(e, dict)]
-            rec["tools"] = [_cut(e.get("name")) for e in ents if e.get("type") == "tool"][:200]
-            for risk, v in list(_dict(s.get("risk_indexes"), "risk_indexes", path, notes).items())[:200]:
-                v = v if isinstance(v, dict) else {}
-                hit = [ents[k].get("name") for k in _list(v.get("affected_tools"), "affected_tools", path, notes)
-                       if isinstance(k, int) and 0 <= k < len(ents)]
-                rec["issues"].append({"tool": _cut(", ".join(map(str, hit))), "code": _cut(risk),
-                                      "severity": f"score {_cut(v.get('score'))}", "message": _cut(v.get("evidence"))})
-            out.append(rec)
-    return out
-
-
-def _cisco(results: list, path: Path, notes: list[str]) -> list[dict]:
-    out = []
-    for k, r in enumerate(results[:MAX_SERVERS]):
-        url = r.get("server_url") or ""
-        items = [x for x in _list(r.get("scan_results"), "scan_results", path, notes) if isinstance(x, dict)][:2000]
-        name = next((x.get("server_name") for x in items if x.get("server_name")), None) or urlsplit(str(url)).hostname \
-            or str(url) or f"server-{k}"
-        server = {"url": url} if str(url).startswith(("http://", "https://")) else {"command": url}
-        rec = _scanner_record(name, "Cisco mcp-scanner target", str(path), f"[{k}].server_url", server,
-                              "Cisco mcp-scanner")
-        rec["tools"] = [_cut(x.get("tool_name")) for x in items if x.get("tool_name")][:200]
-        for x in items:
-            for analyzer, f in _dict(x.get("findings"), "findings", path, notes).items():
-                if not isinstance(f, dict) or not f.get("total_findings"):
-                    continue
-                rec["issues"].append({"tool": _cut(x.get("tool_name") or x.get("prompt_name") or x.get("resource_name")),
-                                      "code": _cut(", ".join(map(str, f.get("threat_names") or [])) or analyzer),
-                                      "severity": _cut(f.get("severity")),
-                                      "message": _cut(f.get("threat_summary"))})
-        out.append(rec)
-    return out

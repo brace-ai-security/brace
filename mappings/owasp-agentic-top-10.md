@@ -1,6 +1,6 @@
 # BRACE and the OWASP Top 10 for Agentic Applications
 
-This page maps each risk in the [OWASP Top 10 for Agentic Applications for 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) to BRACE controls (C1–C9) and items in the [BRACE sign-off checklist](../CHECKLIST.md). The list comes from the OWASP GenAI Security Project. Its resource page gives a release date of 9 December 2025. The IDs and names below were copied from the [official list page](https://genai.owasp.org/top-10-for-agentic-applications-2026/) on 2026-11-24.
+This page maps each risk in the [OWASP Top 10 for Agentic Applications for 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) to BRACE controls (C1–C9) and items in the [BRACE sign-off checklist](../CHECKLIST.md). The list comes from the OWASP GenAI Security Project. Its resource page gives a release date of 9 December 2025. The IDs and names below were copied from the [official list page](https://genai.owasp.org/top-10-for-agentic-applications-2026/) on 2026-11-24 and rechecked on 2026-11-26. No newer edition was listed.
 
 ## How to read this mapping
 - **Direct** — passing the listed BRACE items prevents the risk or contains its damage in a deployed agent.
@@ -47,7 +47,7 @@ Item IDs refer to the [checklist](../CHECKLIST.md), most relevant first. An item
 - Each OWASP risk covers many attack paths. "Direct" means BRACE addresses the main paths for one deployed agent. It does not mean every example in the OWASP text is blocked.
 - Only items with a Pass result count. A Gap, an accepted risk, or an N/A gives no coverage.
 - The OWASP mitigation lists for each risk are not mapped one by one.
-- Recheck this mapping when OWASP publishes a new edition. Last checked 2026-11-24.
+- Recheck this mapping when OWASP publishes a new edition. Last checked 2026-11-26.
 
 ---
 *Part of [BRACE](../README.md), a security framework for autonomous AI agents. CC BY 4.0.*

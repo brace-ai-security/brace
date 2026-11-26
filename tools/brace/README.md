@@ -9,8 +9,9 @@ point to the tests you ran (see the [verification guide](../../CHECKLIST-VERIFIC
 
 ## Install
 
-You need Python 3.10 or newer and PyYAML. `jsonschema` is optional; without it,
-`brace.py` uses a small built-in validator.
+You need Python 3.10 or newer and PyYAML (3.11 or newer for `brace.py scan`, the
+open-agent-security scanner). `jsonschema` is optional; without it, `brace.py` uses a small
+built-in validator.
 
     pip install pyyaml jsonschema
 
@@ -271,9 +272,9 @@ and the output of two MCP scanners. These count as "found", like traced code:
 
 `--host-config` reads Claude Desktop, Claude Code (`~/.claude.json`, managed
 `managed-mcp.json`), Cursor, VS Code and Windsurf settings for the current operating
-system. `open_agent_security/host_scan.py` lists the paths and their sources. `--import-scan` reads
-Snyk Agent Scan `--json` output (v0.5 and v0.6 layouts) and Cisco mcp-scanner
-`--format raw` output. Neither runs a scan.
+system. `open_agent_security/host_scan.py` lists the paths and their sources.
+`--import-scan` (`scan_import.py`) reads Snyk Agent Scan `--json` output (v0.5 and v0.6
+layouts) and Cisco mcp-scanner `--format raw` output. Neither runs a scan.
 
 Only names are kept: the file and JSON key, server name, transport, command name, URL
 without user, query or fragment, and the *names* of `env` keys and headers. Values of

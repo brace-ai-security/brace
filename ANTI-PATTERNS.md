@@ -14,8 +14,8 @@ Anti-patterns marked **scan** are detected by `open-agent-security`. Run it on y
 uvx open-agent-security .          # or: pipx run open-agent-security .
 ```
 
-Add `--host` to also check the MCP servers configured on your own machine (Claude
-Desktop, Claude Code, Cursor, VS Code, Windsurf). The scan is local and read-only. It
+Add `--host` to also check the agent settings on your own machine (the MCP servers of
+Claude Desktop, Claude Code, Cursor, VS Code, Windsurf and Devin Desktop, and Claude Code permissions). The scan is local and read-only. It
 runs no model and sends nothing anywhere. A clean scan means none of these patterns was
 found. It doesn't mean the agent is secure; for that, use the
 [sign-off checklist](CHECKLIST.md).
@@ -27,11 +27,11 @@ found. It doesn't mean the agent is secure; for that, use the
 | AP03 | [Agent workflow triggered by pull_request_target](#ap03-agent-workflow-triggered-by-pull_request_target) | Critical | scan |
 | AP04 | [MCP server installed from an unpinned package](#ap04-mcp-server-installed-from-an-unpinned-package) | High | scan |
 | AP05 | [Secret written directly in agent configuration](#ap05-secret-written-directly-in-agent-configuration) | High | scan |
-| AP06 | [Agent allowed to run any shell command](#ap06-agent-allowed-to-run-any-shell-command) | High | scan |
+| AP06 | [Agent allowed to run any shell command](#ap06-agent-allowed-to-run-any-shell-command) | High | scan (Claude Code settings) |
 | AP07 | [Remote MCP server reached over plain HTTP](#ap07-remote-mcp-server-reached-over-plain-http) | Medium | scan |
 | AP08 | [Agent tool container can take over the host](#ap08-agent-tool-container-can-take-over-the-host) | High | scan |
-| AP09 | [Lethal combination: untrusted input, private data and a way out](#ap09-lethal-combination-untrusted-input-private-data-and-a-way-out) | High | scan (likely) |
-| AP10 | [Agent image not pinned to a digest](#ap10-agent-image-not-pinned-to-a-digest) | Low | scan |
+| AP09 | [Lethal combination: untrusted input, private data and a way out](#ap09-lethal-combination-untrusted-input-private-data-and-a-way-out) | Medium | scan (likely) |
+| AP10 | [Agent image not pinned to a digest](#ap10-agent-image-not-pinned-to-a-digest) | Low | scan (Dockerfiles) |
 | AP11 | [The system prompt is the security control](#ap11-the-system-prompt-is-the-security-control) | High | review |
 | AP12 | [The agent shares its user's credentials](#ap12-the-agent-shares-its-users-credentials) | High | review |
 | AP13 | [Model output goes straight into a shell, SQL or HTML](#ap13-model-output-goes-straight-into-a-shell-sql-or-html) | High | review |
@@ -44,7 +44,7 @@ found. It doesn't mean the agent is secure; for that, use the
 
 ### AP01: Agent runs with all permission checks turned off
 
-**Looks like:** `claude --dangerously-skip-permissions`, `codex --dangerously-bypass-approvals-and-sandbox`, `--yolo`, `permission_mode="bypassPermissions"`, `approval_policy = "never"`.
+**Looks like:** `claude --dangerously-skip-permissions`, `--permission-mode bypassPermissions`, `"defaultMode": "bypassPermissions"`, `permission_mode="bypassPermissions"` in SDK code, `codex --dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access`, `sandbox_mode = "danger-full-access"`, `gemini --yolo` or `--approval-mode yolo`.
 
 **Why it's dangerous:** Every tool call runs without anyone approving it, including shell commands, file deletes and network requests. One injected instruction in a README, issue, dependency or web page can then run any command as you, with your SSH keys, cloud credentials and browser cookies within reach.
 
@@ -84,7 +84,9 @@ found. It doesn't mean the agent is secure; for that, use the
 
 ### AP05: Secret written directly in agent configuration
 
-**Looks like:** `"env": {"GITHUB_TOKEN": "ghp_..."}` in `.mcp.json` or `claude_desktop_config.json`, or `"Authorization": "Bearer ..."` in headers.
+**Looks like:** `"env": {"GITHUB_TOKEN": "ghp_..."}` in `.mcp.json` or `claude_desktop_config.json`, `"Authorization": "Bearer ..."` or `"X-API-Key": "..."` in headers, a key in a URL (`?api_key=...`), or `docker run -e API_TOKEN=...` in a server's arguments.
+
+**Detected:** known token formats (GitHub, OpenAI, Anthropic, AWS, Slack, GitLab, Google, Stripe, npm, PyPI, Hugging Face, JWTs) anywhere in a server's env, headers, arguments or URL, URL passwords, and opaque values (16 or more characters mixing letters and digits) under a secret-looking name: env keys such as `BRAVE_API_KEY` or `POSTGRES_PASSWORD`, header names, URL query parameters, `KEY=value` arguments, secret-named flags and Claude Code settings `env`. Placeholders and references such as `${BRAVE_API_KEY}` are not reported. A secret under a name that does not say so, or in a prompt or image, needs review by hand.
 
 **Why it's dangerous:** Agent config files get committed, synced, pasted into issues and read by the agent itself, which can be talked into printing them. The tokens in these files tend to be long-lived and broadly scoped.
 
@@ -94,7 +96,7 @@ found. It doesn't mean the agent is secure; for that, use the
 
 ### AP06: Agent allowed to run any shell command
 
-**Looks like:** `"allow": ["Bash"]` or `"Bash(*)"` in Claude Code settings, or a `run_shell` tool with no command filter.
+**Looks like:** `"allow": ["Bash"]` or `"Bash(*)"` in Claude Code settings (detected), or a `run_shell` tool with no command filter in your own harness (review by hand).
 
 **Why it's dangerous:** A shell can do anything: `curl` your files to a server, `rm -rf`, `git push --force`, install a backdoor. An allowlist that contains "any command" isn't an allowlist.
 
@@ -114,7 +116,7 @@ found. It doesn't mean the agent is secure; for that, use the
 
 ### AP08: Agent tool container can take over the host
 
-**Looks like:** an MCP server started with `docker run --privileged`, `-v /var/run/docker.sock:...`, `--network host` or `-v /:/host`.
+**Looks like:** an MCP server started with `docker run --privileged`, `-v /var/run/docker.sock:...`, `--network host`, `--pid host`, `--cap-add SYS_ADMIN`, or a root mount (`-v /:/host`, `--volume /:/host`, `--mount source=/,...`).
 
 **Why it's dangerous:** Each of these removes the container boundary. A compromised or manipulated tool can then start new containers, read every file and reach every service on the host.
 
@@ -134,7 +136,7 @@ found. It doesn't mean the agent is secure; for that, use the
 
 ### AP10: Agent image not pinned to a digest
 
-**Looks like:** `FROM python:3.12-slim`, `image: my-agent:latest`.
+**Looks like:** `FROM python:3.12-slim` in a Dockerfile (detected, in repositories that contain an agent), or `image: my-agent:latest` in Compose or Kubernetes files (review by hand).
 
 **Why it's dangerous:** Tags can move, so what you tested may not be what runs, and you can't prove which build an incident came from.
 

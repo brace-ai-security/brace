@@ -1,8 +1,5 @@
 name: open-agent-security
-description: >-
-  Finds known-dangerous AI agent setups in your repository: permission checks turned off,
-  unpinned MCP servers, secrets in agent config, agents on pull_request_target, lethal
-  capability combinations and more. Local and read-only: runs no model, needs no account.
+description: Find dangerous AI agent setups in your repo, such as disabled permission checks and unpinned MCP servers.
 author: BRACE
 branding:
   icon: shield
@@ -10,7 +7,7 @@ branding:
 
 inputs:
   path:
-    description: Folder to scan.
+    description: Folder to scan, relative to the workspace.
     default: "."
   fail-on:
     description: "Fail the job when a finding is this severe or worse: critical, high, medium, low or none."
@@ -18,22 +15,31 @@ inputs:
   upload-sarif:
     description: Upload findings to GitHub code scanning so they show on pull requests (needs permission security-events write).
     default: "false"
+  category:
+    description: Code scanning category. Use a different value for each scan of the same repository in one workflow.
+    default: open-agent-security
   python-version:
-    description: Python version to set up.
-    default: "3.12"
+    description: >-
+      Python version to install with actions/setup-python. Leave empty (the default) to use the
+      runner's preinstalled Python 3.11+, which leaves your job's Python unchanged.
+    default: ""
 
 outputs:
   findings:
     description: Number of findings.
     value: ${{ steps.scan.outputs.findings }}
   sarif:
-    description: Path to the SARIF file.
-    value: open-agent-security.sarif
+    description: Path to the SARIF file (in the runner's temporary folder).
+    value: ${{ steps.scan.outputs.sarif }}
+  incomplete:
+    description: "true when the scan could not read a file the rules need (agent config, CI, Dockerfile or script), or stopped at the file limit."
+    value: ${{ steps.scan.outputs.incomplete }}
 
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v5
+    - if: inputs.python-version != ''
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
         python-version: ${{ inputs.python-version }}
 
@@ -43,26 +49,50 @@ runs:
       env:
         SCAN_PATH: ${{ inputs.path }}
         FAIL_ON: ${{ inputs.fail-on }}
-        SCANNER: ${{ github.action_path }}/tools/brace/scan.py
+        # Built-in rules only, whatever the workflow's environment says.
+        OPEN_AGENT_SECURITY_PLUGINS: ""
       run: |
+        # -I: nothing in the scanned repository can be imported or run.
+        # The GITHUB_ACTION_PATH variable, unlike the expression, also works in container jobs.
+        SCANNER="$GITHUB_ACTION_PATH/tools/brace/scan.py"
+        PY="$(command -v python3 || command -v python || true)"
+        if [ -z "$PY" ] || ! "$PY" -I -c 'import sys; sys.exit(sys.version_info < (3, 11))'; then
+          echo "::error::open-agent-security needs Python 3.11 or newer. Set the action's python-version input, for example python-version: '3.12'."
+          echo "exit_code=2" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        SARIF="$(mktemp "${RUNNER_TEMP:-/tmp}/open-agent-security-XXXXXXXX")"
+        echo "sarif=$SARIF" >> "$GITHUB_OUTPUT"
+        # File and server names come from the scanned repository. Stop the runner from reading
+        # workflow commands (::error::, ::add-mask::) in the scanner's output, with a token the
+        # repository cannot predict.
+        TOKEN="$("$PY" -I -c 'import secrets; print(secrets.token_hex(16))')"
+        echo "::stop-commands::$TOKEN"
         set +e
-        python -I "$SCANNER" "$SCAN_PATH" --fail-on "$FAIL_ON" --sarif open-agent-security.sarif \
-          --markdown "$GITHUB_STEP_SUMMARY"
+        "$PY" -I "$SCANNER" --fail-on "$FAIL_ON" --sarif "$SARIF" --markdown "$GITHUB_STEP_SUMMARY" \
+          --github-output "$GITHUB_OUTPUT" -- "$SCAN_PATH"
         code=$?
         set -e
-        python -c "import json;print('findings=%d' % len(json.load(open('open-agent-security.sarif'))['runs'][0]['results']))" >> "$GITHUB_OUTPUT"
+        echo "::$TOKEN::"
         echo "exit_code=$code" >> "$GITHUB_OUTPUT"
 
     - name: Upload to code scanning
-      if: inputs.upload-sarif == 'true'
-      uses: github/codeql-action/upload-sarif@v3
+      if: inputs.upload-sarif == 'true' && (steps.scan.outputs.exit_code == '0' || steps.scan.outputs.exit_code == '1')
+      uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
       with:
-        sarif_file: open-agent-security.sarif
-        category: open-agent-security
+        sarif_file: ${{ steps.scan.outputs.sarif }}
+        category: ${{ inputs.category }}
 
     - name: Apply the fail-on threshold
       if: steps.scan.outputs.exit_code != '0'
       shell: bash
+      env:
+        FAIL_ON: ${{ inputs.fail-on }}
+        CODE: ${{ steps.scan.outputs.exit_code }}
       run: |
-        echo "open-agent-security scan found problems at or above '${{ inputs.fail-on }}'. See the job summary."
+        if [ "$CODE" = "1" ]; then
+          echo "open-agent-security found problems at or above '$FAIL_ON', or the scan is incomplete. See the job summary."
+        else
+          echo "open-agent-security could not run (exit code $CODE). Check the 'path' and 'fail-on' inputs; a malformed .open-agent-security.toml in the repository is also a likely cause (see the error above)."
+        fi
         exit 1

@@ -36,8 +36,8 @@ try:
 except ImportError:  # pragma: no cover - exercised only without PyYAML
     if len(sys.argv) > 1 and sys.argv[1] == "scan":  # the scanner needs only the standard library
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import scan as _scan
-        sys.exit(_scan.main(sys.argv[2:]))
+        from open_agent_security.cli import main as _scan_main
+        sys.exit(_scan_main(sys.argv[2:]))
     sys.stderr.write("brace.py needs PyYAML. Install it with: pip install pyyaml\n")
     sys.exit(2)
 
@@ -548,9 +548,15 @@ def verify_github(gh: GitHub, top: Path, rel: str, approvers: list[str], current
 # init / items / hash
 # --------------------------------------------------------------------------
 
+def _scan_cli():
+    """The scanner's own command line (open_agent_security/cli.py), so `brace.py scan` matches it."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from open_agent_security import cli
+    return cli
+
+
 def cmd_scan(args) -> int:
-    import scan
-    return scan.run(args.path, args.host, args.json, args.fail_on, sarif_path=args.sarif, md_path=args.markdown)
+    return _scan_cli().run_args(args)
 
 
 def cmd_init(args) -> int:
@@ -1053,13 +1059,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True, parser_class=_Parser)
 
     s = sub.add_parser("scan", help="find known-dangerous agent setups in a folder (fast, local, no setup)")
-    s.add_argument("path", nargs="?", default=".", help="folder to scan (default: .)")
-    s.add_argument("--host", action="store_true", help="also read MCP and agent settings on this machine")
-    s.add_argument("--json", action="store_true", help="print JSON")
-    s.add_argument("--fail-on", choices=["critical", "high", "medium", "low", "none"], default="high",
-                   help="exit 1 when a finding is this severe or worse (default: high)")
-    s.add_argument("--sarif", metavar="FILE", help="also write SARIF (GitHub code scanning) to FILE")
-    s.add_argument("--markdown", metavar="FILE", help="also append a Markdown summary to FILE")
+    _scan_cli().add_arguments(s)
     s.set_defaults(func=cmd_scan)
 
     s = sub.add_parser("init", help="create .brace/ from the templates")

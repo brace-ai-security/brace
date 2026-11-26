@@ -1,6 +1,6 @@
 # BRACE and the OWASP MCP Top 10
 
-This page maps each risk in the [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/) to BRACE controls (C1–C9) and items in the [BRACE sign-off checklist](../CHECKLIST.md). It uses the 2025 edition (IDs MCP01:2025 to MCP10:2025), as published in the [project repository](https://github.com/OWASP/www-project-mcp-top-10) (latest commit 29 July 2026, `165fe0f`). The IDs and names were checked on 2026-11-24.
+This page maps each risk in the [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/) to BRACE controls (C1–C9) and items in the [BRACE sign-off checklist](../CHECKLIST.md). It uses the 2025 edition (IDs MCP01:2025 to MCP10:2025), as published in the [project repository](https://github.com/OWASP/www-project-mcp-top-10) (latest commit 29 July 2026, `165fe0f`). The IDs and names were checked on 2026-11-24, and the owasp.org list and the repository history were rechecked on 2026-11-26 (still beta; latest commit unchanged).
 
 **Status: not final.** The project roadmap says it is in "Phase 3 – Beta Release and Pilot Testing". The owasp.org page labels it a Production Project, but its own roadmap says the list is still in beta. Item names may change.
 
@@ -46,7 +46,7 @@ Item IDs refer to the [checklist](../CHECKLIST.md), most relevant first. An item
 ## Limits
 
 - This mapping is BRACE's judgment. OWASP has not reviewed or endorsed it.
-- The OWASP list is in beta. Recheck this mapping when OWASP publishes a final or new edition. Last checked 2026-11-24.
+- The OWASP list is in beta. Recheck this mapping when OWASP publishes a final or new edition. Last checked 2026-11-26.
 - The project's sources disagree on the name of MCP06. The repository's index page and item file call it "Intent Flow Subversion". The README and the owasp.org list heading call it "Prompt Injection via Contextual Payloads". This page uses the index page name.
 - Only items with a Pass result count. A Gap, an accepted risk, or an N/A gives no coverage.
 

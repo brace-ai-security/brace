@@ -78,8 +78,11 @@ def split(text: str) -> tuple[str, list[str], list[tuple[str, list[str]]]]:
         raise DocError("document must start with a '# ' title")
     pre: list[str] = []
     secs: list[tuple[str, list[str]]] = []
+    fenced = False
     for line in lines[1:]:
-        if line.startswith("## "):
+        if line.strip().startswith("```"):
+            fenced = not fenced
+        if line.startswith("## ") and not fenced:
             secs.append((line[3:].strip(), []))
         elif secs:
             secs[-1][1].append(line)

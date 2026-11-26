@@ -1033,13 +1033,14 @@ def host_evidence(repo: Path, host_config: bool, host_files: list[Path], scans: 
     import platform
 
     import host_scan
+    import scan_import
     home = home or Path.home()
     sources = host_scan.host_sources(home, system or platform.system(), project=repo) if host_config else []
     sources += [{"client": "settings file", "path": f, "keys": ["mcpServers", "servers", "projects.*.mcpServers"]}
                 for f in host_files]
     recs, notes = host_scan.read_host(sources, project=repo)
     for f in scans:
-        r, n = host_scan.import_scan(f)
+        r, n = scan_import.import_scan(f)
         recs += r
         notes += n
     for r in recs:  # show home folders as ~ so a user name is not copied into the map

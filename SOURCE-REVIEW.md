@@ -1,6 +1,6 @@
 # Source and practical-accuracy review
 
-**Review dates: 2026-09-16 (full review); 2026-09-30 (update against current guidance); 2026-10-16 (targeted MCP revision); 2026-10-22 (all 53 recommendations re-researched, BRACE 2.0.1).** Scope: the [53-item checklist](CHECKLIST.md), [verification recipes](CHECKLIST-VERIFICATION.md), assessment, guides, resource catalog, vendor worksheet, and telemetry proposal.
+**Review dates: 2026-09-16 (full review); 2026-09-30 (update against current guidance); 2026-10-16 (targeted MCP revision); 2026-10-22 (all 53 recommendations re-researched, BRACE 2.0.1); 2026-11-26 (external references refreshed: incidents, OWASP, MITRE ATLAS, NIST, MCP, OpenTelemetry; no checklist change).** Scope: the [53-item checklist](CHECKLIST.md), [verification recipes](CHECKLIST-VERIFICATION.md), assessment, guides, resource catalog, vendor worksheet, and telemetry proposal.
 
 ## Latest review: 2026-10-22
 
@@ -133,7 +133,7 @@ References below support the related principle, not every BRACE-specific impleme
 - **S35:** [EU AI Act Article 19](https://artificialintelligenceact.eu/article/19/) and [Article 26](https://artificialintelligenceact.eu/article/26/) (log retention of at least six months for high-risk systems).
 - **S36:** [CoSAI AI Incident Response Framework](https://www.coalitionforsecureai.org/wp-content/uploads/2026/03/AI-Incident-Response-1.pdf).
 - **S37:** [NIST SP 800-61r3](https://csrc.nist.gov/pubs/sp/800/61/r3/final).
-- **S38:** [MITRE ATLAS data release v2026.09](https://github.com/mitre-atlas/atlas-data/releases/tag/v2026.09) (15 September 2026), used for the [ATLAS mapping](mappings/mitre-atlas.md).
+- **S38:** [MITRE ATLAS data release v2026.10](https://github.com/mitre-atlas/atlas-data/releases/tag/v2026.10) (28 October 2026), used for the [ATLAS mapping](mappings/mitre-atlas.md).
 - **S39:** [NIST AI 100-1, AI RMF 1.0](https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf) and [NIST AI 600-1, Generative AI Profile](https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf), used for the [AI RMF mapping](mappings/nist-ai-rmf.md). On 2026-10-01 NIST's AI RMF page said version 1.0 is being revised; no newer version was published.
 - **S40:** [ISO/IEC 42001:2023](https://www.iso.org/standard/81230.html), via its free online preview, for the clause headings in the [ISO/IEC 42001 mapping](mappings/iso-iec-42001.md). Annex A control titles come from public secondary lists named in that file; the full standard was not reviewed.
 

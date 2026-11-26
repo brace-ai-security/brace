@@ -150,7 +150,7 @@ Wording differences, resolved by the majority of the four full lists:
 - BRACE checks one deployed agent's security controls. An ISO/IEC 42001 management system covers the whole organization and all its AI systems.
 - BRACE deals with security harm: hijacked or misaligned agents. It does not assess fairness, accuracy, or effects on people and society.
 - "Direct" means a passed item gives relevant evidence. It does not mean the control is met.
-- Clause and control titles were checked on 2026-10-01. Recheck them against the official text before relying on this page in an audit.
+- Clause and control titles were checked on 2026-10-01. On 2026-11-26 the ISO catalogue page blocked automated retrieval (HTTP 403), so titles were not rechecked; search results showed no amendment or new edition of ISO/IEC 42001, only secondary listings of a European adoption (EN ISO/IEC 42001:2026) that was not read. Recheck them against the official text before relying on this page in an audit.
 
 ---
 *Part of [BRACE](../README.md), a security framework for autonomous AI agents. CC BY 4.0.*

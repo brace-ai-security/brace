@@ -11,22 +11,31 @@ BRACE shows you how, and warns you away from the setups that go wrong.
 ## Find dangerous agent setups in 10 seconds
 
 ```bash
-uvx open-agent-security .            # or: pipx run open-agent-security .   (add --host to check your own MCP setup)
+uvx open-agent-security .            # or: pipx run open-agent-security .   (add --host to check your own agent settings)
 ```
 
 Example output:
 
 ```text
 ✗ CRITICAL Unattended agent in CI with permission checks turned off  [AP02] ×1
-    .github/workflows/triage.yml:21  --dangerously-skip-permissions
-    Why:  A CI agent with no approvals and the job's token can be steered by anyone who can
-          write an issue, PR, commit message or file it reads ...
-    Fix:  Keep approvals on, give the job read-only permissions, and run untrusted-input
-          jobs without repository secrets.
+    .github/workflows/triage.yml:5  --dangerously-skip-permissions
+    Why:  A CI agent with no approvals and the job's token can be steered by anyone who can write an issue, PR, commit message or file it reads, and then push code, read secrets or publish packages.
+    Fix:  Keep approvals on, give the job read-only permissions, and run untrusted-input jobs without repository secrets.
+    BRACE checklist B05, B02, B03, B09 · https://braceframework.org/anti-patterns/#ap02-unattended-agent-in-ci-with-permission-checks-turned-off
 
-✗ HIGH     Lethal combination: untrusted input, private data and a way out  [AP09] ×1
-    .mcp.json:3  likely, from server names — untrusted input: gmail; private data: gmail,
-                 stripe; a way out: gmail, stripe
+✗ HIGH     MCP server installed from an unpinned package  [AP04] ×1
+    .mcp.json:4  stripe: npx @stripe/mcp
+    Why:  npx/uvx/bunx fetch the newest version at every start. A hijacked or malicious update becomes code running with your agent's access, with no review.
+    Fix:  Pin an exact version (for example pkg@1.4.2), or install it once from a reviewed lockfile.
+    BRACE checklist E02, E03, C05 · https://braceframework.org/anti-patterns/#ap04-mcp-server-installed-from-an-unpinned-package
+
+✗ MEDIUM   Lethal combination: untrusted input, private data and a way out  [AP09] ×1
+    .mcp.json:3  likely, from server names — untrusted input: gmail; private data: gmail, stripe; a way out: gmail, stripe
+    Why:  The same agent can read content an attacker controls, reach private data and send data or act outside. Prompt injection then becomes data theft; no system prompt reliably stops it.
+    Fix:  Split the capabilities across agents, remove one leg, or require a person to approve every outbound or consequential action.
+    BRACE checklist B05, B01, R02 · https://braceframework.org/anti-patterns/#ap09-lethal-combination-untrusted-input-private-data-and-a-way-out
+
+1 critical, 1 high, 1 medium  (3 findings). Silence a reviewed line with an 'open-agent-security: ignore' comment, or add an entry to .open-agent-security-ignore.
 ```
 
 Local and read-only: no model, no account, no network. It checks for the
@@ -34,7 +43,8 @@ Local and read-only: no model, no account, no network. It checks for the
 on `pull_request_target`, unpinned MCP servers, secrets in agent config, any-command shell
 access, containers that can take over the host, and the lethal combination of untrusted
 input, private data and a way out. It also runs in CI as a GitHub Action, with SARIF
-output for pull-request annotations; see [Starter](STARTER.md#add-the-scan-to-ci).
+output for pull-request annotations (see [Starter](STARTER.md#add-the-scan-to-ci)), as a
+pre-commit hook, and in GitLab CI with GitLab SAST and JUnit reports.
 
 ## Pick your depth
 
@@ -127,9 +137,9 @@ Use the checklist for the requirements, the [verification guide](CHECKLIST-VERIF
 
 BRACE organizes deployment checks to sit alongside existing security guidance. Its grouping and release gates are this project's design choices. They are not claims that other frameworks lack practical controls:
 
-- **[OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)** — a threat catalog of ten risks (ASI01–ASI10). BRACE names the controls that reduce them; see the [Agentic Top 10 mapping](mappings/owasp-agentic-top-10.md). An older risk-to-control table is in the [OWASP proposal](outreach/owasp-agentic-controls-proposal.md). It is a historical draft, so check it against the current checklist.
-- **[OWASP Agent Control Standard (ACS)](https://genai.owasp.org/resource/agent-control-standard-acs/)** — policy hooks and enforcement while the agent runs. It complements BRACE's deployment review.
-- **[MITRE ATLAS](https://atlas.mitre.org/)** — a catalog of attacker techniques against AI systems. The [ATLAS mapping](mappings/mitre-atlas.md) shows which BRACE items address each of its 208 techniques in release v2026.09.
+- **[OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)** — a threat catalog of ten risks (ASI01–ASI10), published in December 2025. BRACE names the controls that reduce them; see the [Agentic Top 10 mapping](mappings/owasp-agentic-top-10.md). An older risk-to-control table is in the [OWASP proposal](outreach/owasp-agentic-controls-proposal.md). It is a historical draft, so check it against the current checklist.
+- **[OWASP Agent Control Standard (ACS)](https://genai.owasp.org/resource/agent-control-standard-acs/)** — policy hooks and enforcement while the agent runs. OWASP announced it as a donation to the GenAI Security Project on 1 September 2026. It complements BRACE's deployment review.
+- **[MITRE ATLAS](https://atlas.mitre.org/)** — a catalog of attacker techniques against AI systems. The [ATLAS mapping](mappings/mitre-atlas.md) shows which BRACE items address each of its 221 techniques and sub-techniques in release v2026.10.
 - **[OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/)** — a list of the main security risks for MCP. See the [MCP Top 10 mapping](mappings/owasp-mcp-top-10.md). The list is still in beta.
 - **[NIST AI RMF](https://www.nist.gov/itl/ai-risk-management-framework) / [ISO/IEC 42001](https://www.iso.org/standard/81230.html)** — references for governance and management systems. BRACE adds technical checks for each deployment alongside them. See the [AI RMF mapping](mappings/nist-ai-rmf.md) and the [ISO/IEC 42001 mapping](mappings/iso-iec-42001.md). Mapping is not compliance: passing BRACE items doesn't mean an organization meets either one.
 

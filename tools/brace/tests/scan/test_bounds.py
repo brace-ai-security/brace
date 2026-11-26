@@ -1,0 +1,300 @@
+"""Linear time and bounded memory on adversarial input."""
+import importlib
+import json
+import pkgutil
+import re
+import time
+import tracemalloc
+from pathlib import Path
+
+import pytest
+from support import AGENT, PLAIN, TUNED, config, fast, found, report, result, rules, write
+
+import open_agent_security
+from open_agent_security.catalog import RULES
+from open_agent_security.ignore import IGNORE_FILE, load_ignores
+from open_agent_security.jsonc import JsonLines
+from open_agent_security.secrets import DEFAULT
+
+
+def module_patterns():
+    pkg = Path(open_agent_security.__file__).parent
+    for info in pkgutil.walk_packages([str(pkg)], "open_agent_security."):
+        if info.name.endswith("__main__"):
+            continue
+        mod = importlib.import_module(info.name)
+        for name, val in vars(mod).items():
+            if isinstance(val, re.Pattern):
+                yield f"{info.name}.{name}", val
+    yield "secrets.DEFAULT.any", DEFAULT.any
+
+
+ADVERSARIAL = [" " * 20_000, "\t" * 20_000, " \t" * 10_000, "a" * 20_000, "0" * 20_000, "-" * 20_000,
+               ":" * 20_000, "#" * 20_000, "<" * 20_000, "\"'" * 10_000, "/" * 20_000, "@" * 20_000,
+               *(tok * (20_000 // len(tok)) for tok in (
+                   "run: ", "run:| ", "claude ", "claude -p", "gemini --yolo ", "-p ", "--yolo ", "a://", "a:b@",
+                   "pull_request_target ", "pull_request_target: ", "on: ", "- ", "\"pull_request_target\" ",
+                   "sk-", "ghp_", "Bearer ", "eyJa", "FROM ", "<<EOF ", "<<-'", "--permission-mode ",
+                   "permission_mode: ", "\\\"", "AP01 ", "mcp", "${", "x" * 9 + " "))]
+
+
+def test_large_dockerfile_is_fast_and_line_is_right(tmp_path):
+    write(tmp_path, ".mcp.json", AGENT)
+    write(tmp_path, "Dockerfile", "\n" * 200000 + "FROM python:3.12\n")
+    start = time.time()
+    found = result(tmp_path).findings
+    assert time.time() - start < 5
+    assert [(f.rule, f.line) for f in found] == [("AP10", 200001)]
+
+
+@pytest.mark.parametrize("make", [
+    lambda: ("w.yml", "on: x\n" + " " * 900_000 + "\nrun: claude -p hi\n"),
+    lambda: (".mcp.json", json.dumps({"mcpServers": {"s": {"command": "node", "env": {"K": "eyJ" * 300_000}}}})),
+    lambda: (".mcp.json", json.dumps({"mcpServers": {"s": {"command": "docker", "args": ["--mount=" * 120_000]}}})),
+    lambda: (".mcp.json", json.dumps({"mcpServers": {f"s{i}": {"command": "npx", "args": [f"p{i}"]} for i in range(20000)}})),
+])
+def test_adversarial_files_scan_fast(tmp_path, make):
+    rel, text = make()
+    rel = ".github/workflows/" + rel if rel.endswith(".yml") else rel
+    write(tmp_path, rel, text)
+    start = time.time()
+    result(tmp_path)
+    assert time.time() - start < 10
+
+
+def test_adversarial_ignore_pattern_is_fast(tmp_path):
+    write(tmp_path, "a" * 60 + ".sh", "claude --dangerously-skip-permissions\n")
+    write(tmp_path, IGNORE_FILE, "*a" * 14 + "*b\n")
+    start = time.time()
+    assert rules(tmp_path) == ["AP01"]
+    assert time.time() - start < 2
+
+
+@pytest.mark.parametrize("make", [
+    lambda: ("snap.json", json.dumps({"snapshot": json.dumps({f"k{i}": "v" * 20 for i in range(30000)})})),
+    lambda: ("q.json", json.dumps({"x": '"' * 500_000})),
+    lambda: ("many.sh", "gemini --yolo\n" * 150_000),
+])
+def test_round3_adversarial_files_are_fast(tmp_path, make):
+    rel, text = make()
+    write(tmp_path, rel, text)
+    start = time.time()
+    result(tmp_path)
+    assert time.time() - start < 10
+
+
+def test_large_ignore_file_and_deep_tree_are_fast(tmp_path):
+    for i in range(300):
+        write(tmp_path, f"a/b/c/d/e/f/g/h/{i}.sh", "echo\n")
+    write(tmp_path, IGNORE_FILE, "\n".join(f"*x{i}*y*" for i in range(1000)) + "\n")
+    start = time.time()
+    result(tmp_path)
+    assert time.time() - start < 10
+
+
+def test_many_flags_after_a_long_line_are_linear(tmp_path):
+    line = "echo " + "a" * 50_000 + " # " + "--dangerously-skip-permissions " * 1500
+    write(tmp_path, "x.sh", line + "\n")
+    assert fast(lambda: found(tmp_path)) == []
+
+
+@pytest.mark.parametrize("line", ["- run:" + " " * 40_000 + "x", "pull_request_target" + " " * 40_000 + "x",
+                                  "- run: |" + " \t" * 20_000 + "x"])
+def test_long_workflow_lines_are_linear(tmp_path, line):
+    write(tmp_path, ".github/workflows/w.yml", "on: push\njobs:\n  a:\n    steps:\n    " + line + "\n")
+    fast(lambda: found(tmp_path))
+
+
+def grows_linearly(rx: re.Pattern, texts: list[str], reps: int = 5) -> bool:
+    """Whether searching inputs four times longer takes well under sixteen times as long.
+
+    CPU time (process_time) ignores other processes, the two sizes are timed in turn and the
+    best of `reps` runs kept, so a loaded machine slows both alike. A linear pattern grows about
+    fourfold and a quadratic one sixteenfold; the ratio allowed is ten, plus an absolute floor so
+    timer noise on fast patterns cannot fail it."""
+    def seconds(inputs):
+        start = time.process_time()
+        for text in inputs:
+            for s in (text, text + "!", "x" + text + "\n" + text):
+                rx.search(s)
+        return time.process_time() - start
+    quarter = [text[:len(text) // 4] for text in texts]
+    small = large = float("inf")
+    for _ in range(reps):
+        small, large = min(small, seconds(quarter)), min(large, seconds(texts))
+    return large < 10 * small + 0.05
+
+
+@pytest.mark.parametrize("name,rx", list(module_patterns()), ids=lambda v: v if isinstance(v, str) else "")
+def test_every_module_regex_is_linear(name, rx):
+    assert grows_linearly(rx, ADVERSARIAL), name
+
+
+def test_the_linearity_check_catches_a_quadratic_regex():
+    """The negative control: a pattern that rescans the rest of the input from every position."""
+    assert not grows_linearly(re.compile(r"[ \t]*!x"), [" " * 12_000], reps=2)
+
+
+LITERAL_WORD = re.compile(r"[A-Za-z_][\w-]{1,30}")
+BUDGET_PER_KB = 0.5 / 64  # seconds of CPU per KB of adversarial input: 0.5 s for a 64 KB line
+
+
+def own_alphabet(rx: re.Pattern, size: int) -> list[str]:
+    """Adversarial lines built from a pattern's own literal words (`env`, `claude`, `run`) and
+    flag-like fragments (`--a --b --c`), after each separator the pattern names (`;`, `|`, `:`),
+    so a pattern that tries many ways to match the same text inside a repeat is driven to it."""
+    src = rx.pattern.replace("\\", " ")
+    words = sorted({w for w in LITERAL_WORD.findall(src)})
+    heads = [""] + [c + " " for c in ";&|:=(\"'/<@#$" if c in src]
+    bodies = [w + " --a --b --c " for w in words] + [" ".join(words) + " ", "--a --b --c ", "-a=b -c "]
+    return [h + b * (size // len(b)) + "\x00" for h in heads for b in bodies]
+
+
+@pytest.mark.parametrize("name,rx", [(n, rx) for n, rx in module_patterns() if isinstance(rx.pattern, str)],
+                         ids=lambda v: v if isinstance(v, str) else "")
+def test_every_module_regex_has_a_small_constant(name, rx):
+    """Linear is not enough: a pattern can be linear with a huge constant (8**6 ways to match a
+    workflow prefix per failed attempt took 93 s on 40 KB). Each adversarial line from the
+    pattern's own alphabet must be searched within BUDGET_PER_KB, first at 4 KB (so a bad
+    pattern fails in seconds, not hours) and then at 64 KB."""
+    for kb in (4, 64):
+        for text in own_alphabet(rx, kb * 1024):
+            start = time.process_time()
+            rx.search(text)
+            assert time.process_time() - start < kb * BUDGET_PER_KB + 0.02, (name, text[:60])
+
+
+def test_the_constant_check_catches_a_slow_linear_regex():
+    """The negative control: round 8's workflow prefix, `-{1,2}[\\w=-]{1,30}` matching `--a` two ways."""
+    slow = re.compile(r";[ \t]{0,20}(?:(?:env)(?:[ \t]{1,20}-{1,2}[\w=-]{1,30}){0,3}[ \t]{1,20}){0,6}claude")
+    text = own_alphabet(slow, 4 * 1024)
+    start = time.process_time()
+    for t in text:
+        slow.search(t)
+    assert time.process_time() - start > 4 * BUDGET_PER_KB
+
+
+INLINE_REGEX = re.compile(r"\bre\.(?:search|match|findall|finditer|split|sub|fullmatch)\(\s*[rbuf]{0,2}[\"']")
+
+
+def test_no_regex_is_written_inline():
+    """Every pattern is a module-level constant, so test_every_module_regex_is_linear sees it."""
+    pkg = Path(open_agent_security.__file__).parent
+    inline = [f"{p.relative_to(pkg)}:{n}" for p in sorted(pkg.rglob("*.py"))
+              for n, line in enumerate(p.read_text(encoding="utf-8").split("\n"), 1) if INLINE_REGEX.search(line)]
+    assert inline == []
+
+
+@pytest.mark.parametrize("server", [{"name": "x" * 40_000, "command": "node"},
+                                    {"name": "s", "command": "npx", "args": ["-y", "a" * 40_000]},
+                                    {"name": "s", "command": "docker", "args": ["run", "a/" + "b" * 40_000]}])
+def test_lethal_combination_words_are_linear_on_long_names(tmp_path, server):
+    entry = {k: v for k, v in server.items() if k != "name"}
+    write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {server["name"]: entry, "fetch": {"command": "node"}}}))
+    fast(lambda: result(tmp_path), 3.0)
+
+
+def test_hostile_ignore_patterns_are_fast(tmp_path):
+    for i in range(40):
+        write(tmp_path, f"d/{'a' * 236}{i:03d}.sh", "echo\n")
+    write(tmp_path, IGNORE_FILE, "\n".join(f"*{'a' * 100}b{i}" for i in range(1000)) + "\n")
+    fast(lambda: found(tmp_path), 5.0)
+    assert len(load_ignores(tmp_path)[0]) == 200
+
+
+def test_deep_json_index_memory_is_bounded():
+    depth, keys = 400, 80_000
+    text = '{"a":' * depth + "{" + ",".join(f'"k{i}":1' for i in range(keys)) + "}" + "}" * depth
+    tracemalloc.start()
+    JsonLines(text).at(("a",) * 3)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < 50 * 1024 * 1024
+
+
+def test_worst_case_globs_on_a_deep_tree_are_fast(tmp_path):
+    for i in range(2000):
+        write(tmp_path, f"a{i % 5}/b{i % 7}/c{i % 3}/d{i % 4}/e{i % 10}/f{i}.sh", "echo\n")
+    lines = [f"{TUNED}/*{i}x" for i in range(100)] + [f"{PLAIN}/*{i}x" for i in range(100)]
+    write(tmp_path, IGNORE_FILE, "\n".join(lines) + "\n")
+    every = [r.id for r in RULES][:5]
+    config(tmp_path, {
+        "ignore": [{"path": f"{PLAIN}/*{i}y", "rules": every} for i in range(200)],
+        "include": [f"{PLAIN}/*{i}z" for i in range(200)],
+        "agent-config": [f"{PLAIN}/*{i}w" for i in range(200)]})
+    start = time.perf_counter()
+    r = report(tmp_path)
+    assert time.perf_counter() - start < 6.0
+    assert r["findings"] == [] and any("past the limit of 400 segments" in n for n in r["notes"])
+
+
+def test_many_large_dockerfiles_stay_within_memory(tmp_path):
+    body = "FROM a\n" * (1024 * 1024 // 7 - 1)
+    for i in range(8):
+        write(tmp_path, f"d{i}/Dockerfile", body)
+    write(tmp_path, ".mcp.json", "{}\n")
+    tracemalloc.start()
+    try:
+        start = time.perf_counter()
+        r = report(tmp_path)
+        elapsed = time.perf_counter() - start
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 60 * 1024 * 1024 and elapsed < 10
+    assert r["incomplete"] is True  # each file has more than 100 unpinned images
+    assert sum(f["rule"] == "AP10" for f in r["findings"]) == 8 * 100
+
+
+def test_many_large_mcp_configs_stay_within_memory(tmp_path):
+    # Each file used to stay in memory whole (about 6 MB of parsed arguments); 12 files keep
+    # the test fast and the gap wide: about 72 MB before, under 12 MB after.
+    body = json.dumps({"mcpServers": {"big": {"command": "node", "args": [f"a{i:05}" for i in range(95_000)]}}})
+    assert len(body) > 800_000
+    for i in range(12):
+        write(tmp_path, f"d{i}/mcp.json", body)
+    tracemalloc.start()
+    try:
+        r = report(tmp_path)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert r["incomplete"] is False
+    assert peak < 30 * 1024 * 1024
+
+
+def test_files_with_huge_server_names_and_many_secrets_stay_within_memory(tmp_path):
+    # One such file used to peak at about 650 MB: every finding kept the whole name until the
+    # end of the scan. Findings are now finalized as they are accepted and names cut at parse.
+    env = {f"T{i}": "ghp_" + f"{i:04d}" + "a" * 32 for i in range(100)}
+    body = json.dumps({"mcpServers": {"n" * 990_000: {"command": "node", "env": env}}}, indent=0)  # a line per key
+    assert len(body) < 1024 * 1024
+    for i in range(10):
+        write(tmp_path, f"d{i}/.mcp.json", body)
+    tracemalloc.start()
+    try:
+        r = result(tmp_path)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert sum(f.rule == "AP05" for f in r.findings) >= 900  # details match after the cut, so lines tell them apart
+    assert peak < 40 * 1024 * 1024
+
+
+def test_inline_marks_are_kept_only_for_files_with_project_facts(tmp_path):
+    from open_agent_security import engine
+    kept = {}
+    real = engine.run_project_checks
+    write(tmp_path, "a.sh", "echo x  # open-agent-security: ignore\n")
+    write(tmp_path, "Dockerfile", "FROM node:20  # open-agent-security: ignore\n")
+    write(tmp_path, ".mcp.json", AGENT)
+
+    def spy(ctx):
+        kept.update(ctx.marks)
+        return real(ctx)
+    engine.run_project_checks = spy
+    try:
+        r = result(tmp_path)
+    finally:
+        engine.run_project_checks = real
+    assert set(kept) == {"Dockerfile"} and r.findings == [] and r.tally.by_mark == 1

@@ -8,6 +8,7 @@ import pytest
 TOOL_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(TOOL_DIR))
 import host_scan  # noqa: E402
+import scan_import  # noqa: E402
 import topology  # noqa: E402
 import topology_report as tr  # noqa: E402
 
@@ -48,15 +49,15 @@ def test_reads_host_files_without_secret_values(tmp_path):
 def test_size_limit_and_bad_json(tmp_path, monkeypatch):
     big = tmp_path / "big.json"
     big.write_text("{}")
-    monkeypatch.setattr(host_scan, "MAX_BYTES", 1)
-    assert host_scan.import_scan(big)[0] == [] and "larger" in host_scan.import_scan(big)[1][0]
+    monkeypatch.setattr(scan_import, "MAX_BYTES", 1)
+    assert scan_import.import_scan(big)[0] == [] and "larger" in scan_import.import_scan(big)[1][0]
     monkeypatch.undo()
     bad = tmp_path / "bad.json"
     bad.write_text("{not json")
-    assert host_scan.import_scan(bad) == ([], ["bad.json: JSONDecodeError"])
+    assert scan_import.import_scan(bad) == ([], ["bad.json: JSONDecodeError"])
     other = tmp_path / "other.json"
     other.write_text('{"hello": 1}')
-    assert "not a recognised" in host_scan.import_scan(other)[1][0]
+    assert "not a recognised" in scan_import.import_scan(other)[1][0]
 
 
 @pytest.mark.parametrize("name,server,tool,code", [
@@ -65,7 +66,7 @@ def test_size_limit_and_bad_json(tmp_path, monkeypatch):
     ("cisco-mcp-scanner.json", "travel-docs", "get_advisories", "PROMPT INJECTION"),
 ])
 def test_scanner_formats(name, server, tool, code):
-    recs, notes = host_scan.import_scan(HS / name)
+    recs, notes = scan_import.import_scan(HS / name)
     assert notes == [] and recs[0]["name"] == server and tool in recs[0]["tools"]
     assert [i["code"] for i in recs[0]["issues"]] == [code] and recs[0]["issues"][0]["tool"] == tool
 
@@ -151,5 +152,27 @@ def test_clean_url_bad_port():
 def test_scanner_wrong_types_noted_not_crash(tmp_path, data):
     f = tmp_path / "scan.json"
     f.write_text(json.dumps(data))
-    recs, notes = host_scan.import_scan(f)
+    recs, notes = scan_import.import_scan(f)
     assert notes and all("skipped" in n for n in notes)
+
+
+GHP = "ghp_" + "Ab1" * 12
+
+
+def test_host_records_redact_names_and_command_strings():
+    rec = host_scan.server_record(f"gh {GHP}", {"command": f"npx -y server-x@1.0.0 --api-key={GHP}"}, "Cursor",
+                                  "/home/u/.cursor/mcp.json", "mcpServers.gh")
+    assert rec["command"] == "npx" and rec["args"][:2] == ["-y", "server-x@1.0.0"]
+    assert GHP not in json.dumps(rec) and "<redacted>" in rec["name"]
+
+
+def test_scan_import_redacts_messages_and_names(tmp_path):
+    data = {"/home/u/.cursor/mcp.json": {"client": "cursor", "servers": [
+        {"name": f"srv {GHP}", "server": {"command": "npx", "args": ["x"]}, "signature": {"tools": [{"name": "t"}]}}],
+        "issues": [{"code": "W001", "message": f"token {GHP} leaked", "reference": [0, 0]}]}}
+    path = tmp_path / "snyk.json"
+    path.write_text(json.dumps(data))
+    recs, notes = scan_import.import_scan(path)
+    text = json.dumps(recs)
+    assert notes == [] and GHP not in text and recs[0]["issues"][0]["message"] == "token <redacted> leaked"
+    assert recs[0]["file"] == str(path)

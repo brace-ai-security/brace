@@ -22,7 +22,7 @@ uvx open-agent-security .          # or: pipx run open-agent-security .
 | 2 | **Block destructive actions without a person.** Deletes, payments, outbound email, pushes, deploys, permission changes: the harness stops and asks a person to approve that exact action. | Asking the agent to delete something test-only waits for approval. A prompt telling it to skip approval doesn't work. | [B05](CHECKLIST.md) | AP01, AP02 |
 | 3 | **Break the lethal combination.** No single agent can read untrusted content, reach private data *and* send data out, unless every outbound action is approved. | For each agent, you can name the leg it lacks, or the approval that guards it. | [B05](CHECKLIST.md), [R02](CHECKLIST.md) | AP09 |
 | 4 | **Give the agent its own narrow credentials.** Not your personal token and not the app's admin key. Scope them to the operations it needs. | An out-of-scope write with the agent's credentials fails. | [B02](CHECKLIST.md) | |
-| 5 | **No secrets in prompts, config files or images.** Load them at runtime and prefer short-lived tokens. | The scan is clean for AP05, and `git log -p` shows no tokens. Any token that ever leaked has been rotated. | [B03](CHECKLIST.md) | AP05 |
+| 5 | **No secrets in prompts, config files or images.** Load them at runtime and prefer short-lived tokens. | The scan is clean for AP05 (known token formats, URL passwords, and opaque values under secret-looking names in MCP and Claude Code config), and `git log -p` shows no tokens; check prompts and images by hand. Any token that ever leaked has been rotated. | [B03](CHECKLIST.md) | AP05 |
 | 6 | **Pin what you run.** Exact versions for MCP servers and dependencies, and digests for images. | No `npx pkg`, `@latest` or floating image tags in the agent's config. | [E02](CHECKLIST.md), [B10](CHECKLIST.md) | AP04, AP10 |
 | 7 | **Limit where it can connect.** Allow only the outside destinations the task needs. | A request to a site that isn't on the list fails. | [B09](CHECKLIST.md) | AP07, AP08 |
 | 8 | **Treat every model output as untrusted input.** No model text straight into a shell, SQL, HTML or a fetched URL. | Commands use argument lists and queries use parameters. Rendered output can't load remote images. | [R03](CHECKLIST.md) | |
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: brace-ai-security/open-agent-security@v3.1.0   # or pin a commit SHA
+      - uses: brace-ai-security/open-agent-security@v3.1.1   # or pin a commit SHA
         with:
           fail-on: high
 ```

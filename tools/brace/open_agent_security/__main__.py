@@ -1,5 +1,5 @@
 import sys
 
-from .scan import main
+from .cli import main
 
 sys.exit(main())

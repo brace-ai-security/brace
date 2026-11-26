@@ -231,8 +231,11 @@ def split_sections(text: str) -> tuple[str, list[str], list[tuple[str, list[str]
     title = lines[0][2:].strip()
     preamble: list[str] = []
     sections: list[tuple[str, list[str]]] = []
+    fenced = False
     for line in lines[1:]:
-        if line.startswith("## "):
+        if line.strip().startswith("```"):
+            fenced = not fenced
+        if line.startswith("## ") and not fenced:
             sections.append((line[3:].strip(), []))
         elif sections:
             sections[-1][1].append(line)

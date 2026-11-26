@@ -1,6 +1,6 @@
 # BRACE and MITRE ATLAS
 
-This page maps every tactic, technique, and sub-technique in [MITRE ATLAS](https://atlas.mitre.org/) to the items in the [BRACE sign-off checklist](../CHECKLIST.md). It uses ATLAS data release [v2026.09](https://github.com/mitre-atlas/atlas-data/releases/tag/v2026.09) (collection version 2026.09, published 15 September 2026; 16 tactics, 120 techniques, 88 sub-techniques), retrieved on 2026-10-01 from the [atlas-data repository](https://github.com/mitre-atlas/atlas-data). Each row says whether passing BRACE items would block the technique in a deployed agent, only reduce or detect it, or not touch it.
+This page maps every tactic, technique, and sub-technique in [MITRE ATLAS](https://atlas.mitre.org/) to the items in the [BRACE sign-off checklist](../CHECKLIST.md). It uses ATLAS data release [v2026.10](https://github.com/mitre-atlas/atlas-data/releases/tag/v2026.10) (collection version 2026.10, published 28 October 2026; 16 tactics, 129 techniques, 92 sub-techniques), retrieved on 2026-11-26 from the [atlas-data repository](https://github.com/mitre-atlas/atlas-data). Each row says whether passing BRACE items would block the technique in a deployed agent, only reduce or detect it, or not touch it.
 
 ## How to read this mapping
 - **Direct** — passing the listed BRACE items prevents the technique or contains its damage in an agent deployment.
@@ -15,25 +15,25 @@ Item IDs refer to the [checklist](../CHECKLIST.md), most relevant first. An item
 | Tactic | Techniques | Direct | Partial | Out of scope |
 |---|---|---|---|---|
 | [Reconnaissance](#reconnaissance-amlta0002) | 18 | 0 | 8 | 10 |
-| [Resource Development](#resource-development-amlta0003) | 29 | 0 | 8 | 21 |
+| [Resource Development](#resource-development-amlta0003) | 35 | 0 | 10 | 25 |
 | [AI Attack Adaptation](#ai-attack-adaptation-amlta0001) | 25 | 0 | 14 | 11 |
 | [Initial Access](#initial-access-amlta0004) | 18 | 2 | 14 | 2 |
 | [AI Model Access](#ai-model-access-amlta0000) | 4 | 0 | 3 | 1 |
 | [Execution](#execution-amlta0005) | 13 | 6 | 7 | 0 |
-| [Persistence](#persistence-amlta0006) | 20 | 6 | 14 | 0 |
+| [Persistence](#persistence-amlta0006) | 22 | 6 | 16 | 0 |
 | [Privilege Escalation](#privilege-escalation-amlta0012) | 4 | 1 | 3 | 0 |
-| [Defense Evasion](#defense-evasion-amlta0007) | 19 | 2 | 15 | 2 |
+| [Defense Evasion](#defense-evasion-amlta0007) | 22 | 2 | 16 | 4 |
 | [Credential Access](#credential-access-amlta0013) | 7 | 2 | 5 | 0 |
-| [Discovery](#discovery-amlta0008) | 17 | 0 | 14 | 3 |
-| [Lateral Movement](#lateral-movement-amlta0015) | 9 | 1 | 7 | 1 |
-| [Collection](#collection-amlta0009) | 8 | 2 | 6 | 0 |
+| [Discovery](#discovery-amlta0008) | 18 | 0 | 15 | 3 |
+| [Lateral Movement](#lateral-movement-amlta0015) | 10 | 1 | 8 | 1 |
+| [Collection](#collection-amlta0009) | 17 | 2 | 11 | 4 |
 | [Command and Control](#command-and-control-amlta0014) | 5 | 0 | 5 | 0 |
-| [Exfiltration](#exfiltration-amlta0010) | 9 | 2 | 5 | 2 |
+| [Exfiltration](#exfiltration-amlta0010) | 5 | 2 | 3 | 0 |
 | [Impact](#impact-amlta0011) | 20 | 5 | 13 | 2 |
-| **Total (tactic rows)** | **225** | **29** | **141** | **55** |
-| **Unique techniques and sub-techniques** | **208** | **26** | **128** | **54** |
+| **Total (tactic rows)** | **243** | **29** | **151** | **63** |
+| **Unique techniques and sub-techniques** | **221** | **26** | **136** | **59** |
 
-The tactic rows add up to 225, not 208, because 14 techniques sit under more than one tactic. The last row counts each technique once.
+The tactic rows add up to 243, not 221, because 16 techniques sit under more than one tactic. The last row counts each technique once.
 
 ## Reconnaissance (AML.TA0002)
 
@@ -66,6 +66,10 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | [AML.T0002.000](https://atlas.mitre.org/techniques/AML.T0002.000) | Acquire Public AI Artifacts: Datasets | Out of scope | — | Downloading public datasets happens outside the deployment. |
 | [AML.T0002.001](https://atlas.mitre.org/techniques/AML.T0002.001) | Acquire Public AI Artifacts: Models | Out of scope | — | Downloading public models happens outside the deployment. |
 | [AML.T0002.002](https://atlas.mitre.org/techniques/AML.T0002.002) | Acquire Public AI Artifacts: AI Agent Configuration | Partial | B03, B02 | A leaked config holds no long-lived secrets under B03, and any token it names is narrowly scoped under B02. |
+| [AML.T0005](https://atlas.mitre.org/techniques/AML.T0005) | Replicate AI Model Behavior | Out of scope | — | The attacker builds a copy model on their own systems. |
+| [AML.T0005.000](https://atlas.mitre.org/techniques/AML.T0005.000) | Replicate AI Model Behavior: Replicate Behavior from Gathered AI Artifacts | Out of scope | — | Training a copy from public artifacts happens outside the deployment. |
+| [AML.T0005.001](https://atlas.mitre.org/techniques/AML.T0005.001) | Replicate AI Model Behavior: Replicate Behavior from Model Outputs | Partial | B07, R08 | Per-user and per-tenant quotas slow mass querying; R08 can flag the volume. |
+| [AML.T0005.002](https://atlas.mitre.org/techniques/AML.T0005.002) | Replicate AI Model Behavior: Adapt Existing Model to Replicate Behavior | Out of scope | — | Using an off-the-shelf model happens outside the deployment. |
 | [AML.T0008](https://atlas.mitre.org/techniques/AML.T0008) | Acquire Infrastructure | Out of scope | — | Buying servers or cloud accounts happens outside the deployment. |
 | [AML.T0008.000](https://atlas.mitre.org/techniques/AML.T0008.000) | Acquire Infrastructure: AI Development Workspaces | Out of scope | — | Renting compute for attack work happens outside the deployment. |
 | [AML.T0008.001](https://atlas.mitre.org/techniques/AML.T0008.001) | Acquire Infrastructure: Consumer Hardware | Out of scope | — | Buying hardware happens outside the deployment. |
@@ -83,6 +87,7 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | [AML.T0017.000](https://atlas.mitre.org/techniques/AML.T0017.000) | Develop Capabilities: Adversarial AI Attacks | Out of scope | — | Building model attacks happens outside the deployment. |
 | [AML.T0017.001](https://atlas.mitre.org/techniques/AML.T0017.001) | Develop Capabilities: Autonomous Exploit Development | Out of scope | — | The attacker's agent writing exploits is outside the deployment. |
 | [AML.T0017.002](https://atlas.mitre.org/techniques/AML.T0017.002) | Develop Capabilities: AI Agent Tools | Out of scope | — | Building tools for the attacker's agent is outside the deployment. |
+| [AML.T0017.003](https://atlas.mitre.org/techniques/AML.T0017.003) | Develop Capabilities: Malware | Out of scope | — | Writing malware happens on the attacker's side, outside the deployment. |
 | [AML.T0021](https://atlas.mitre.org/techniques/AML.T0021) | Establish Accounts | Out of scope | — | Creating attacker accounts on outside services is outside the deployment. |
 | [AML.T0060](https://atlas.mitre.org/techniques/AML.T0060) | Publish Hallucinated Entities | Partial | B11, B09, E02 | No package manager under B11 and an egress allowlist under B09 stop the agent fetching a made-up name; people can still fall for it. |
 | [AML.T0079](https://atlas.mitre.org/techniques/AML.T0079) | Stage Capabilities | Out of scope | — | Setting up attacker infrastructure happens outside the deployment. |
@@ -91,15 +96,16 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | [AML.T0115.001](https://atlas.mitre.org/techniques/AML.T0115.001) | Publish Poisoned AI Artifacts: Models | Partial | C05, E02 | Signature and file-format checks before loading reject unapproved models; a signed bad model can still pass. |
 | [AML.T0115.002](https://atlas.mitre.org/techniques/AML.T0115.002) | Publish Poisoned AI Artifacts: AI Agent Tools | Partial | E02, E04, E03 | Tools are vetted, scanned, and pinned before use; a review can still miss a well-hidden payload. |
 | [AML.T0128](https://atlas.mitre.org/techniques/AML.T0128) | Compromise Infrastructure | Out of scope | — | Taking over third-party infrastructure happens outside the deployment. |
+| [AML.T0139](https://atlas.mitre.org/techniques/AML.T0139) | Compromise Accounts | Partial | B03, B02, B04, R08 | Short-lived, narrow tokens limit what a stolen account can do, B04 revokes it, and R08 flags unusual use. Accounts held by others are outside BRACE. |
 
 ## AI Attack Adaptation (AML.TA0001)
 
 | ATLAS ID | Technique | Coverage | BRACE items | How BRACE addresses it |
 |---|---|---|---|---|
-| [AML.T0005](https://atlas.mitre.org/techniques/AML.T0005) | Create Proxy AI Model | Out of scope | — | The attacker builds a copy model on their own systems. |
-| [AML.T0005.000](https://atlas.mitre.org/techniques/AML.T0005.000) | Create Proxy AI Model: Train Proxy via Gathered AI Artifacts | Out of scope | — | Training a copy from public artifacts happens outside the deployment. |
-| [AML.T0005.001](https://atlas.mitre.org/techniques/AML.T0005.001) | Create Proxy AI Model: Train Proxy via Replication | Partial | B07, R08 | Per-user and per-tenant quotas slow mass querying; R08 can flag the volume. |
-| [AML.T0005.002](https://atlas.mitre.org/techniques/AML.T0005.002) | Create Proxy AI Model: Use Pre-Trained Model | Out of scope | — | Using an off-the-shelf model happens outside the deployment. |
+| [AML.T0005](https://atlas.mitre.org/techniques/AML.T0005) | Replicate AI Model Behavior | Out of scope | — | The attacker builds a copy model on their own systems. |
+| [AML.T0005.000](https://atlas.mitre.org/techniques/AML.T0005.000) | Replicate AI Model Behavior: Replicate Behavior from Gathered AI Artifacts | Out of scope | — | Training a copy from public artifacts happens outside the deployment. |
+| [AML.T0005.001](https://atlas.mitre.org/techniques/AML.T0005.001) | Replicate AI Model Behavior: Replicate Behavior from Model Outputs | Partial | B07, R08 | Per-user and per-tenant quotas slow mass querying; R08 can flag the volume. |
+| [AML.T0005.002](https://atlas.mitre.org/techniques/AML.T0005.002) | Replicate AI Model Behavior: Adapt Existing Model to Replicate Behavior | Out of scope | — | Using an off-the-shelf model happens outside the deployment. |
 | [AML.T0018](https://atlas.mitre.org/techniques/AML.T0018) | Manipulate AI Model | Partial | C05, C03, C04 | Signature checks before load and drift checks on self-hosted weights catch changed files, not a model poisoned before signing. |
 | [AML.T0018.000](https://atlas.mitre.org/techniques/AML.T0018.000) | Manipulate AI Model: Poison AI Model | Partial | C05, C06 | C05 ties weight and training changes to tests before promotion; tests can't prove a model is clean. |
 | [AML.T0018.001](https://atlas.mitre.org/techniques/AML.T0018.001) | Manipulate AI Model: Modify AI Model Architecture | Partial | C05, C03, C04 | Changed self-hosted model files fail the signature and identity checks; hosted models are outside your view. |
@@ -126,13 +132,13 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 
 | ATLAS ID | Technique | Coverage | BRACE items | How BRACE addresses it |
 |---|---|---|---|---|
-| [AML.T0010](https://atlas.mitre.org/techniques/AML.T0010) | AI Supply Chain Compromise | Partial | E02, B10, C05 | Dependencies, images, and models are vetted, pinned, and signature-checked; a compromised approved release can still get in. |
-| [AML.T0010.000](https://atlas.mitre.org/techniques/AML.T0010.000) | AI Supply Chain Compromise: Hardware | Out of scope | — | Hardware supply chain attacks are outside BRACE. |
-| [AML.T0010.001](https://atlas.mitre.org/techniques/AML.T0010.001) | AI Supply Chain Compromise: AI Software | Partial | E02, B10, C05 | Pinned, vetted dependencies block silent swaps; a bad version you approved still runs. |
-| [AML.T0010.002](https://atlas.mitre.org/techniques/AML.T0010.002) | AI Supply Chain Compromise: Data | Partial | C05, R04 | C05 records dataset versions for training you run; R04 limits who can write to retrieval sources. |
-| [AML.T0010.003](https://atlas.mitre.org/techniques/AML.T0010.003) | AI Supply Chain Compromise: Model | Partial | C05, E02 | Signer and format checks before loading reject unapproved models; a signed bad model can still pass. |
-| [AML.T0010.004](https://atlas.mitre.org/techniques/AML.T0010.004) | AI Supply Chain Compromise: Container Registry | Direct | B10, C03, C04 | The image is pinned by digest and its signature is checked, so an overwritten tag is rejected. |
-| [AML.T0010.005](https://atlas.mitre.org/techniques/AML.T0010.005) | AI Supply Chain Compromise: AI Agent Tool | Partial | E02, E03, E04, B01 | Tools are vetted, fingerprinted, and scanned, and only allowlisted tools load; hidden remote code changes can slip by. |
+| [AML.T0010](https://atlas.mitre.org/techniques/AML.T0010) | Supply Chain Compromise | Partial | E02, B10, C05 | Dependencies, images, and models are vetted, pinned, and signature-checked; a compromised approved release can still get in. |
+| [AML.T0010.000](https://atlas.mitre.org/techniques/AML.T0010.000) | Supply Chain Compromise: Hardware | Out of scope | — | Hardware supply chain attacks are outside BRACE. |
+| [AML.T0010.001](https://atlas.mitre.org/techniques/AML.T0010.001) | Supply Chain Compromise: Software | Partial | E02, B10, C05 | Pinned, vetted dependencies block silent swaps; a bad version you approved still runs. |
+| [AML.T0010.002](https://atlas.mitre.org/techniques/AML.T0010.002) | Supply Chain Compromise: Data Repository | Partial | C05, R04 | C05 records dataset versions for training you run; R04 limits who can write to retrieval sources. |
+| [AML.T0010.003](https://atlas.mitre.org/techniques/AML.T0010.003) | Supply Chain Compromise: Model Repository | Partial | C05, E02 | Signer and format checks before loading reject unapproved models; a signed bad model can still pass. |
+| [AML.T0010.004](https://atlas.mitre.org/techniques/AML.T0010.004) | Supply Chain Compromise: Container Registry | Direct | B10, C03, C04 | The image is pinned by digest and its signature is checked, so an overwritten tag is rejected. |
+| [AML.T0010.005](https://atlas.mitre.org/techniques/AML.T0010.005) | Supply Chain Compromise: AI Agent Tool | Partial | E02, E03, E04, B01 | Tools are vetted, fingerprinted, and scanned, and only allowlisted tools load; hidden remote code changes can slip by. |
 | [AML.T0012](https://atlas.mitre.org/techniques/AML.T0012) | Valid Accounts | Partial | B03, B02, B04, R08 | Short-lived, holder-bound access tokens limit reuse, scopes limit reach, and revocation cuts off the account. |
 | [AML.T0015](https://atlas.mitre.org/techniques/AML.T0015) | Evade AI Model | Partial | R02, A07 | R02 requires harm to stay blocked even when a detector model is fooled; A07 treats a failing checker as a failed control. |
 | [AML.T0049](https://atlas.mitre.org/techniques/AML.T0049) | Exploit Public-Facing Application | Partial | B11, B08, E02 | A minimal runtime and network isolation limit what an exploited app can reach; finding app bugs is general security work. |
@@ -196,6 +202,8 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | [AML.T0110.002](https://atlas.mitre.org/techniques/AML.T0110.002) | AI Agent Tool Poisoning: Runtime Response | Direct | R01, R02, E06, B05 | Tool responses are validated as untrusted data at the gateway, and action gates block what they ask for. |
 | [AML.T0121](https://atlas.mitre.org/techniques/AML.T0121) | AI Agent Environment Reconstruction | Direct | E09, R12, B04, B11 | The stop revokes access and blocks orphaned restarts, and the runtime has no downloader to rebuild tools. |
 | [AML.T0125](https://atlas.mitre.org/techniques/AML.T0125) | Create Account | Direct | B02, B05 | Agent tokens can't do admin actions such as creating accounts, and B02 tests that they fail. |
+| [AML.T0142](https://atlas.mitre.org/techniques/AML.T0142) | Event Triggered Execution | Partial | B11, E03, C04, R01 | Hooks and startup config are reviewed and drift-checked, and an isolated runtime limits what a triggered command can reach. |
+| [AML.T0145](https://atlas.mitre.org/techniques/AML.T0145) | Poison AI Agent Learning Environment | Partial | R01, R04, C05 | Web and tool content is untrusted input, and R04 limits who can write to sources. Poisoning of a provider's model training is outside BRACE. |
 
 ## Privilege Escalation (AML.TA0012)
 
@@ -229,6 +237,9 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | [AML.T0123](https://atlas.mitre.org/techniques/AML.T0123) | Obfuscated Files or Information | Partial | R01, E04, R08 | Inputs and tool metadata are checked for encoded content, and R08 tests encoded payloads. |
 | [AML.T0129](https://atlas.mitre.org/techniques/AML.T0129) | Triggers in Multimodal Inputs | Partial | R01, R02 | R01 checks every input type for hidden instructions; R02 containment covers what the checks miss. |
 | [AML.T0134](https://atlas.mitre.org/techniques/AML.T0134) | AI Targeted Cloaking | Partial | R01, R02, B05 | Content shown only to the agent is still untrusted data, and action gates block what it asks for. |
+| [AML.T0138](https://atlas.mitre.org/techniques/AML.T0138) | Indicator Removal | Partial | R13, E10, B02 | Records the agent can't change, kept across services, make deleting or falsifying its own trail hard. An attacker with admin access to the log store is not stopped. |
+| [AML.T0140](https://atlas.mitre.org/techniques/AML.T0140) | Centralized AI Service Request Routing | Out of scope | — | Spreading requests across routes to evade a provider happens on the attacker's side. |
+| [AML.T0141](https://atlas.mitre.org/techniques/AML.T0141) | AI Service Request Metadata Sanitization | Out of scope | — | Stripping identifiers from the attacker's own requests happens outside the deployment. |
 
 ## Credential Access (AML.TA0013)
 
@@ -263,6 +274,7 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | [AML.T0084.003](https://atlas.mitre.org/techniques/AML.T0084.003) | Discover AI Agent Configuration: Call Chains | Partial | R03, B11 | Parameterized commands and a minimal runtime remove most code-execution paths a call chain could reveal. |
 | [AML.T0089](https://atlas.mitre.org/techniques/AML.T0089) | Enterprise Environment Discovery | Partial | B08, B11 | Isolation and a minimal runtime limit what the agent can see of the wider network and host. |
 | [AML.T0133](https://atlas.mitre.org/techniques/AML.T0133) | Discover AI Agent Runtime Capabilities | Partial | B01, R08 | A minimal tool list limits what probing reveals; R08 alerts on repeated denied calls. |
+| [AML.T0144](https://atlas.mitre.org/techniques/AML.T0144) | Recover AI Model Internals | Partial | B07, E06 | Per-user and fleet quotas and gateway rate limits slow the bulk queries needed to recover model details. |
 
 ## Lateral Movement (AML.TA0015)
 
@@ -277,6 +289,7 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | [AML.T0091.000](https://atlas.mitre.org/techniques/AML.T0091.000) | Use Alternate Authentication Material: Application Access Token | Partial | B02, B03, B04 | Other services reject a token issued for a different audience; holder binding depends on service support. |
 | [AML.T0091.001](https://atlas.mitre.org/techniques/AML.T0091.001) | Use Alternate Authentication Material: Web Session Cookie | Partial | B03 | Holder-bound sessions fail on another machine where the service supports binding. |
 | [AML.T0122](https://atlas.mitre.org/techniques/AML.T0122) | Exploitation of Remote Services | Partial | B08, B09, E06 | Isolation and egress rules limit which services the agent can reach to exploit. |
+| [AML.T0143](https://atlas.mitre.org/techniques/AML.T0143) | LLM Prompt Propagation | Partial | E07, R01, R05, R04 | Peer messages are untrusted, memory writes are checked, and R04 limits who can write to shared sources. Instructions that pass those checks can still spread. |
 
 ## Collection (AML.TA0009)
 
@@ -288,8 +301,17 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | [AML.T0085](https://atlas.mitre.org/techniques/AML.T0085) | Data from AI Services | Partial | B02, R04, R08 | Access checks limit results to what the requester may see; R08 flags unusual volume. |
 | [AML.T0085.000](https://atlas.mitre.org/techniques/AML.T0085.000) | Data from AI Services: RAG Databases | Direct | R04, B02 | Search enforces the requesting tenant's access on each chunk, so prompting can't pull other users' documents. |
 | [AML.T0085.001](https://atlas.mitre.org/techniques/AML.T0085.001) | Data from AI Services: AI Agent Tools | Direct | B02, E08, B01 | Tools act with the original user's scoped authority, so prompting can't reach data that user can't. |
+| [AML.T0085.002](https://atlas.mitre.org/techniques/AML.T0085.002) | Data from AI Services: Conversation Context and Memory | Partial | R05, R03, B02, R04 | Memory is split by tenant and agent, secrets are stripped, and access is scoped. What the requesting user may see can still be shown to them. |
+| [AML.T0085.003](https://atlas.mitre.org/techniques/AML.T0085.003) | Data from AI Services: System Instructions | Partial | B03, R03 | BRACE doesn't keep prompts secret, but a leaked prompt holds no credentials when B03 is met. |
 | [AML.T0126](https://atlas.mitre.org/techniques/AML.T0126) | Automated Collection | Partial | B07, R09, B02 | Rate limits and sequence detection catch bulk reads; scopes limit what is in reach. |
 | [AML.T0127](https://atlas.mitre.org/techniques/AML.T0127) | Data Staged | Partial | R09, B08 | R09 flags many reads before a send; isolation limits where data can be staged. |
+| [AML.T0135](https://atlas.mitre.org/techniques/AML.T0135) | Outputs from AI Models | Partial | B07, R08 | Quotas slow mass collection of outputs, and R08 can flag the volume. |
+| [AML.T0137](https://atlas.mitre.org/techniques/AML.T0137) | Training Data Information from AI Models | Out of scope | — | Learning about training data is a model-training privacy issue. |
+| [AML.T0137.000](https://atlas.mitre.org/techniques/AML.T0137.000) | Training Data Information from AI Models: Infer Membership | Out of scope | — | Learning what was in the training set is a model-training privacy issue. |
+| [AML.T0137.001](https://atlas.mitre.org/techniques/AML.T0137.001) | Training Data Information from AI Models: Infer Properties | Out of scope | — | Inferring properties of the training set is a model-training privacy issue. |
+| [AML.T0137.002](https://atlas.mitre.org/techniques/AML.T0137.002) | Training Data Information from AI Models: Invert AI Model | Out of scope | — | Rebuilding training data from model outputs is a model-training privacy issue. |
+| [AML.T0137.003](https://atlas.mitre.org/techniques/AML.T0137.003) | Training Data Information from AI Models: Extract Memorized Data | Partial | R03, B07 | R03 limits sensitive data in responses and quotas slow bulk extraction. Memorization in the model itself is outside BRACE. |
+| [AML.T0144](https://atlas.mitre.org/techniques/AML.T0144) | Recover AI Model Internals | Partial | B07, E06 | Per-user and fleet quotas and gateway rate limits slow the bulk queries needed to recover model details. |
 
 ## Command and Control (AML.TA0014)
 
@@ -306,14 +328,10 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 | ATLAS ID | Technique | Coverage | BRACE items | How BRACE addresses it |
 |---|---|---|---|---|
 | [AML.T0024](https://atlas.mitre.org/techniques/AML.T0024) | Exfiltration via AI Inference API | Partial | B07, R03 | Rate quotas slow mass querying, and R03 limits sensitive data in responses. |
-| [AML.T0024.000](https://atlas.mitre.org/techniques/AML.T0024.000) | Exfiltration via AI Inference API: Infer Training Data Membership | Out of scope | — | Learning what was in the training set is a model-training privacy issue. |
-| [AML.T0024.001](https://atlas.mitre.org/techniques/AML.T0024.001) | Exfiltration via AI Inference API: Invert AI Model | Out of scope | — | Rebuilding training data from model outputs is a model-training privacy issue. |
-| [AML.T0024.002](https://atlas.mitre.org/techniques/AML.T0024.002) | Exfiltration via AI Inference API: Extract AI Model | Partial | B07, E06 | Per-user and fleet quotas and gateway rate limits slow the bulk queries needed to copy a model. |
 | [AML.T0025](https://atlas.mitre.org/techniques/AML.T0025) | Exfiltration via Cyber Means | Partial | B09, R08 | The egress allowlist limits destinations and R08 alerts on unexpected outbound traffic. |
-| [AML.T0056](https://atlas.mitre.org/techniques/AML.T0056) | Extract LLM System Prompt | Partial | B03, R03 | BRACE doesn't keep prompts secret, but a leaked prompt holds no credentials when B03 is met. |
-| [AML.T0057](https://atlas.mitre.org/techniques/AML.T0057) | LLM Data Leakage | Partial | R03, R04, B02 | Secrets are stripped and access is scoped before data reaches the model; what the user may see can still be leaked to them. |
 | [AML.T0077](https://atlas.mitre.org/techniques/AML.T0077) | LLM Response Rendering | Direct | R03, B09 | R03 blocks client auto-fetch of images and links or allows only approved URLs. |
 | [AML.T0086](https://atlas.mitre.org/techniques/AML.T0086) | Exfiltration via AI Agent Tool Invocation | Direct | B05, B09, R02 | Sending anything outside needs approval, and the egress allowlist limits destinations and the data sent. |
+| [AML.T0136](https://atlas.mitre.org/techniques/AML.T0136) | Exfiltration via AI User Interface | Partial | R03, R04, B02 | Secrets are stripped and access is scoped before data reaches the model. What the user may see can still be shown, and a hijacked reply can carry data out. |
 
 ## Impact (AML.TA0011)
 
@@ -347,7 +365,7 @@ The tactic rows add up to 225, not 208, because 14 techniques sit under more tha
 - Reconnaissance and resource development done on the attacker's own systems are Out of scope. BRACE only limits what that work can later reach.
 - Harmful or misleading text that the model writes for a user is a model-safety and answer-quality problem. BRACE does not filter it, so related Impact rows are Partial.
 - This mapping is BRACE's judgment. MITRE has not reviewed or endorsed it.
-- ATLAS changes often; v2026.09 added 11 techniques and sub-techniques. Recheck this mapping on each new ATLAS release. Last checked 2026-10-01.
+- ATLAS changes often. v2026.10 added 18 technique and sub-technique IDs, renamed AML.T0005 and AML.T0010 and their sub-techniques, and replaced five older IDs (AML.T0024.000 to .002, AML.T0056, AML.T0057) with the new AML.T0135 to AML.T0137, AML.T0144 and AML.T0085.002 to .003 entries. Recheck this mapping on each new ATLAS release. Last checked 2026-11-26.
 
 ---
 *Part of [BRACE](../README.md), a security framework for autonomous AI agents. CC BY 4.0.*

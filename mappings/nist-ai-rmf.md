@@ -1,6 +1,6 @@
 # BRACE and the NIST AI RMF
 
-This page maps every subcategory in the Core of the NIST AI Risk Management Framework to the items in the [BRACE sign-off checklist](../CHECKLIST.md). It uses [AI RMF 1.0 (NIST AI 100-1)](https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf), released 26 January 2023. That is still the current version on 2026-10-01: the [NIST AI RMF page](https://www.nist.gov/itl/ai-risk-management-framework) says 1.0 is being revised under the White House AI Action Plan, but no newer version has been published.
+This page maps every subcategory in the Core of the NIST AI Risk Management Framework to the items in the [BRACE sign-off checklist](../CHECKLIST.md). It uses [AI RMF 1.0 (NIST AI 100-1)](https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf), released 26 January 2023. That is still the current version on 2026-11-26: the [NIST AI RMF page](https://www.nist.gov/itl/ai-risk-management-framework) says 1.0 is being revised under the White House AI Action Plan, but no newer version has been published.
 
 ## How to read this mapping
 - **Direct** — passing the listed BRACE items produces evidence that meets this outcome for a deployed agent.
@@ -132,7 +132,7 @@ BRACE does not address CBRN Information or Capabilities; Confabulation; Dangerou
 - BRACE covers security and control. It does not test accuracy, fairness, or social impact, so most GOVERN and MAP outcomes stay Partial or Out of scope.
 - Only items with a Pass result count. A Gap, an accepted risk, or an N/A supplies no evidence for an outcome.
 - The AI RMF Playbook's suggested actions and the AI 600-1 action tables (for example, GV-1.1-001) are not mapped.
-- AI RMF 1.0 is under revision. Recheck this mapping when NIST publishes a new version. Last checked 2026-10-01.
+- AI RMF 1.0 is under revision. Recheck this mapping when NIST publishes a new version. Subcategory text last checked 2026-10-01; version status last checked 2026-11-26.
 - 600-1 names one risk "Harmful Bias or Homogenization" in its list and "Harmful Bias and Homogenization" in its section heading. This page uses the list name.
 
 ---
