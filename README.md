@@ -30,7 +30,7 @@ Example output:
     BRACE checklist E02, E03, C05 · https://braceframework.org/anti-patterns/#ap04-mcp-server-installed-from-an-unpinned-package
 
 ✗ MEDIUM   Lethal combination: untrusted input, private data and a way out  [AP09] ×1
-    .mcp.json:3  likely, from server names — untrusted input: gmail; private data: gmail, stripe; a way out: gmail, stripe
+    .mcp.json:3  likely, from server and package names — untrusted input: gmail; private data: gmail, stripe; a way out: gmail, stripe
     Why:  The same agent can read content an attacker controls, reach private data and send data or act outside. Prompt injection then becomes data theft; no system prompt reliably stops it.
     Fix:  Split the capabilities across agents, remove one leg, or require a person to approve every outbound or consequential action.
     BRACE checklist B05, B01, R02 · https://braceframework.org/anti-patterns/#ap09-lethal-combination-untrusted-input-private-data-and-a-way-out

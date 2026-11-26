@@ -52,10 +52,16 @@ BYPASS = re.compile(
     r"--approval-mode" + GAP + "yolo" + END + "|"
     r"(?:--sandbox|(?<![\w-])-s)" + GAP + "danger-full-access" + END + "|"
     r"\b(?:permission_?mode|permissionMode)[\"']?[ \t]*[:=][ \t]*[\"']?bypassPermissions" + END + r"[\"']?|"
-    r"\bsandbox_mode[\"']?[ \t]*[:=][ \t]*[\"']?danger-full-access" + END + r"[\"']?", re.I)
+    # Codex's sandbox setting by any spelling: config.toml's sandbox_mode, the TypeScript SDK's
+    # sandboxMode, and openai/codex-action's `sandbox:` input.
+    r"\bsandbox(?:_?mode)?[\"']?[ \t]*[:=][ \t]*[\"']?danger-full-access" + END + r"[\"']?", re.I)
 # Bypasses only next to an agent CLI that takes them: Gemini/Qwen/Codex/Crush --yolo, and
 # Copilot CLI's --allow-all-tools ("allow every tool without asking") and --allow-all.
 GATED_BYPASS = re.compile(r"--(?:yolo|allow-all-tools|allow-all)" + END)
+# Gemini CLI's and Qwen Code's short -y (--yolo), only as an argument of one of them: after the
+# CLI on the same line, so `npx -y @google/gemini-cli -p hi` (npx's own -y) does not count.
+SHORT_YOLO = re.compile(r"(?<![\w-])-y(?![\w-])")
+SHORT_YOLO_CLI = re.compile(r"(?<![\w-])(?:gemini|qwen)(?![\w-])|@google/gemini-cli|@qwen-code/qwen-code")
 # Byte strings that mark a bypass, for files too large to read as text.
 BYPASS_BYTES = (b"--dangerously-skip-permissions", b"--dangerously-bypass-approvals-and-sandbox",
                 b"bypassPermissions", b"danger-full-access", b"--allow-all-tools")

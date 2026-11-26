@@ -171,10 +171,12 @@ def all_outputs(root: Path) -> list[str]:
 
 
 def fast(fn, limit: float = 3.0):
-    """fn()'s result, asserting it took less than `limit` seconds."""
-    start = time.perf_counter()
+    """fn()'s result, asserting it used less than `limit` seconds of CPU time.
+
+    CPU time (not wall-clock time) so a loaded machine cannot fail a linear-time check."""
+    start = time.process_time()
     out = fn()
-    assert time.perf_counter() - start < limit
+    assert time.process_time() - start < limit
     return out
 
 

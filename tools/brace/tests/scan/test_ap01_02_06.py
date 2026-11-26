@@ -240,3 +240,108 @@ def test_flag_and_value_split_across_list_items(tmp_path, rel, text):
     write(tmp_path, rel, text)
     assert rules(tmp_path) == ["AP01"]
     assert "<" not in result(tmp_path).findings[0].detail
+
+
+# --- Round 8 review -------------------------------------------------------------------------
+
+def test_a_js_regex_literal_does_not_open_a_comment(tmp_path):
+    """Finding 4: `/\\/*$/` is a regex, not the start of a block comment hiding what follows."""
+    write(tmp_path, "agent.js", 'const base = url.replace(/\\/*$/, "");\n'
+                                f'spawn("claude", ["{FLAG}", "-p", "x"]);\n')
+    write(tmp_path, "agent.ts", 'const re = /a\\/*b/g; const n = x / 2;\n'
+                                f'spawn("claude", ["{FLAG}"]);\n')
+    assert rules(tmp_path) == ["AP01", "AP01"]
+
+
+def test_an_unclosed_or_escaped_block_comment_hides_nothing(tmp_path):
+    """Finding 4: an unterminated `/*` and a `\\/*` are not comments; nor is an unclosed docstring."""
+    write(tmp_path, "a.go", f'cmd := exec.Command("claude", "{FLAG}")\nx := 1 /* never closed\n')
+    write(tmp_path, "b.go", f'/* never closed\ncmd := exec.Command("claude", "{FLAG}")\n')
+    write(tmp_path, "c.java", f'String p = a + \\/* x */ b;\nrun("claude", "{FLAG}");\n')
+    write(tmp_path, "d.py", f'"""never closed\nimport os\nos.system("claude {FLAG} -p x")\n')
+    assert rules(tmp_path) == ["AP01"] * 4
+
+
+def test_a_block_comment_and_a_regex_still_hide_a_mention(tmp_path):
+    write(tmp_path, "a.js", f'/* do not use {FLAG} */\nif (/{FLAG}/.test(arg)) refuse();\n')
+    assert rules(tmp_path) == []
+
+
+@pytest.mark.parametrize("name", ["UNSAFE_ARGS", "dangerousFlags", "DANGER_ARGS", "unguarded_args"])
+def test_a_list_named_for_what_it_passes_is_not_a_deny_list(tmp_path, name):
+    """Finding 5: `danger`/`unsafe` name the flags passed, not refused."""
+    write(tmp_path, "agent.py", f'{name} = ["{FLAG}"]\nsubprocess.run(["claude", *{name}])\n')
+    write(tmp_path, "agent.yml", f"danger_args:\n  - {FLAG}\n")
+    assert rules(tmp_path) == ["AP01", "AP01"]
+
+
+@pytest.mark.parametrize("name", ["BLOCKED_FLAGS", "denyList", "disallowed_args", "FORBIDDEN", "GUARDS",
+                                  "blocklist", "rejected_flags"])
+def test_a_list_named_as_blocked_is_a_deny_list(tmp_path, name):
+    write(tmp_path, "agent.py", f'{name} = ["{FLAG}"]\n')
+    write(tmp_path, "agent.yml", f"{name}:\n  - {FLAG}\n")
+    assert rules(tmp_path) == []
+
+
+def test_a_for_loop_list_is_passed_not_tested(tmp_path):
+    """Skip-path audit: `for f in [...]` is not a membership test."""
+    write(tmp_path, "agent.py", f'for f in ["{FLAG}", "-p"]:\n    args.append(f)\n')
+    write(tmp_path, "check.py", f'if arg in ("--x", "{FLAG}"):\n    refuse()\n')
+    assert rules(tmp_path) == ["AP01"]
+
+
+def test_a_string_with_an_expansion_is_a_command_not_prose(tmp_path):
+    """Skip-path audit: `$AGENT <flag> on the repo` reads like prose but runs an agent."""
+    write(tmp_path, "run.sh", f'sh -c "$AGENT {FLAG} on the repo"\n')
+    write(tmp_path, ".github/workflows/w.yml", f"jobs:\n  a:\n    steps:\n      - run: $AGENT {FLAG} on the repo\n")
+    write(tmp_path, "cli.py", f'parser.add_argument("--x", help="never pass {FLAG} to the agent")\n')
+    assert rules(tmp_path) == ["AP01", "AP02"]
+
+
+def test_a_yaml_deny_list_is_recognised_past_two_hundred_lines(tmp_path):
+    """Finding 18: the parent key is tracked with a stack, not a 200-line look-back."""
+    items = "".join(f"  - --flag-{i}\n" for i in range(300))
+    write(tmp_path, "policy.yml", f"blocked:\n{items}  - {FLAG}\nallowed:\n  - -p\n")
+    write(tmp_path, "run.yml", f"blocked:\n  - --x\nargs:\n  - {FLAG}\n")
+    assert [(f["file"], f["line"]) for f in report(tmp_path)["findings"]] == [("run.yml", 4)]
+
+
+@pytest.mark.parametrize("name", ["Dockerfile.dev", "app.dockerfile", ".env.example", "Jenkinsfile", "Makefile",
+                                  "justfile"])
+def test_comments_follow_the_file_kind(tmp_path, name):
+    """Finding 10: markers by file kind, not by Path.suffix."""
+    marker = "//" if name == "Jenkinsfile" else "#"
+    write(tmp_path, name, f"{marker} RUN claude {FLAG} -p x\n")
+    assert rules(tmp_path) == []
+
+
+def test_a_jenkinsfile_block_comment_and_hash_are_not_confused(tmp_path):
+    write(tmp_path, "Jenkinsfile", f"/* sh 'claude {FLAG}' */\nsh 'claude -p x' # {FLAG}\n")
+    assert [(f["rule"], f["line"]) for f in report(tmp_path)["findings"]] == [("AP02", 2)]
+
+
+@pytest.mark.parametrize("text", [
+    "with:\n  sandbox: danger-full-access\n",
+    'const t = codex.startThread({ sandboxMode: "danger-full-access" });\n',
+    "gemini -y -p 'fix the tests'\n",
+    "npx @google/gemini-cli -y -p hi\n",
+    "qwen -p hi -y\n",
+])
+def test_more_codex_and_gemini_full_access_spellings(tmp_path, text):
+    """Finding 7."""
+    write(tmp_path, "agent.yml" if text.startswith("with") else "agent.ts" if "const" in text else "run.sh", text)
+    assert rules(tmp_path) == ["AP01"]
+
+
+@pytest.mark.parametrize("text", ["npx -y @google/gemini-cli -p hi\n", "apt-get install -y curl\n",
+                                  "npx -y some-tool && echo gemini\n"])
+def test_a_short_y_that_is_not_gemini_s_does_not_count(tmp_path, text):
+    write(tmp_path, "run.sh", text)
+    assert rules(tmp_path) == []
+
+
+def test_a_gated_flag_on_a_continued_line_counts(tmp_path):
+    """Skip-path audit: `gemini -p x \\` then `--yolo` on the next line is one command."""
+    write(tmp_path, "run.sh", "gemini -p 'fix' \\\n  --yolo\n")
+    write(tmp_path, "other.sh", "echo hi\n  --yolo\n")
+    assert [f["file"] for f in report(tmp_path)["findings"]] == ["run.sh"]

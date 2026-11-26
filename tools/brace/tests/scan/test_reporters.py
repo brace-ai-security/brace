@@ -71,6 +71,16 @@ def test_a_path_that_is_not_utf8_is_written_by_every_reporter():
     assert "d/bad.sh:1" in out["text"]
 
 
+def test_junit_is_well_formed_xml_whatever_the_strings_hold():
+    """Finding 11: C0 controls and other characters XML 1.0 forbids are written as \\xNN."""
+    [f] = assign_ids([Finding("AP01", "a\x01b\x1f.sh", 1, "x\x02y", severity="high")])
+    rules = [replace(RULES[0], title="T\x0bitle", why="w\x00hy")] + list(RULES[1:])
+    text = render_all(Report(findings=[f], rules=rules, notes=["n\x07ote", "\ufffe"]))["junit"]
+    root = ET.fromstring(text.split("\n", 1)[1])  # raises on ill-formed XML
+    assert root.find(".//testcase").get("file") == "a\\x01b\\x1f.sh"
+    assert "n\\x07ote" in root.find(".//system-out").text and "\\ufffe" in root.find(".//system-out").text
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file names")
 def test_a_real_file_name_that_is_not_utf8_is_scanned(tmp_path):
     try:

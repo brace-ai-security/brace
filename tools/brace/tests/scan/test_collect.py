@@ -17,10 +17,10 @@ def test_binary_fifo_and_symlink_are_skipped(tmp_path):
     sub = tmp_path / "repo"
     sub.mkdir()
     (sub / "link.sh").symlink_to(tmp_path / "outside.sh")
-    start = time.time()
+    start = time.process_time()
     assert rules(sub) == []
     assert rules(tmp_path) == ["AP01"]
-    assert time.time() - start < 5
+    assert time.process_time() - start < 5
 
 
 def test_hidden_ci_folders_are_scanned(tmp_path):

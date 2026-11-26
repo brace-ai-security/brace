@@ -111,3 +111,20 @@ def test_pre_commit_hook_runs_the_whole_repository():
     assert hooks == [{"id": "open-agent-security", "name": "open-agent-security", "description": hooks[0]["description"],
                       "entry": "open-agent-security", "language": "python", "pass_filenames": False,
                       "always_run": True}]
+
+
+def test_every_module_run_in_the_docs_is_isolated():
+    """Finding 12: `python -m` puts the current folder first on sys.path; the docs say `python -I -m`."""
+    docs = [TOOL_DIR / "SCAN.md", TOOL_DIR / "open_agent_security" / "__main__.py"]
+    for doc in docs:
+        text = doc.read_text(encoding="utf-8")
+        runs = re.findall(r"python3?(?: -\w+)* -m open_agent_security", text)
+        assert runs and all(" -I " in r for r in runs), doc
+
+
+def test_the_docs_say_which_outputs_are_capped_and_which_rules_span_files():
+    """Finding 16: SARIF caps at 5,000 results; only AP10 depends on more than one file."""
+    scan_md = (TOOL_DIR / "SCAN.md").read_text(encoding="utf-8")
+    hooks = (ROOT / ".pre-commit-hooks.yaml").read_text(encoding="utf-8")
+    assert "SARIF and JSON\noutputs have all" not in scan_md and "SARIF at most\n5,000" in scan_md
+    assert "AP09" not in hooks and "(AP09, AP10)" not in scan_md

@@ -60,13 +60,17 @@ def strip_jsonc(text: str) -> str:
 
 
 def load_json_text(text: str):
-    """(data, None) for JSON or JSONC, else (None, the error's type name)."""
+    """(data, None) for JSON or JSONC, else (None, the error's type name). A file that is empty
+    once comments are removed (a new .mcp.json, `// nothing yet`) is an empty object."""
     try:
         return json.loads(text), None
     except (ValueError, RecursionError):
         pass
+    stripped = strip_jsonc(text)
+    if not stripped.strip():
+        return {}, None
     try:
-        return json.loads(strip_jsonc(text)), None
+        return json.loads(stripped), None
     except (ValueError, RecursionError) as e:
         return None, type(e).__name__
 

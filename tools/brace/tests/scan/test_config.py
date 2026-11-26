@@ -240,3 +240,16 @@ def test_a_deeply_nested_codex_config_makes_the_scan_incomplete(tmp_path):
     write(tmp_path, ".codex/config.toml", "a = " + "[" * 5000 + "]" * 5000 + "\n")
     r = report(tmp_path)
     assert r["incomplete"] is True and any("could not parse" in n for n in r["notes"])
+
+
+@pytest.mark.parametrize("pattern", ["config/agent.yaml", "deploy/*.yml", "tools/mcp.toml"])
+def test_an_agent_config_glob_naming_yaml_or_toml_is_refused(tmp_path, pattern):
+    """Finding 17: agent config is read as JSON, so such a glob would silently do nothing."""
+    config(tmp_path, {"agent-config": [pattern]})
+    code, out, err = cli_run(tmp_path)
+    assert code == 2 and "names a YAML or TOML file" in err
+
+
+def test_an_agent_config_glob_for_codex_toml_is_allowed(tmp_path):
+    config(tmp_path, {"agent-config": ["sub/.codex/config.toml"]})
+    assert cli_run(tmp_path)[0] == 0

@@ -155,8 +155,9 @@ def resolve(words: list[str], depth: int = 0) -> tuple[str, list[str]]:
     if cmd == "wsl":
         i = 0
         while i < len(args) and args[i].startswith("-"):
-            i += 2 if args[i] in WSL_VALUE_FLAGS else 1
-            if args[i - 1] in ("-e", "--exec", "--"):
+            flag = args[i]
+            i += 2 if flag in WSL_VALUE_FLAGS else 1
+            if flag in ("-e", "--exec", "--"):
                 break
         return resolve(args[i:], depth + 1) if i < len(args) else (cmd, args)
     if args[:1] in (["run"], ["exec"]) and "--" in args and cmd not in RUN_PASSES_ARGS | CONTAINERS:

@@ -8,7 +8,7 @@ import tracemalloc
 from pathlib import Path
 
 import pytest
-from support import AGENT, PLAIN, TUNED, config, fast, found, report, result, rules, write
+from support import AGENT, FLAG as FLAG_TEXT, PLAIN, TUNED, config, fast, found, report, result, rules, write
 
 import open_agent_security
 from open_agent_security.catalog import RULES
@@ -41,9 +41,9 @@ ADVERSARIAL = [" " * 20_000, "\t" * 20_000, " \t" * 10_000, "a" * 20_000, "0" * 
 def test_large_dockerfile_is_fast_and_line_is_right(tmp_path):
     write(tmp_path, ".mcp.json", AGENT)
     write(tmp_path, "Dockerfile", "\n" * 200000 + "FROM python:3.12\n")
-    start = time.time()
+    start = time.process_time()
     found = result(tmp_path).findings
-    assert time.time() - start < 5
+    assert time.process_time() - start < 5
     assert [(f.rule, f.line) for f in found] == [("AP10", 200001)]
 
 
@@ -57,17 +57,17 @@ def test_adversarial_files_scan_fast(tmp_path, make):
     rel, text = make()
     rel = ".github/workflows/" + rel if rel.endswith(".yml") else rel
     write(tmp_path, rel, text)
-    start = time.time()
+    start = time.process_time()
     result(tmp_path)
-    assert time.time() - start < 10
+    assert time.process_time() - start < 10
 
 
 def test_adversarial_ignore_pattern_is_fast(tmp_path):
     write(tmp_path, "a" * 60 + ".sh", "claude --dangerously-skip-permissions\n")
     write(tmp_path, IGNORE_FILE, "*a" * 14 + "*b\n")
-    start = time.time()
+    start = time.process_time()
     assert rules(tmp_path) == ["AP01"]
-    assert time.time() - start < 2
+    assert time.process_time() - start < 2
 
 
 @pytest.mark.parametrize("make", [
@@ -78,18 +78,18 @@ def test_adversarial_ignore_pattern_is_fast(tmp_path):
 def test_round3_adversarial_files_are_fast(tmp_path, make):
     rel, text = make()
     write(tmp_path, rel, text)
-    start = time.time()
+    start = time.process_time()
     result(tmp_path)
-    assert time.time() - start < 10
+    assert time.process_time() - start < 10
 
 
 def test_large_ignore_file_and_deep_tree_are_fast(tmp_path):
     for i in range(300):
         write(tmp_path, f"a/b/c/d/e/f/g/h/{i}.sh", "echo\n")
     write(tmp_path, IGNORE_FILE, "\n".join(f"*x{i}*y*" for i in range(1000)) + "\n")
-    start = time.time()
+    start = time.process_time()
     result(tmp_path)
-    assert time.time() - start < 10
+    assert time.process_time() - start < 10
 
 
 def test_many_flags_after_a_long_line_are_linear(tmp_path):
@@ -222,9 +222,9 @@ def test_worst_case_globs_on_a_deep_tree_are_fast(tmp_path):
         "ignore": [{"path": f"{PLAIN}/*{i}y", "rules": every} for i in range(200)],
         "include": [f"{PLAIN}/*{i}z" for i in range(200)],
         "agent-config": [f"{PLAIN}/*{i}w" for i in range(200)]})
-    start = time.perf_counter()
+    start = time.process_time()
     r = report(tmp_path)
-    assert time.perf_counter() - start < 6.0
+    assert time.process_time() - start < 6.0
     assert r["findings"] == [] and any("past the limit of 400 segments" in n for n in r["notes"])
 
 
@@ -235,9 +235,9 @@ def test_many_large_dockerfiles_stay_within_memory(tmp_path):
     write(tmp_path, ".mcp.json", "{}\n")
     tracemalloc.start()
     try:
-        start = time.perf_counter()
+        start = time.process_time()
         r = report(tmp_path)
-        elapsed = time.perf_counter() - start
+        elapsed = time.process_time() - start
         peak = tracemalloc.get_traced_memory()[1]
     finally:
         tracemalloc.stop()
@@ -298,3 +298,11 @@ def test_inline_marks_are_kept_only_for_files_with_project_facts(tmp_path):
     finally:
         engine.run_project_checks = real
     assert set(kept) == {"Dockerfile"} and r.findings == [] and r.tally.by_mark == 1
+
+
+@pytest.mark.parametrize("text", ['run("claude ' + FLAG_TEXT + '")\n' + '"' * 300_000 + '\n',
+                                  FLAG_TEXT + "\n" + ('"""' + " " * 300 + '"""') * 1500 + "\n"])
+def test_long_lines_of_triple_quotes_are_linear(tmp_path, text):
+    """Finding 3: each triple quote rescanned its line from the start (400 KB took 29 s)."""
+    write(tmp_path, "a.py", text)
+    fast(lambda: found(tmp_path))

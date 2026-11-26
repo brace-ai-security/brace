@@ -329,3 +329,101 @@ def test_a_megabyte_server_name_is_cut_before_it_reaches_findings(tmp_path):
     write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {name: {"command": "npx", "args": ["evil"]}}}))
     [f] = result(tmp_path).findings
     assert f.rule == "AP04" and len(f.detail) <= 160
+
+
+# --- Round 8 review -------------------------------------------------------------------------
+
+BEARER_VALUE = "Bearer " + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8"
+
+
+@pytest.mark.parametrize("env", [
+    {"OPENAPI_MCP_HEADERS": json.dumps({"Authorization": BEARER_VALUE, "Notion-Version": "2022-06-28"})},
+    {"OTEL_EXPORTER_OTLP_HEADERS": "Authorization=" + BEARER_VALUE},
+    {"NOTION_TOKEN": "ntn_" + "Ab1Cd2Ef3G" * 5},
+    {"NOTION_API": "secret_" + "Ab1Cd2Ef3G" * 4 + "Hij"},
+])
+def test_a_bearer_credential_inside_a_longer_value_is_a_secret(tmp_path, env):
+    """Finding 6."""
+    mcp(tmp_path, {"command": "node", "args": ["s.js"], "env": env})
+    assert rules(tmp_path) == ["AP05"]
+
+
+def test_a_bearer_credential_inside_a_shell_string_is_a_secret(tmp_path):
+    mcp(tmp_path, {"command": "bash", "args": ["-c", f"curl -H 'Authorization: {BEARER_VALUE}' https://x/mcp"]})
+    assert "AP05" in rules(tmp_path)
+
+
+def test_a_placeholder_bearer_inside_a_longer_value_is_not_a_secret(tmp_path):
+    mcp(tmp_path, {"command": "node", "args": ["s.js"],
+                   "env": {"H": json.dumps({"Authorization": "Bearer YOUR_TOKEN_HERE_xxxxxxxxxxxx"})}})
+    assert rules(tmp_path) == []
+
+
+def test_github_in_a_package_s_host_is_not_a_capability(tmp_path):
+    """Finding 8: `github` from `git+https://github.com/...` or `github:owner/repo` adds no leg."""
+    for pkg in ("git+https://github.com/oraios/serena@abc1234", "github:owner/tool#main", "owner/tool"):
+        mcp(tmp_path, {"command": "uvx" if pkg.startswith("git+") else "npx", "args": ["-y", pkg]})
+        assert "AP09" not in rules(tmp_path), pkg
+
+
+def test_a_package_name_still_counts_for_the_lethal_combination(tmp_path):
+    mcp(tmp_path, {"command": "npx", "args": ["-y", "git+https://example.com/x/fetch-mcp.git"]},
+        {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-postgres@1.0.0"]},
+        {"command": "npx", "args": ["-y", "slack-mcp@1.0.0"]})
+    details = [f["detail"] for f in report(tmp_path)["findings"] if f["rule"] == "AP09"]
+    assert len(details) == 1 and details[0].startswith("likely, from server and package names")
+
+
+@pytest.mark.parametrize("server", [
+    {"command": "aws-mcp", "args": ["--secret_arn", "arn:aws:secretsmanager:us-east-1:123456789012:secret:db-AbC123"]},
+    {"command": "node", "args": ["s.js"], "env": {"DB_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:1234:secret:x1"}},
+    {"command": "node", "args": ["s.js"], "env": {"AUTH0_DOMAIN": "tenant123.eu.auth0.com"}},
+    {"command": "node", "args": ["s.js"], "env": {"ENCRYPTION_KEY_ALIAS": "alias/prod-key-2024a"}},
+    {"command": "node", "args": ["s.js"], "env": {"GPG_KEY_FINGERPRINT": "ABCD1234EF567890ABCD1234EF567890ABCD1234"}},
+    {"command": "node", "args": ["s.js"], "env": {"OKTA_AUTHORIZATION_SERVER": "aus1abcd2EFGH3ijk4l5"}},
+])
+def test_non_secrets_under_secret_sounding_names_are_not_ap05(tmp_path, server):
+    """Finding 9."""
+    mcp(tmp_path, server)
+    assert "AP05" not in rules(tmp_path)
+
+
+@pytest.mark.parametrize("url", ["postgresql://user:password@localhost:5432/mydb",
+                                 "mysql://username:password@db/app", "redis://:changeme@localhost:6379",
+                                 "postgres://me:your-password@host/db"])
+def test_placeholder_url_passwords_are_not_ap05(tmp_path, url):
+    """Finding 15."""
+    mcp(tmp_path, {"command": "node", "args": ["s.js", url]})
+    assert "AP05" not in rules(tmp_path)
+
+
+def test_a_real_url_password_is_still_ap05(tmp_path):
+    mcp(tmp_path, {"command": "node", "args": ["s.js", "postgresql://user:Xk9pQ2mZ7vR4@db/app"]})
+    assert rules(tmp_path) == ["AP05"]
+
+
+def test_a_truncated_wsl_command_does_not_lose_other_servers(tmp_path):
+    """Finding 13: `wsl -d` with no value raised IndexError and lost the file."""
+    mcp(tmp_path, {"command": "wsl", "args": ["-d"]}, {"command": "npx", "args": ["-y", "unpinned-mcp"]})
+    r = report(tmp_path)
+    assert [f["rule"] for f in r["findings"]] == ["AP04"] and not r["incomplete"]
+
+
+WRAPPERS = [["wsl", "-d", "Ubuntu", "-u", "me", "--cd", "/x", "-e", "npx", "-y", "pkg"],
+            ["cmd", "/c", "npx", "-y", "pkg"], ["bash", "-c", "cd /x && npx -y pkg"],
+            ["env", "-u", "X", "-C", "/x", "A=b", "npx", "pkg"], ["op", "run", "--", "npx", "pkg"],
+            ["uv", "run", "--with", "x", "--", "npx", "pkg"], ["direnv", "exec", ".", "npx", "pkg"],
+            ["exec", "env", "wsl", "--", "sh", "-c", "npx pkg"], ["pwsh", "-command", "npx pkg"]]
+
+
+def test_wrapper_argument_lists_never_raise():
+    """Finding 13: every truncation and reshuffle of each wrapper's arguments resolves without an exception."""
+    import random
+    from open_agent_security.parse.mcp_json import resolve
+    rng = random.Random(8)
+    for words in WRAPPERS:
+        for end in range(len(words) + 1):
+            resolve(words[:end])
+            for _ in range(30):
+                cut = words[:end] + rng.sample(words, rng.randint(0, len(words)))
+                resolve(cut[:rng.randint(0, len(cut))])

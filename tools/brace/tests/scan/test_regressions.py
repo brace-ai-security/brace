@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from support import ROOT, TOKEN, result, write
+from support import ROOT, TOKEN, fast, found, result, write
 
 AGENT = json.dumps({"mcpServers": {"t": {"command": "node", "args": ["t.js"]}}})  # agent evidence for AP10
 SECRET_ANT = "sk-ant-api03-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0"
@@ -238,3 +238,66 @@ def test_expected_matches_the_original(tmp_path):
     finally:
         for key in [k for k in sys.modules if k == "orig_oas" or k.startswith("orig_oas.")]:
             del sys.modules[key]
+
+
+# --- Round 8 review: critical and high findings, and every way a bypass was hidden ----------
+# These go beyond the original scanner (it missed most of them), so they are checked against
+# their own expected rule IDs rather than against EXPECTED.
+REPORT_HEAD = '<?xml\n{}\n# ?><testsuites name="open-agent-security">\n'
+BEARER = "Bearer " + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8"
+REVIEW_CASES: dict[str, tuple[dict[str, str], list[str]]] = {
+    # 1 (critical): a script or Dockerfile shaped like the scanner's JUnit report was skipped.
+    "r8-own-report-sh": ({"run.sh": REPORT_HEAD.format(f'claude {FLAG} -p "do it"')}, ["AP01"]),
+    "r8-own-report-bat": ({"run.bat": REPORT_HEAD.format(f'claude {FLAG} -p "do it"')}, ["AP01"]),
+    "r8-own-report-dockerfile": ({"Dockerfile": REPORT_HEAD.format(f"RUN claude {FLAG}")}, ["AP01"]),
+    "r8-own-report-workflow": ({".github/workflows/w.yml": REPORT_HEAD.format(f"# x\njobs:\n  a:\n    steps:\n"
+                                                                              f"      - run: claude -p x {FLAG}")},
+                               ["AP02"]),
+    # 4: a JS regex literal opened a phantom block comment; unclosed comments hid the rest.
+    "r8-js-regex-literal": ({"a.js": f'u = url.replace(/\\/*$/, "");\nspawn("claude", ["{FLAG}"]);\n'}, ["AP01"]),
+    "r8-unclosed-block-comment": ({"a.go": f'/* never closed\nexec.Command("claude", "{FLAG}")\n'}, ["AP01"]),
+    "r8-unclosed-docstring": ({"a.py": f'"""never closed\nos.system("claude {FLAG} -p x")\n'}, ["AP01"]),
+    # 5: names that pass the flag were read as deny-lists.
+    "r8-unsafe-args": ({"a.py": f'UNSAFE_ARGS = ["{FLAG}"]\nsubprocess.run(["claude", *UNSAFE_ARGS])\n'}, ["AP01"]),
+    "r8-dangerous-flags": ({"a.ts": f'const dangerousFlags = ["{FLAG}"];\nspawn("claude", dangerousFlags);\n'},
+                           ["AP01"]),
+    "r8-yaml-danger-args": ({"agent.yml": f"danger_args:\n  - {FLAG}\n"}, ["AP01"]),
+    # Skip-path audit: a loop list, a command built from $VAR, a continued gated flag.
+    "r8-for-loop": ({"a.py": f'for f in ["{FLAG}"]:\n    args.append(f)\n'}, ["AP01"]),
+    "r8-expansion-prose": ({"run.sh": f'sh -c "$AGENT {FLAG} on the repo"\n'}, ["AP01"]),
+    "r8-continued-yolo": ({"run.sh": "gemini -p 'fix' \\\n  --yolo\n"}, ["AP01"]),
+    # 7: Codex and Gemini full-access spellings that were missed.
+    "r8-codex-action-sandbox": ({".github/workflows/w.yml": "jobs:\n  a:\n    steps:\n      - uses: openai/codex-action@v1\n"
+                                 "        with:\n          sandbox: danger-full-access\n"}, ["AP02"]),
+    "r8-codex-sdk-sandbox-mode": ({"a.ts": 'codex.startThread({ sandboxMode: "danger-full-access" });\n'}, ["AP01"]),
+    "r8-gemini-short-yolo": ({"run.sh": "gemini -y -p 'fix the tests'\n"}, ["AP01"]),
+    # 6: a Bearer credential inside a longer value was redacted but not reported.
+    "r8-bearer-in-headers": ({".mcp.json": json.dumps({"mcpServers": {"notion": {
+        "command": "node", "args": ["s.js"], "env": {"OPENAPI_MCP_HEADERS": json.dumps({"Authorization": BEARER})}}}})},
+        ["AP05"]),
+    # 13: a truncated wsl command raised and lost every server in the file.
+    "r8-truncated-wsl": ({".mcp.json": json.dumps({"mcpServers": {
+        "w": {"command": "wsl", "args": ["-d"]}, "s": {"command": "npx", "args": ["-y", "evil-mcp"]}}})}, ["AP04"]),
+}
+
+
+@pytest.mark.parametrize("name", sorted(REVIEW_CASES))
+def test_round8_review_cases_are_detected(tmp_path, name):
+    files, expected = REVIEW_CASES[name]
+    for rel, text in files.items():
+        write(tmp_path, rel, text)
+    missing = set(expected) - scan_ids(tmp_path)
+    assert not missing, f"{name}: does not report {sorted(missing)}"
+
+
+@pytest.mark.parametrize("rel,text", [
+    # 2 (high): `-{1,2}[\w=-]{1,30}` matched `--a` two ways, 8**6 paths per attempt (lines are
+    # cut to 2,000 characters, so the input is many lines; 40 KB took 93 s).
+    (".github/workflows/w.yml", "on: push\njobs:\n  a:\n    steps:\n"
+     + ("      - run: x;" + "env --a --b --c " * 120 + "zz\n") * 60),
+    # 3 (high): each triple quote rescanned its line: 400 KB took 29 s.
+    ("a.py", f'run("claude {FLAG}")\n' + '"' * 400_000 + "\n"),
+])
+def test_round8_slow_inputs_are_fast(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    fast(lambda: found(tmp_path))

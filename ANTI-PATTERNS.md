@@ -44,7 +44,7 @@ found. It doesn't mean the agent is secure; for that, use the
 
 ### AP01: Agent runs with all permission checks turned off
 
-**Looks like:** `claude --dangerously-skip-permissions`, `--permission-mode bypassPermissions`, `"defaultMode": "bypassPermissions"`, `permission_mode="bypassPermissions"` in SDK code, `codex --dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access`, `sandbox_mode = "danger-full-access"`, `gemini --yolo` or `--approval-mode yolo`.
+**Looks like:** `claude --dangerously-skip-permissions`, `--permission-mode bypassPermissions`, `"defaultMode": "bypassPermissions"`, `permission_mode="bypassPermissions"` in SDK code, `codex --dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access`, `sandbox_mode = "danger-full-access"` (`sandboxMode` in the Codex SDK, `sandbox: danger-full-access` in openai/codex-action), `gemini --yolo`, `gemini -y` or `--approval-mode yolo`.
 
 **Why it's dangerous:** Every tool call runs without anyone approving it, including shell commands, file deletes and network requests. One injected instruction in a README, issue, dependency or web page can then run any command as you, with your SSH keys, cloud credentials and browser cookies within reach.
 
@@ -130,7 +130,7 @@ found. It doesn't mean the agent is secure; for that, use the
 
 **Why it's dangerous:** This is how prompt injection turns into data theft. The attacker's text arrives through the first tool, tells the agent to read the second, and sends the result out through the third. No system prompt or model reliably prevents it.
 
-**Do instead:** Break the combination. Remove one leg, split the work across agents that never hold all three, or require a person to approve every outbound or consequential action. `open-agent-security` infers capabilities from server names, so its result is marked *likely*. For a traced, evidence-based check, use the [topology tools](TOOLS.md).
+**Do instead:** Break the combination. Remove one leg, split the work across agents that never hold all three, or require a person to approve every outbound or consequential action. `open-agent-security` infers capabilities from server and package names, so its result is marked *likely*. For a traced, evidence-based check, use the [topology tools](TOOLS.md).
 
 **BRACE:** [B05](CHECKLIST.md), [B01](CHECKLIST.md), [R02](CHECKLIST.md)
 

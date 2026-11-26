@@ -214,3 +214,12 @@ def test_findings_before_a_check_fails_are_kept(tmp_path, monkeypatch):
     mcp(tmp_path, {"command": "npx", "args": ["-y", "x"]})
     r = report(tmp_path)
     assert [f["rule"] for f in r["findings"]] == ["AP04"] and r["incomplete"] is True
+
+
+@pytest.mark.parametrize("rel,text", [(".mcp.json", ""), (".mcp.json", "  \n"), (".vscode/settings.json", "// nothing yet\n"),
+                                      (".claude/settings.json", "/* later */\n")])
+def test_an_empty_or_comment_only_agent_config_is_complete(tmp_path, rel, text):
+    """Finding 14: empty after removing comments is an empty object, not a parse failure."""
+    write(tmp_path, rel, text)
+    r = report(tmp_path)
+    assert r["incomplete"] is False and not any("could not parse" in n for n in r["notes"])

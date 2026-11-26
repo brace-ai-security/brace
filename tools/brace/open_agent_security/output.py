@@ -46,6 +46,18 @@ def safe_path(path: str) -> str:
     return path_bytes(path).decode("utf-8", "backslashreplace")
 
 
+# Characters XML 1.0 does not allow anywhere in a document, even escaped: C0 controls other than
+# tab, line feed and carriage return, lone surrogates, U+FFFE and U+FFFF.
+XML_FORBIDDEN = re.compile("[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+
+
+def xml_safe(text) -> str:
+    """Text that can go in an XML 1.0 document: each forbidden character written as \\xNN (or
+    \\uNNNN past U+00FF), so a file named `a\\x01b.sh` still yields well-formed XML."""
+    return XML_FORBIDDEN.sub(lambda m: f"\\x{ord(m.group(0)):02x}" if ord(m.group(0)) < 0x100
+                             else f"\\u{ord(m.group(0)):04x}", str(text))
+
+
 def path_uri(path: str) -> str:
     """A relative URI of the path's exact bytes, for SARIF."""
     return quote(path_bytes(path), safe="/")

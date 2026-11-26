@@ -97,8 +97,8 @@ class Regions:
                 return
             nl = text.rfind("\n", scanned, m.start())
             line_start, scanned = (nl + 1 if nl >= 0 else line_start), m.start()
-            if m.start() - line_start <= DOCSTRING_INDENT and opens_docstring(text, line_start) \
-                    and text[line_start:m.start()].strip(" \t") in ("", "r", "R", "u", "U"):
+            if m.start() - line_start <= DOCSTRING_INDENT \
+                    and text[line_start:m.start()].strip(" \t") in ("", "r", "R", "u", "U") and opens_docstring(text, line_start):
                 self.add(m.end(), close + 3)
             pos = close + 3
 
@@ -311,15 +311,18 @@ class Mentions:
         if plain:
             return prose(line[plain.end():], flag)
         if span is None:
-            return self.suffix in REGEX_LITERAL_EXT and in_regex(line, s, e)
+            return (self.suffix in REGEX_LITERAL_EXT and in_regex(line, s, e)) or self.yaml_listed(n)
         body = line[span[0] + 1:span[1]]
         return (len(body) <= MAX_PROSE and prose(body, flag)) or bool(COMPARED_AFTER.match(line, span[1] + 1)) \
             or bool(COMPARED_BEFORE.search(line[max(0, span[0] - HEAD):span[0]].rstrip())) or self.listed(n, start)
 
+    def yaml_listed(self, n: int) -> bool:
+        """Line n is an item of a YAML list under a deny-list key, quoted or not."""
+        if not self.yaml:
+            return False
+        if self._deny_items is None:
+            self._deny_items = yaml_deny_items(self.text)
+        return n in self._deny_items
+
     def listed(self, n: int, start: int) -> bool:
-        if self.yaml:
-            if self._deny_items is None:
-                self._deny_items = yaml_deny_items(self.text)
-            if n in self._deny_items:
-                return True
-        return deny_list(self.text, self.enclosing(start))
+        return self.yaml_listed(n) or deny_list(self.text, self.enclosing(start))

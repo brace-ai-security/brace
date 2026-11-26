@@ -1,7 +1,9 @@
 """AP09: one config file gives an agent untrusted input, private data and a way out.
 
 The capability classes are a heuristic on whole words in the server name, the package it
-runs and the URL host, so the finding says "likely", never "proven".
+runs (for a git or URL source, only the repository's name, not where it is hosted: `github`
+in `git+https://github.com/...` says nothing about the server) and the URL host, so the
+finding says "likely", never "proven".
 """
 from __future__ import annotations
 
@@ -29,6 +31,10 @@ LEGS = (("untrusted input", UNTRUSTED), ("private data", PRIVATE), ("a way out",
 
 NOT_WORD = re.compile(r"[^a-z0-9-]+")
 VERSION = re.compile(r"@[^/]{0,200}$")  # a package's @version or @tag
+# A package fetched from a repository or URL (`git+https://...`, `github:owner/repo#ref`,
+# `https://.../pkg.tgz`) or npm's `owner/repo` GitHub shorthand, rather than a registry name.
+SOURCE = re.compile(r"^(?:git\+|github:|gitlab:|bitbucket:|gist:|[A-Za-z][A-Za-z0-9+.\-]{0,20}://)")
+ARCHIVE = re.compile(r"(?:\.git|\.tgz|\.tar\.gz|\.zip)$")
 
 
 def words(*parts: str) -> set[str]:
@@ -43,6 +49,15 @@ def words(*parts: str) -> set[str]:
     return out
 
 
+def package_name(pkg: str) -> str:
+    """The name to read words from: a registry package without its version; for a repository or
+    URL source, only the last path part (the repository or archive name)."""
+    pkg = pkg[:WORD_PART_CHARS]
+    if SOURCE.match(pkg) or (not pkg.startswith("@") and "/" in pkg):
+        pkg = ARCHIVE.sub("", pkg.split("#", 1)[0].rstrip("/").rsplit("/", 1)[-1])
+    return VERSION.sub("", pkg)
+
+
 def classify(s: Server) -> set[str]:
     pkgs = fetched(s.command, s.args)[1]
     image = next((a for a in reversed(s.args) if not a.startswith("-") and "/" in a), "") \
@@ -51,7 +66,7 @@ def classify(s: Server) -> set[str]:
         host = urlsplit(s.url).hostname or "" if s.url else ""
     except ValueError:
         host = ""
-    w = words(s.name, *(VERSION.sub("", p[:WORD_PART_CHARS]) for p in pkgs), image, host)
+    w = words(s.name, *(package_name(p) for p in pkgs), image, host)
     return {leg for leg, vocab in LEGS if w & vocab}
 
 
@@ -72,4 +87,4 @@ class LethalCombination:
             return
         detail = "; ".join(f"{leg}: {', '.join(sorted(set(legs[leg]))[:4])}" for leg in need)
         first = legs["untrusted input"][0]
-        yield Finding("AP09", doc.source.display, doc.line_of(paths[first]), f"likely, from server names — {detail}")
+        yield Finding("AP09", doc.source.display, doc.line_of(paths[first]), f"likely, from server and package names — {detail}")

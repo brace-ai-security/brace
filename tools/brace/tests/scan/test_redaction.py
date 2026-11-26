@@ -96,9 +96,29 @@ def test_a_long_package_with_a_custom_token_is_redacted_whole(tmp_path):
 
 
 def test_redacting_a_huge_detail_is_bounded():
+    """Redaction time grows linearly with the detail's length, measured in CPU time.
+
+    Comparing two sizes (best of five, each) is immune to a loaded machine or a garbage-collection
+    pause left over from earlier heavy tests, which a single wall-clock budget is not."""
+    import time
     from open_agent_security.output import clean
-    huge = ("Bearer " + "a1" * 999 + " ") * 2000  # each credential is near the longest a pattern takes
-    assert fast(lambda: clean(huge), 1.0).startswith("Bearer <redacted>")
+
+    def detail(n):
+        return ("Bearer " + "a1" * 999 + " ") * n  # each credential is near the longest a pattern takes
+
+    def cpu(text):
+        best = float("inf")
+        for _ in range(5):
+            start = time.process_time()
+            out = clean(text)
+            best = min(best, time.process_time() - start)
+        return best, out
+
+    small, _ = cpu(detail(500))
+    large, out = cpu(detail(2000))
+    assert out.startswith("Bearer <redacted>")
+    assert large < 10 * small + 0.05, f"4x input took {large / max(small, 1e-9):.1f}x as long"
+    assert large < 5.0  # still bounded in absolute terms
 
 
 OPAQUE = "BSA1a2b3c4d5e6f7g8h9i0jKLMNOP"  # an opaque key: no known format, only its name says what it is

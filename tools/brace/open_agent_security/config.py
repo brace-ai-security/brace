@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
+from .agents import CODEX_FILE
 from .catalog import SEVERITY_ORDER
 from .fsio import ReadFailure, read
 from .ignore import PathGlob, PatternTooDeep, flex, parse_pattern
@@ -30,6 +31,7 @@ from .limits import (
     TOKEN_MIN,
     Limits,
 )
+from .parse.mcp_json import NOT_JSON
 from .secrets import CHARSETS, TOKEN_PREFIX, TokenSpec
 
 CONFIG_FILE = ".open-agent-security.toml"
@@ -102,7 +104,7 @@ def parse(data: dict, base: Config, shown: str, known_rules: set[str]) -> Config
     return Config(root=base.root, fail_on=fail_on, rules=parse_rules(data.get("rules", {}), known_rules, shown),
                   ignore=parse_ignore(data.get("ignore", []), known_rules, shown),
                   include=tuple(globs(data.get("include", []), "include", shown)),
-                  agent_config=tuple(globs(data.get("agent-config", []), "agent-config", shown)),
+                  agent_config=tuple(agent_config_globs(data.get("agent-config", []), shown)),
                   tokens=parse_tokens(data.get("tokens", []), shown), limits=limits, path=shown, notes=tuple(notes))
 
 
@@ -144,6 +146,18 @@ def globs(items, what: str, shown: str) -> list[PathGlob]:
     if any(e.neg for e in out):
         raise ConfigError(f"{shown}: {what} entries cannot start with !")
     return within_budget(out, what, shown)
+
+
+def agent_config_globs(items, shown: str) -> list[PathGlob]:
+    """agent-config globs. Agent config is read as JSON (see parse.mcp_json.is_json), so a
+    pattern naming a YAML or TOML file would silently do nothing: refused, except Codex's
+    .codex/config.toml, which its own parser reads."""
+    out = globs(items, "agent-config", shown)
+    for pattern in items:
+        if pattern.lower().endswith(NOT_JSON) and not CODEX_FILE.search(pattern):
+            raise ConfigError(f"{shown}: agent-config entry {pattern!r} names a YAML or TOML file, but agent "
+                              "config is read as JSON or JSONC; list it under include to scan it as text")
+    return out
 
 
 def within_budget(entries: list[PathGlob], what: str, shown: str) -> list[PathGlob]:

@@ -18,6 +18,7 @@ TOKENS = (r"sk-(?:ant|proj|svcacct|admin)-[A-Za-z0-9_\-]{20,400}|sk-[A-Za-z0-9]{
           r"gh[pousr]_[A-Za-z0-9]{30,400}|github_pat_[A-Za-z0-9_]{40,400}|xox[abprs]-[A-Za-z0-9\-]{10,400}|"
           r"AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|glpat-[A-Za-z0-9_\-]{20,400}|AIza[0-9A-Za-z_\-]{35}|"
           r"(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,400}|npm_[A-Za-z0-9]{36}|pypi-[A-Za-z0-9_\-]{50,400}|hf_[A-Za-z0-9]{30,400}|"
+          r"ntn_[A-Za-z0-9]{40,400}|secret_[A-Za-z0-9]{43}(?![A-Za-z0-9])|"  # Notion integration tokens, new and old
           r"eyJ[A-Za-z0-9_\-]{10,800}\.eyJ[A-Za-z0-9_\-]{10,2000}\.[A-Za-z0-9_\-]{10,800}")
 TOKEN_PREFIX_WORD = re.compile(r"^[A-Za-z]{1,40}[-_]")  # `ghp_`, `sk-`: left out when judging a token's variety
 RUNS = re.compile(r"[A-Za-z0-9+=]{16,}")  # runs of letters and digits that opaque() inspects
@@ -34,11 +35,13 @@ BEARER_ANYWHERE = re.compile(rf"\b((?:Bearer|Basic)[ \t]+|{KEY_HEADER}[ \t]*:[ \
 # value that looks like one: 16 or more characters mixing letters and digits, not a reference
 # to a secret kept elsewhere (${VAR}, $VAR, %VAR%, {{...}}, env:..., op://...), a URL or a file path.
 SECRET_FLAG = re.compile(r"token|key|secret|passw|auth|cred", re.I)
-NOT_SECRET_NAME = ("path", "file", "dir", "url", "uri", "host", "endpoint", "name", "id", "mode", "type", "region",
-                   "version", "format", "prefix", "scheme", "header", "length", "size", "count", "ttl", "expiry",
-                   "expires")  # name endings, lowercased
+NOT_SECRET_NAME = frozenset((
+    "path", "file", "dir", "url", "uri", "host", "endpoint", "name", "id", "mode", "type", "region", "version",
+    "format", "prefix", "scheme", "header", "length", "size", "count", "ttl", "expiry", "expires", "arn", "alias",
+    "domain", "fingerprint", "server", "issuer", "audience", "realm", "algorithm"))  # last word of a name, lowercased
+NAME_WORD = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+")  # `DB_SECRET_ARN`, `tokenFile`: words of a name
 SECRET_VALUE = re.compile(r"^(?=[^/.~$%])(?=[^\s]{0,2000}?\d)(?=[^\s]{0,2000}?[A-Za-z])[A-Za-z0-9_\-+/=.:]{16,2000}$")
-REFERENCE = re.compile(r"^(?:env|secret|secrets|op|vault|file|keychain|ref)[:.]|\$\{|\{\{|%[A-Za-z_]\w{0,60}%|://", re.I)
+REFERENCE = re.compile(r"^(?:env|secret|secrets|op|vault|file|keychain|ref|arn)[:.]|\$\{|\{\{|%[A-Za-z_]\w{0,60}%|://", re.I)
 FILE_PATH = re.compile(r"^[\w.\-]{0,200}(?:/[\w.\-]{1,200}){1,20}\.[A-Za-z]{1,6}$")
 FLAG_ASSIGN = re.compile(r"(?<![\w-])(--?[A-Za-z][\w-]{0,60})=([^\s\"',]{16,2000})")
 # `NAME=value`: an environment assignment (`-e API_TOKEN=...`) or a URL query parameter (`?api_key=...`).
@@ -48,6 +51,9 @@ PLACEHOLDER = re.compile(r"your[-_ ]|example|placeholder|changeme|replace[-_ ]?m
 
 # The user-info part of a URL (`https://user:password@host`). Shown as <redacted> everywhere;
 # a password in it is a literal credential. Bounded, so matching stays linear.
+# Passwords in URLs that are documentation, not credentials (`postgresql://user:password@localhost`).
+URL_PASSWORD_PLACEHOLDERS = frozenset(("password", "passwd", "pass", "pwd", "secret", "changeme", "example",
+                                       "your-password", "your_password", "yourpassword"))
 URL_USERINFO = re.compile(r"\b([A-Za-z][A-Za-z0-9+.\-]{0,30}://)([^/\s@:?#]{0,256})(?::([^/\s@?#]{1,256}))?@")
 
 # Character classes a configured token may use. Config never supplies a regex.
@@ -104,17 +110,28 @@ class Secrets:
             a.startswith("-") and "=" not in a and named_secret(a, b) for a, b in zip(args, args[1:]))
 
     def known_format(self, v) -> bool:
-        """A known token format or a bearer credential, excluding obvious placeholders."""
+        """A known token format or a bearer credential, alone or inside a longer value (a headers
+        JSON string, `Authorization=Bearer ...`, a curl command), excluding obvious placeholders."""
         v = str(v)[:MAX_VALUE]
-        m = self.any.search(v) or BEARER.search(v)
-        if not m:
-            return False
-        token = m.group(0)
-        body = TOKEN_PREFIX_WORD.sub("", token.split()[-1])
-        return not (PLACEHOLDER.search(token) or len(set(body)) <= 2)
+        found = (self.any.search(v), BEARER.search(v), *BEARER_ANYWHERE.finditer(v))
+        return any(m and not placeholder_token(m.group(0)) for m in found)
 
 
 DEFAULT = Secrets()
+
+
+def placeholder_token(token: str) -> bool:
+    """A matched token or credential that is an obvious placeholder (`Bearer YOUR_TOKEN_HERE...`,
+    `sk-xxxxxxxx...`): a placeholder word, or a body of at most two distinct characters."""
+    body = TOKEN_PREFIX_WORD.sub("", token.split()[-1])
+    return bool(PLACEHOLDER.search(token)) or len(set(body)) <= 2
+
+
+def not_secret_name(name: str) -> bool:
+    """A secret-sounding name whose last word says the value is something else: TOKEN_FILE,
+    AUTH_URL, KEY_ID, DB_SECRET_ARN, AUTH0_DOMAIN, ENCRYPTION_KEY_ALIAS."""
+    words = NAME_WORD.findall(name)
+    return bool(words) and words[-1].lower() in NOT_SECRET_NAME
 
 
 def named_secret(name, value) -> bool:
@@ -122,7 +139,7 @@ def named_secret(name, value) -> bool:
     query parameters and `NAME=value`: a secret-looking name and a value that looks like a
     credential, not a placeholder, a reference to a secret kept elsewhere, a URL or a file path."""
     name, value = str(name)[:100].strip("-_ "), str(value)[:MAX_VALUE]
-    return bool(SECRET_FLAG.search(name) and not name.lower().endswith(NOT_SECRET_NAME) and SECRET_VALUE.match(value)
+    return bool(SECRET_FLAG.search(name) and not not_secret_name(name) and SECRET_VALUE.match(value)
                 and not PLACEHOLDER.search(value) and not REFERENCE.search(value) and not FILE_PATH.match(value))
 
 
@@ -141,7 +158,9 @@ def opaque(s: str) -> bool:
 def url_password(v) -> bool:
     """Whether a string holds a URL with a literal password (`scheme://user:password@host`)."""
     for m in URL_USERINFO.finditer(str(v)[:MAX_VALUE]):
-        if m.group(3) and not PLACEHOLDER.search(m.group(3)) and not m.group(3).startswith("$"):
+        password = m.group(3)
+        if password and not PLACEHOLDER.search(password) and not password.startswith("$") \
+                and password.lower() not in URL_PASSWORD_PLACEHOLDERS:
             return True
     return False
 

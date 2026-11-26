@@ -20,20 +20,30 @@ It reports each problem with its file and line, why it matters and how to fix it
 | AP06 | high | Agent allowed to run any shell command (Claude Code settings) |
 | AP07 | medium | Remote MCP server reached over plain HTTP |
 | AP08 | high | Agent tool container can take over the host |
-| AP09 | medium | Lethal combination: untrusted input, private data and a way out (inferred from server names, marked *likely*) |
+| AP09 | medium | Lethal combination: untrusted input, private data and a way out (inferred from server and package names, marked *likely*) |
 | AP10 | low | Agent image not pinned to a digest (Dockerfiles, in repositories that contain an agent) |
 
 Details and fixes: https://braceframework.org/anti-patterns/
 
 AP01 and AP02 count a bare `--yolo`, and Copilot CLI's `--allow-all-tools` and `--allow-all`,
-only on a line that runs an agent CLI that takes them (Gemini CLI, Qwen Code, Codex, Crush,
-Copilot), because object-detection tools and Deno use the same flags. A bypass flag that is
+only on a line (or a command continued over lines with `\`) that runs an agent CLI that takes
+them (Gemini CLI, Qwen Code, Codex, Crush, Copilot), because object-detection tools and Deno
+use the same flags; Gemini CLI's and Qwen Code's short `-y` counts only after `gemini` or
+`qwen`, so `npx -y` does not. Codex's full-access sandbox counts in any spelling:
+`--sandbox danger-full-access`, `sandbox_mode`, the TypeScript SDK's `sandboxMode` and
+openai/codex-action's `sandbox:` input. A bypass flag that is
 only mentioned is not reported: inside a docstring or block comment; inside a string that
-is prose (other words, no other flag or agent name, as in `help=` or `description:`); in a
+is prose (other words, no other flag, agent name or `$VAR` expansion, as in `help=` or
+`description:`); in a
 comparison or search (`in`, `not in`, `==`, `!=`, `.includes(`, `.contains(`); inside a
-regular expression; or as an item of a list or YAML/JSON key whose name says it blocks
-(`block`, `deny`, `forbid`, `ban`, `disallow`, `reject`, `guard`, `danger`, `unsafe`). Any
-other occurrence counts, including a lone quoted flag in an argument list. AP03 reads
+regular expression; or as an item of a list or YAML/JSON key one of whose words says it
+blocks (`block`, `blocked`, `blocklist`, `deny`, `denylist`, `forbid`, `ban`, `disallow`,
+`reject`, `blacklist`, `guard`). Names such as `UNSAFE_ARGS` or `dangerousFlags` say what is
+passed, not what is refused, so their items count. Any other occurrence counts, including a
+lone quoted flag in an argument list and an item of a `for` loop's list. A file's own report
+format cannot hide anything either: only a whole `.json` or `.sarif` file that is exactly a
+JSON, SARIF or GitLab SAST report from this scanner is skipped, never a script, workflow,
+Dockerfile or agent config file. AP03 reads
 workflows in `.github/workflows/` at any depth, so nested projects count.
 
 MCP servers are read from these formats:
@@ -54,7 +64,11 @@ An agent config file that does not parse makes the scan incomplete.
 - Standard library only, Python 3.11 or newer.
 - It reads files and matches fixed patterns. It starts no server, runs no model and sends
   nothing over the network. Run it with `python -I` (as the GitHub Action does) and
-  nothing in the scanned folder can be imported.
+  nothing in the scanned folder can be imported. To run the package as a module, use
+  `python -I -m open_agent_security .`: plain `python -m` puts the current folder first on
+  the import path, so a scanned repository's own `tomllib.py`, `argparse.py` or
+  `open_agent_security/` would be imported. The `open-agent-security` command and the
+  pre-commit hook are not affected.
 - In the scanned folder it reads regular files up to 1 MB with known config and source
   extensions, Makefiles (`Makefile`, `GNUmakefile`, `*.mk`), justfiles, Dockerfiles
   (`Dockerfile`, `Containerfile`, `Dockerfile.<tag>`, `*.dockerfile`), `.env` files and
@@ -234,7 +248,9 @@ max-files = 200000
 - `ignore` paths use the same patterns as `.open-agent-security-ignore`, which still works;
   both lists apply, and a leading `/` anchors an `ignore` path to the scanned folder.
   `include` and `agent-config` patterns must stay inside the scanned folder: no absolute
-  paths and no `..`. A pattern may have at most 16 folders, and
+  paths and no `..`. Agent config is read as JSON or JSONC, so an `agent-config` pattern that
+  names a `.yaml`, `.yml` or `.toml` file is an error (Codex's `.codex/config.toml` is read
+  without one). A pattern may have at most 16 folders, and
   `ignore` may expand to at most 1,000 path-and-rule pairs; more is an error. An agent config file that doesn't parse makes the
   scan incomplete.
 - `tokens` adds secret formats to detect and redact: a literal `prefix` followed by `min`
@@ -287,8 +303,8 @@ writes SARIF to the runner's temporary folder and outputs `findings`, `incomplet
 workflow commands (`::error::`, `::add-mask::`) while the scanner prints, with a random
 token, and under `GITHUB_ACTIONS` the text output and error messages also break up any
 `::` at the start of a line and any `##[`, and JSON output writes `#` as `\u0023`. The
-Action clears `OPEN_AGENT_SECURITY_PLUGINS`, so it runs built-in rules only. The job summary lists at most 200 findings; the SARIF and JSON
-outputs have all of them.
+Action clears `OPEN_AGENT_SECURITY_PLUGINS`, so it runs built-in rules only. The job summary lists at most 200 findings and SARIF at most
+5,000 (with a note when there are more); the JSON output has all of them.
 
 ## pre-commit
 
@@ -301,8 +317,8 @@ repos:
       - id: open-agent-security
 ```
 
-The hook scans the whole repository on every commit, because some rules (AP09, AP10)
-depend on more than one file.
+The hook scans the whole repository on every commit, because AP10 depends on more than
+one file (a Dockerfile counts only in a repository that contains an agent).
 
 ## GitLab CI
 
