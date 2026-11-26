@@ -29,6 +29,9 @@ HOST_FILE_BYTES = 5 * MB             # host settings such as ~/.claude.json grow
 CONFIG_FILE_BYTES = 256 * KB         # a config file is hand-written; anything larger is a mistake or an attack
 MAX_VALUE = 4096                     # characters of one string matched against secret patterns, shown, or kept
                                      # from a server's name, arguments and keys (redaction sees a secret whole)
+TOML_KEY_PARTS = 64                  # dotted parts in one TOML key: tomllib (3.11-3.13) is quadratic in them
+TOML_LINE = 64 * KB                  # characters in one TOML line
+TOML_NESTING = 100                   # inline tables and arrays nested in one TOML file
 
 # Findings
 MAX_PER_FILE = 100                   # findings per file and check (and images kept per file); more is incomplete

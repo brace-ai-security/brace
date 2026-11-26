@@ -113,3 +113,26 @@ def test_an_agent_behind_a_prefix_or_with_a_positional_prompt(tmp_path, step):
 def test_prefixes_alone_do_not_make_an_agent_step(tmp_path, step):
     write(tmp_path, ".github/workflows/a.yml", PRT + step)
     assert rules(tmp_path) == []
+
+
+@pytest.mark.parametrize("step", [
+    'run: |\n          claude \\\n            --model opus \\\n            -p "$PROMPT"',
+    'run: |\n          claude --model opus --output-format json \\\n            --print "review"',
+    'run: >\n          claude --model opus\n          -p "review this PR"',
+    "run: cat prompt.txt | claude --dangerously-skip-permissions",
+    "uses: anomalyco/opencode/github@latest",
+])
+def test_round9_agent_steps_split_over_lines_or_piped(tmp_path, step):
+    write(tmp_path, ".github/workflows/a.yml", PRT + f"      - {step}\n")
+    assert "AP03" in rules(tmp_path)
+
+
+def test_round9_copilot_language_server_is_not_an_agent_package(tmp_path):
+    write(tmp_path, ".github/workflows/a.yml", PRT + "      - run: npm install -g @github/copilot-language-server\n")
+    assert rules(tmp_path) == []
+
+
+def test_round9_trailing_comment_on_the_on_line_is_not_a_trigger(tmp_path):
+    write(tmp_path, ".github/workflows/a.yml", "on: pull_request   # deliberately not pull_request_target\njobs:\n"
+          "  a:\n    steps:\n      - uses: anthropics/claude-code-action@v1\n")
+    assert rules(tmp_path) == []

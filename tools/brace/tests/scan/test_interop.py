@@ -174,3 +174,15 @@ def test_a_plugin_reporter_is_selectable_and_defused(tmp_path, plugins, monkeypa
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     code, out, _ = cli_run(tmp_path, "--plugin", "csv", "--fail-on", "none", "--output", "csv=-")
     assert code == 0 and out.startswith("AP01,run.sh,1\n") and "\n::warning" not in out
+
+
+def test_round9_gitlab_findings_sharing_a_line_have_distinct_identifiers(tmp_path):
+    write(tmp_path, "run.sh", "claude --dangerously-skip-permissions --permission-mode bypassPermissions -p x\n")
+    gl = tmp_path.parent / "gl.json"
+    cli_run(tmp_path, "--fail-on", "none", "--output", f"gitlab-sast={gl}")
+    vulns = json.loads(gl.read_text())["vulnerabilities"]
+    assert len(vulns) == 2 and len({v["location"]["start_line"] for v in vulns}) == 1
+    assert all(v["identifiers"][0]["value"] == "AP01" for v in vulns)
+    assert len({json.dumps(v["identifiers"]) for v in vulns}) == 2
+    validator(SCHEMAS / "gitlab-sast-report-format-15.2.5.json", jsonschema.Draft7Validator).validate(
+        json.loads(gl.read_text()))

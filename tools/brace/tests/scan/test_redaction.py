@@ -155,3 +155,42 @@ def test_references_placeholders_and_settings_under_secret_names_are_not_secrets
 def test_settings_env_opaque_value_is_a_secret(tmp_path):
     write(tmp_path, ".claude/settings.json", json.dumps({"env": {"BRAVE_API_KEY": OPAQUE}}))
     assert rules(tmp_path) == ["AP05"]
+
+
+PEM = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" + "Qx9" * 20 + "\n-----END PRIVATE KEY-----\n"
+ROUND9_SECRETS = {
+    "charset": {"DB_PASSWORD": "Sup3rS3cretP@ssw0rd!"},
+    "mysql-pass": {"MYSQL_PASS": "Zp4rT9qLm2Xv8Ws1"},
+    "pwd": {"APP_PWD": "Zp4rT9qLm2Xv8Ws1"},
+    "no-digit": {"NEO4J_PASSWORD": "correct-horse-battery"},
+    "short": {"PGPASSWORD": "hunter2hunter2"},
+    "pem": {"SSH_KEY_MATERIAL": PEM},
+    "service-account": {"GOOGLE_CREDENTIALS": json.dumps({"type": "service_account", "project_id": "p",
+                                                           "private_key_id": "a" * 40, "private_key": PEM})},
+    "slack-webhook": {"NOTIFY": "https://hooks.slack.com/services/T0ABCDEF1/B0ABCDEF2/" + "aBcD1234eFgH5678iJkL9012"},
+}
+
+
+@pytest.mark.parametrize("name", sorted(ROUND9_SECRETS))
+def test_round9_passwords_keys_and_webhooks_are_secrets(tmp_path, name):
+    env = ROUND9_SECRETS[name]
+    mcp(tmp_path, {"command": "node", "args": ["s.js"], "env": env})
+    assert rules(tmp_path) == ["AP05"]
+    out = "".join(all_outputs(tmp_path))
+    assert all(v[:20] not in out for v in env.values() if len(v) > 20)
+
+
+def test_round9_zapier_key_in_a_url_path_is_a_secret(tmp_path):
+    mcp(tmp_path, {"url": "https://mcp.zapier.com/api/mcp/s/sk-ak-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8" + "/mcp"})
+    assert rules(tmp_path) == ["AP05"]
+
+
+@pytest.mark.parametrize("env", [
+    {"PUBLIC_KEY": "Zp4rT9qLm2Xv8Ws1Zp4r"}, {"STRIPE_PUBLISHABLE_KEY": "Zp4rT9qLm2Xv8Ws1Zp4r"},
+    {"PRIMARY_KEY_COLUMN": "Zp4rT9qLm2Xv8Ws1Zp4r"}, {"KEYBOARD_LAYOUT": "Zp4rT9qLm2Xv8Ws1Zp4r"},
+    {"DB_PASSWORD": "${DB_PASSWORD}"}, {"DB_PASSWORD": "changeme"}, {"DB_PASSWORD": "short"},
+    {"PASSWORD_FILE": "/run/secrets/db-password"},
+])
+def test_round9_public_or_descriptive_names_are_not_secrets(tmp_path, env):
+    mcp(tmp_path, {"command": "node", "args": ["s.js"], "env": env})
+    assert rules(tmp_path) == []

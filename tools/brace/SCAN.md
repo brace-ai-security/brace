@@ -26,20 +26,39 @@ It reports each problem with its file and line, why it matters and how to fix it
 Details and fixes: https://braceframework.org/anti-patterns/
 
 AP01 and AP02 count a bare `--yolo`, and Copilot CLI's `--allow-all-tools` and `--allow-all`,
-only on a line (or a command continued over lines with `\`) that runs an agent CLI that takes
-them (Gemini CLI, Qwen Code, Codex, Crush, Copilot), because object-detection tools and Deno
-use the same flags; Gemini CLI's and Qwen Code's short `-y` counts only after `gemini` or
-`qwen`, so `npx -y` does not. Codex's full-access sandbox counts in any spelling:
+only as arguments of an agent CLI that takes them (Gemini CLI, Qwen Code, Codex, Crush,
+Copilot), because object-detection tools and Deno use the same flags: in the same simple
+command as the CLI (split at `&&`, `||`, `;`, `|`, `&` and line breaks not continued with
+`\`), with the CLI as the command (after only `VAR=value`, wrappers such as `sudo`, `env`,
+`timeout` or `npx -y`, or as the first item of a string or list), not as an argument of an
+install command; or as an item of a list whose first item is the CLI, written over several
+lines; or, in YAML, under a key that names the CLI (`codex-args:`, `gemini_cli_args:`) or in a
+step that uses an agent action. So `npm install -g @google/gemini-cli && apt-get install -y jq`
+and `deno run --allow-all x.ts && codex exec ...` count nothing. Gemini CLI's and Qwen Code's
+short `-y` counts only after `gemini` or `qwen` in that command, so `npx -y` does not.
+Codex's full-access sandbox counts in any spelling:
 `--sandbox danger-full-access`, `sandbox_mode`, the TypeScript SDK's `sandboxMode` and
 openai/codex-action's `sandbox:` input. A bypass flag that is
 only mentioned is not reported: inside a docstring or block comment; inside a string that
 is prose (other words, no other flag, agent name or `$VAR` expansion, as in `help=` or
-`description:`); in a
-comparison or search (`in`, `not in`, `==`, `!=`, `.includes(`, `.contains(`); inside a
-regular expression; or as an item of a list or YAML/JSON key one of whose words says it
-blocks (`block`, `blocked`, `blocklist`, `deny`, `denylist`, `forbid`, `ban`, `disallow`,
-`reject`, `blacklist`, `guard`). Names such as `UNSAFE_ARGS` or `dangerousFlags` say what is
-passed, not what is refused, so their items count. Any other occurrence counts, including a
+`description:`), or a sentence that refuses it (`never`, `don't`, `do not`, `refuse`,
+`refusing`, `not allowed`, `forbidden`, `blocked`, `must not`) even when it names the agent,
+unless the string is itself a command that starts with the agent; in a comparison or search
+(`in`, `not in`, `==`, `!=`, `.includes(`, `.contains(`), an argument of `grep`, `egrep`,
+`fgrep`, `rg`, `ag`, `ack`, `findstr` or `Select-String`, a shell `case` pattern (`--flag)`),
+or the right side of `==`, `!=`, `=~` or `=` in `[[ ]]`, `[ ]` or `test`; inside a regular
+expression; or as an item of a list or YAML/JSON key whose last word says it refuses its
+items (`blocked`, `blocklist`, `deny`, `denylist`, `forbidden`, `ban`, `disallowed`,
+`rejected`, `blacklist`, and Claude Code settings' `ask`), or whose last two words are such a
+word and a noun for the items (`BLOCKED_FLAGS`, `denyList`, `disallowed-tools`). Names such as
+`UNSAFE_ARGS`, `dangerousFlags`, `guard_cmd` or `blocks` say what is passed, not what is
+refused, so their items count. A block comment never hides a line whose command is an agent
+CLI, and strings are skipped whole when looking for block comments (template literals with
+their `${...}`, Groovy `'''`/`"""`, Kotlin, Java and Scala `"""`, Go and Rust raw strings).
+Bypass mode written as JSON counts anywhere: nested under another key, inside a JSON string
+(a devcontainer command that writes settings), or as the VS Code extension's
+`claudeCode.initialPermissionMode`. In `.ini` and `.cfg` files `;` starts a comment only at
+the start of a line. Any other occurrence counts, including a
 lone quoted flag in an argument list and an item of a `for` loop's list. A file's own report
 format cannot hide anything either: only a whole `.json` or `.sarif` file that is exactly a
 JSON, SARIF or GitLab SAST report from this scanner is skipped, never a script, workflow,
@@ -52,8 +71,10 @@ MCP servers are read from these formats:
 |---|---|
 | `.mcp.json`, `mcp.json`, `.cursor/mcp.json`, `.roo/mcp.json`, `mcp_config.json`, `claude_desktop_config.json`, `cline_mcp_settings.json`, `.gemini/settings.json`, `.qwen/settings.json`, any other JSON | `mcpServers` (also `mcp_servers`, and `projects.<path>.mcpServers` in `~/.claude.json`) |
 | `.vscode/mcp.json` and other files named `*mcp*` | `servers` |
-| `.vscode/settings.json` | `mcp.servers` |
+| `.vscode/settings.json` | `mcp.servers`, and Amp's `amp.mcpServers` |
+| `.amp/settings.json` | `amp.mcpServers` (a literal dotted key) |
 | `opencode.json`, `opencode.jsonc` | `mcp` (`command` is a list; env is `environment`) |
+| `crush.json`, `.crush.json` | `mcp` |
 | `.zed/settings.json` | `context_servers` (`command` may be `{path, args, env}`) |
 | `.codex/config.toml` | `[mcp_servers.<name>]` and `[mcp_servers.<name>.env]` tables |
 
@@ -71,10 +92,16 @@ An agent config file that does not parse makes the scan incomplete.
   pre-commit hook are not affected.
 - In the scanned folder it reads regular files up to 1 MB with known config and source
   extensions, Makefiles (`Makefile`, `GNUmakefile`, `*.mk`), justfiles, Dockerfiles
-  (`Dockerfile`, `Containerfile`, `Dockerfile.<tag>`, `*.dockerfile`), `.env` files and
-  extensionless scripts that start with `#!`; names are compared without regard to case.
+  (`Dockerfile`, `Containerfile`, `Dockerfile.<tag>`, `*.dockerfile`), `.env` files, shell
+  start-up files (`.zshrc`, `.bashrc`, `.bash_aliases`, `.bash_profile`, `.zprofile`,
+  `.profile`, `.envrc`, `.zshenv`, with `#` comments) and extensionless scripts that start
+  with `#!`; names are compared without regard to case.
   It never follows symlinks and never opens FIFOs or other special files; it lists them in
-  a note, and the headline then says some files could not be read. A NUL byte alone does
+  a note, and the headline then says some files could not be read. A symlink to a path
+  inside the scanned folder that the walk reads anyway (`CLAUDE.md -> AGENTS.md`,
+  `.claude/skills -> ../.agents/skills`) hides nothing: it is counted in a note only. A
+  symlinked folder named for agent config or CI (`.claude`, `.github`, ...) still counts as
+  skipped, since its files would lose that role. Ignore entries apply to symlinks too. A NUL byte alone does
   not make a file binary: otherwise printable text is read with its NULs removed.
 - The scan is incomplete (exit code 1 unless `--fail-on none`) when it cannot read a file
   the rules need: agent config, a CI file or workflow, a Dockerfile or a script, whether it
@@ -87,21 +114,28 @@ An agent config file that does not parse makes the scan incomplete.
   `venv` when it holds a `pyvenv.cfg`); a note counts the folders skipped. A real `.git`
   folder (one with a `HEAD` file) is skipped without a note. Every other folder is scanned,
   tool caches such as `.cache`, `.idea` and `.next` included.
-- Known token formats (GitHub, OpenAI, Anthropic, AWS, Slack, GitLab, Google, Stripe, npm,
-  PyPI, Hugging Face and JWTs), credentials after `Bearer`, `Basic`, `Authorization:` or
-  `X-Api-Key:`, and opaque values under secret-looking names (a name with `token`, `key`,
-  `secret`, `passw`, `auth` or `cred`, and a value of 16 or more characters mixing letters
-  and digits) are reported as secrets and replaced with
+- Known token formats (GitHub, OpenAI, Anthropic, AWS, Slack tokens and webhook URLs,
+  GitLab, Google, Stripe, npm, PyPI, Hugging Face, Notion, Zapier `sk-ak-`, JWTs, PEM private
+  keys and inline Google Cloud service-account keys), credentials after `Bearer`, `Basic`,
+  `Authorization:` or `X-Api-Key:`, and values under secret-looking names are reported as
+  secrets and replaced with
   `<redacted>` in finding details, in every output format, and so are user names and
   passwords inside URLs (`https://<redacted>@host`); file names are shown as they are.
   Names are judged wherever they appear: env keys (`"BRAVE_API_KEY": "BSA..."`), header names
   (`"X-API-Key": "..."`), URL query parameters (`?api_key=...`), `KEY=value` arguments
   (`docker -e API_TOKEN=...`), Claude Code settings `env`, and flags (`--api-key=...`,
-  `--token ...`). Stripe test keys are reported as test keys. Obvious placeholders
+  `--token ...`). A secret-looking name has a word that is `key`, `pass`, `pwd`, `auth`,
+  `authorization` or `cred`, or ends with `token`, `secret`, `password`, `passwd`,
+  `passphrase`, `credential`, `apikey`, `accesskey`, `privatekey`, `secretkey`, `authkey`
+  or `oauth` (`API_KEY`, `authToken`, `PGPASSWORD`), and no word
+  `public` or `publishable`. Its value must be 16 or more characters mixing letters and
+  digits, or, when a word holds `pass` or `pwd` or ends with `secret`, any 8 or more printable
+  characters (`"NEO4J_PASSWORD": "correct-horse-battery"`). Stripe test keys are reported as
+  test keys. Obvious placeholders
   (`YOUR-TOKEN`, `ghp_xxxx…`), references to a secret kept elsewhere (`${VAR}`, `$VAR`,
   `%VAR%`, `{{...}}`, `env:...`, `op://...`), URLs, file paths, numbers and booleans are not
   reported, nor are names that end by saying what else the value is (`TOKEN_FILE`,
-  `AUTH_URL`, `KEY_ID`). Treat redaction as a safeguard, not a guarantee
+  `AUTH_URL`, `KEY_ID`, `PRIMARY_KEY_COLUMN`). Treat redaction as a safeguard, not a guarantee
   for every secret format.
 - `--host` reads the MCP config files of Claude Desktop, Claude Code, Cursor, VS Code,
   Windsurf and Devin Desktop, and `~/.claude/settings.json`, following symlinks and up to
@@ -158,7 +192,12 @@ SAST or JUnit) found in the scanned folder are not scanned, and a note counts th
   At most 5,000 results are listed, with a note when there are more.
 - **markdown**: a summary table for a pull request or job summary, at most 200 rows.
 - **gitlab-sast**: a GitLab SAST report (schema 15.2.5) for merge request security widgets;
-  GitLab does not read SARIF. Host findings are left out, as in SARIF.
+  GitLab does not read SARIF. Host findings are left out, as in SARIF. GitLab deduplicates
+  findings by their location (file and lines) and identifiers. Findings of one rule on the
+  same line each get an identifier of their own (their fingerprint, after the rule
+  identifier, which stays primary), their detail in the name and their short id in
+  `location.method`; GitLab may still show them as one vulnerability, so read the JSON or
+  text output for every finding on such a line.
 - **junit**: JUnit XML for CI dashboards: a failed test case per finding, a passed one per
   rule without findings, and a "the scan is complete" case that is an error when the scan
   is incomplete.
@@ -168,7 +207,8 @@ bytes that start like UTF-16 but are not), symlinks and special files, and agent
 files that don't parse. The scan is **incomplete** when a file the rules need was skipped:
 an agent config file (`.mcp.json`, `mcp.json`, `claude_desktop_config.json`,
 `.claude/settings.json`, or an `agent-config` entry, also when it is a symlink, or a
-symlinked `.claude` or `.github` folder), a CI file or workflow, a Dockerfile or a shell
+symlinked folder that holds agent config or CI, unless an ignore entry matches it), a CI
+file or workflow, a Dockerfile or a shell
 script. It is also incomplete when an agent config file didn't parse, when the scan stopped
 at 200,000 files, or when one check found more than 100 findings in one file (the rest are
 not shown). An incomplete scan never reports itself clean, and it fails unless

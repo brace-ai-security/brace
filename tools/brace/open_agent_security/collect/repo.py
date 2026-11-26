@@ -4,6 +4,8 @@ Version-control, cache and dependency folders are never entered and are counted 
 (a real `.git` folder, one holding HEAD, silently). Ignored folders are pruned, symlinks are
 never followed, and files over the size limit are reported, not read. Skipping a file or
 folder the rules need (agent config, CI, a Dockerfile or a script) makes the scan incomplete.
+A symlink to a path inside the folder that the walk reads anyway (`CLAUDE.md -> AGENTS.md`,
+`.claude/skills -> ../.agents/skills`) hides nothing, so it is only counted in a note.
 """
 from __future__ import annotations
 
@@ -13,9 +15,10 @@ import re
 from pathlib import Path
 from typing import Iterator
 
-from ..agents import BYPASS_BYTES, CONFIG_FILE, config_dir
+from ..agents import BYPASS_BYTES, CONFIG_DIRS, CONFIG_FILE, config_dir
 from ..fsio import ReadFailure, contains, read, starts_with
 from ..ignore import GlobSet
+from ..limits import LISTED_FILES, LISTED_PATH_CHARS
 from ..model import Skipped, SourceFile
 from ..parse.dockerfile import is_dockerfile
 from ..parse.mcp_json import ALL_SERVER_KEYS
@@ -27,8 +30,9 @@ SKIPPED_DIRS = {".git", ".hg", ".svn", "__pycache__", "node_modules", "site-pack
 VENV_NAMES = {".venv", "venv"}                                 # skipped and counted when they hold pyvenv.cfg
 TEXT_EXT = {".json", ".jsonc", ".yaml", ".yml", ".toml", ".py", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs",
             ".cjs", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd", ".md", ".env", ".ini", ".cfg", ".go",
-            ".rs", ".rb", ".java", ".kt", ".mk", ".dockerfile", ".containerfile"}
-TEXT_NAMES = {"makefile", "gnumakefile", "justfile", ".justfile", "jenkinsfile", ".mcp.json"}  # lowercased
+            ".rs", ".rb", ".java", ".kt", ".scala", ".groovy", ".mk", ".dockerfile", ".containerfile"}
+SHELL_STARTUP = {".zshrc", ".bashrc", ".bash_aliases", ".bash_profile", ".zprofile", ".profile", ".envrc", ".zshenv"}
+TEXT_NAMES = {"makefile", "gnumakefile", "justfile", ".justfile", "jenkinsfile", ".mcp.json", *SHELL_STARTUP}  # lowercased
 CI_PATH = re.compile(r"(?:^|/)(?:\.github/workflows/|\.gitlab-ci\.ya?ml$|\.gitlab/|\.circleci/|\.buildkite/|Jenkinsfile$|"
                      r"azure-pipelines\.ya?ml$|bitbucket-pipelines\.ya?ml$|\.drone\.ya?ml$|\.woodpecker|\.tekton/)", re.I)
 SCRIPT_EXT = {".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd", ""}
@@ -88,6 +92,12 @@ def skipped_dir(path: Path, name: str) -> str | None:
     return None
 
 
+def gives_roles(rel: str) -> bool:
+    """A folder whose path makes the files under it agent config or CI (`.claude`, `.cursor`,
+    `.github`, `.github/workflows`): read through another path, they would lose that role."""
+    return rel.rsplit("/", 1)[-1].lower() in CONFIG_DIRS or rel.lower().endswith(".github/workflows")
+
+
 def is_script(p: Path) -> bool:
     """An extensionless file that starts with #! (a shell or Python script)."""
     return starts_with(p, b"#!")
@@ -132,6 +142,9 @@ class RepoCollector:
                 if ctx.ignores.match(rel):
                     ctx.report.tally.files += 1
                     continue
+                if os.path.islink(here / name) and not required(rel, agent) and self.read_anyway(ctx, here / name):
+                    self.linked(ctx, rel)
+                    continue
                 item = self.read_file(here / name, rel, agent, configured, limits.max_file_bytes)
                 if isinstance(item, SourceFile) and not agent and own_report(rel, item.text):
                     ctx.report.tally.own_reports += 1
@@ -141,21 +154,52 @@ class RepoCollector:
 
     def enter(self, ctx, here: Path, reldir: str, dirnames: list[str]) -> Iterator[Skipped]:
         """Prune dirnames in place to the folders to walk: never version control, caches,
-        dependencies or symlinks (a symlinked folder is reported), nor ignored folders."""
+        dependencies, ignored folders or symlinks. A symlinked folder is reported (and makes the
+        scan incomplete if it holds agent config or CI), unless the walk reads its target anyway
+        and the link's own path gives nothing under it a role (see gives_roles)."""
         tally, kept = ctx.report.tally, []
-        for d in dirnames:
+        for d in sorted(dirnames):
             skip = skipped_dir(here, d)
             if skip:
                 counts = tally.dependency_dirs if skip in DEPENDENCY_DIRS else tally.other_dirs
                 counts[skip] = counts.get(skip, 0) + 1
             elif skip == "":
                 continue
-            elif os.path.islink(here / d):
-                yield Skipped(reldir + d + "/ (folder)", "symlink", config_dir(reldir + d))
-            else:
+            elif ctx.ignores.prunes(reldir + d):
+                tally.folders += 1
+            elif not os.path.islink(here / d):
                 kept.append(d)
-        dirnames[:] = sorted(d for d in kept if not ctx.ignores.prunes(reldir + d))
-        tally.folders += len(kept) - len(dirnames)
+            elif not gives_roles(reldir + d) and self.read_anyway(ctx, here / d):
+                self.linked(ctx, reldir + d + "/")
+            else:
+                yield Skipped(reldir + d + "/ (folder)", "symlink", config_dir(reldir + d))
+        dirnames[:] = kept
+
+    @staticmethod
+    def read_anyway(ctx, link: Path) -> bool:
+        """Whether a symlink points inside the scanned folder at a path the walk reads itself: a
+        folder it enters, or a file it reads (by name; not ignored, not in a skipped folder).
+        The link is resolved, never opened."""
+        root = Path(ctx.config.root).resolve()
+        try:
+            target = link.resolve()
+            rel = target.relative_to(root).as_posix()
+        except (OSError, RuntimeError, ValueError):
+            return False
+        parts = [] if rel == "." else rel.split("/")
+        if any(p in SKIPPED_DIRS or p in VENV_NAMES for p in parts) or \
+                any(ctx.ignores.prunes("/".join(parts[:k])) for k in range(1, len(parts))):
+            return False
+        if target.is_dir():
+            return not parts or not ctx.ignores.prunes(rel)
+        return target.is_file() and wanted(target.name) and not ctx.ignores.match(rel)
+
+    @staticmethod
+    def linked(ctx, rel: str) -> None:
+        tally = ctx.report.tally
+        tally.links_inside += 1
+        if len(tally.link_names) < LISTED_FILES:
+            tally.link_names.append(rel[:LISTED_PATH_CHARS])
 
     def read_file(self, path: Path, rel: str, agent: bool, configured: bool, limit: int) -> SourceFile | Skipped:
         """The file as text, or why it was skipped; skipping one the rules need makes the scan incomplete."""

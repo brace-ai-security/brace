@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from ..limits import MAX_VALUE
 from ..model import CheckContext, Document, Finding
 from ..parse.mcp_json import CONTAINERS, RUNNERS
-from ..secrets import SECRET_FLAG, opaque, secret_kind
+from ..secrets import opaque, random_token, secret_kind, secret_name
 
 LOOPBACK = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}
 # Flags whose next argument is a value, not the package, from the npm/npx, uv/uvx, bunx and
@@ -27,6 +27,8 @@ VALUE_FLAGS = {
     "--color", "--allow-insecure-host", "--config",
     # pnpm, yarn and bun
     "--dir", "-C", "--cwd", "--reporter",
+    # deno
+    "--import-map", "--lock", "--cert", "--location", "--seed",
     # MCP bridges such as mcp-remote, passed through a runner
     "--header", "-H"}
 PACKAGE_FLAGS = {"--package", "--from"}  # their value is the package to check
@@ -36,6 +38,13 @@ WINDOWS_PATH = re.compile(r"^[A-Za-z]:[\\/]")
 ROOT_MOUNT = re.compile(r"(?:^|,)(?:source|src)=/(?:,|$)")
 EXACT_NPM = re.compile(r"^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?$")
 EXACT_PY = re.compile(r"^\d+(?:\.\d+)*(?:(?:a|b|rc|\.post|\.dev)\d+)*$")
+# What pins a download from a URL: a full commit SHA in its path or ref, or an integrity hash.
+URL_PINNED = re.compile(r"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])|[#?&](?:sha256|sha384|sha512|integrity)=", re.I)
+SHORT_FLAG = re.compile(r"^-[A-Za-z]$")
+# What a package argument looks like, as shown in a finding: a registry name or spec, or a URL.
+PACKAGE_SHAPE = re.compile(r"^(?:@[\w.\-~]{1,214}/)?[\w.\-~]{1,214}"
+                           r"(?:(?:[@=<>!~^]{1,2}|\[)[\w.\-+*^~<>=!,\[\] ]{0,200})?$|"
+                           r"^(?:https?|git\+[a-z]{1,10}|github|file|npm|jsr):[\w.\-~:/@#?=&%+]{1,2000}$", re.I)
 
 
 def packages(cmd: str, args) -> list[str]:
@@ -56,7 +65,7 @@ def packages(cmd: str, args) -> list[str]:
                 explicit.append(args[i + 1])
                 i += 1
         elif not eq and i + 1 < len(args) and not args[i + 1].startswith("-") and (
-                flag in VALUE_FLAGS or SECRET_FLAG.search(flag)):
+                flag in VALUE_FLAGS or secret_name(flag) or (SHORT_FLAG.match(flag) and random_token(args[i + 1]))):
             i += 1  # skip the flag's value; any other flag is taken to be a switch
         i += 1
     return explicit
@@ -89,15 +98,23 @@ def fetched(cmd: str, args) -> tuple[str, list[str]]:
 
 
 def is_pinned(pkg: str, cmd: str = "npx") -> bool:
-    """True for local paths and URLs, and for exact versions: npm `pkg@1.2.3` (npx, bunx,
-    pnpx) or Python `pkg==1.2` / `pkg@1.2` (uvx). Tags and ranges (`@1`, `@next`) are not pinned."""
+    """True for local paths and for exact versions: npm `pkg@1.2.3` (npx, bunx, pnpx), Python
+    `pkg==1.2` / `pkg@1.2` (uvx), Deno `npm:pkg@1.2.3` / `jsr:@scope/pkg@1.2.3`. A git source is
+    pinned only by a commit, a URL only by a commit SHA or an integrity hash. Tags and ranges
+    (`@1`, `@next`) are not pinned."""
     if not pkg:
         return True
     if pkg.startswith(("git+", "github:")) or GIT_SOURCE.search(pkg):
         return bool(GIT_COMMIT.search(pkg))  # a git source is pinned only by commit
-    if pkg.startswith((".", "/", "~", "file:", "http:", "https:")) or WINDOWS_PATH.match(pkg):
-        return True  # local path or archive URL: not a registry download
-    if RUNNERS.get(cmd) == "pypi":
+    if pkg.lower().startswith(("http:", "https:")):
+        return bool(URL_PINNED.search(pkg))  # a URL serves whatever it holds today
+    if pkg.startswith((".", "/", "~", "file:")) or WINDOWS_PATH.match(pkg):
+        return True  # a local path: not a download
+    if RUNNERS.get(cmd) == "deno":
+        if not pkg.startswith(("npm:", "jsr:")):
+            return True  # a local script
+        pkg = pkg[4:]
+    elif RUNNERS.get(cmd) == "pypi":
         if "==" in pkg:
             return bool(EXACT_PY.match(pkg.split("==", 1)[1].split("[")[0].split(";")[0].strip()))
         if "@" in pkg:
@@ -105,6 +122,12 @@ def is_pinned(pkg: str, cmd: str = "npx") -> bool:
         return False
     body = pkg[1:] if pkg.startswith("@") else pkg
     return "@" in body and bool(EXACT_NPM.match(body.rsplit("@", 1)[1]))
+
+
+def shown_package(pkg: str) -> str:
+    """The package as a finding shows it: only a value shaped like a package or URL, never one
+    that may be a credential passed where a package was expected."""
+    return pkg if PACKAGE_SHAPE.match(pkg) and not opaque(pkg) and not random_token(pkg) else "<redacted>"
 
 
 def docker_escape(args) -> str:
@@ -152,8 +175,7 @@ class McpServers:
             runner, pkgs = fetched(s.command, s.args)
             pkg = next((p for p in pkgs if p and not is_pinned(p, runner)), "")
             if pkg:
-                shown = "<redacted>" if opaque(pkg) else pkg
-                yield Finding("AP04", where, line, f"{s.name}: {s.command} {shown}")
+                yield Finding("AP04", where, line, f"{s.name}: {s.command} {shown_package(pkg)}")
             if s.command in CONTAINERS:
                 hit = docker_escape(s.args)
                 if hit:

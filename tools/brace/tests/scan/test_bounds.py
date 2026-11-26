@@ -306,3 +306,25 @@ def test_long_lines_of_triple_quotes_are_linear(tmp_path, text):
     """Finding 3: each triple quote rescanned its line from the start (400 KB took 29 s)."""
     write(tmp_path, "a.py", text)
     fast(lambda: found(tmp_path))
+
+
+DOTTED_KEY = ".".join(["a"] * 40_000) + " = 1\n"  # 80 KB: tomllib (3.11-3.13) took 14 s CPU on it
+
+
+def test_round9_long_dotted_toml_key_in_codex_config_is_fast_and_incomplete(tmp_path):
+    write(tmp_path, ".codex/config.toml", DOTTED_KEY)
+    r = fast(lambda: report(tmp_path))
+    assert r["incomplete"] is True
+
+
+def test_round9_long_dotted_toml_key_in_config_file_is_fast_and_refused(tmp_path):
+    from support import cli_run
+    config(tmp_path, DOTTED_KEY)
+    code, _, err = fast(lambda: cli_run(tmp_path))
+    assert code == 2 and "not valid TOML" in err
+
+
+@pytest.mark.parametrize("text", [".".join(["a"] * 65) + " = 1\n", "x = " + "[" * 200 + "]" * 200 + "\n", "x = \"" + "a" * 70_000 + "\"\n"])
+def test_round9_deep_or_long_toml_is_refused(tmp_path, text):
+    write(tmp_path, ".codex/config.toml", text)
+    assert fast(lambda: report(tmp_path))["incomplete"] is True

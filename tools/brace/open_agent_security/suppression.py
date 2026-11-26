@@ -40,7 +40,13 @@ def suppression_note(tally: Tally, config_path: str | None) -> str:
 
 
 def skipped_dirs_notes(tally: Tally) -> list[str]:
-    """Folders skipped by default, counted: dependencies in one note, version control and caches in another."""
-    return [f"did not enter {plural(sum(group.values()), what)} ({', '.join(sorted(group))})"
-            for group, what in ((tally.dependency_dirs, "dependency folder"),
-                                (tally.other_dirs, "version-control or cache folder")) if group]
+    """Folders skipped by default, counted: dependencies in one note, version control and caches
+    in another; and symlinks to paths inside the folder, which the walk reads where they point."""
+    notes = [f"did not enter {plural(sum(group.values()), what)} ({', '.join(sorted(group))})"
+             for group, what in ((tally.dependency_dirs, "dependency folder"),
+                                 (tally.other_dirs, "version-control or cache folder")) if group]
+    if tally.links_inside:
+        more = tally.links_inside - len(tally.link_names)
+        notes.append(f"did not follow {plural(tally.links_inside, 'symlink')} to paths inside the folder, scanned "
+                     f"where they point: {', '.join(tally.link_names)}" + (f" and {more} more" if more else ""))
+    return notes

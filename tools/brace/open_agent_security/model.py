@@ -159,6 +159,8 @@ class Tally:
     folders: int = 0                   # folders not entered because an ignore entry matched them
     dependency_dirs: dict[str, int] = field(default_factory=dict)  # never entered, by name
     other_dirs: dict[str, int] = field(default_factory=dict)       # version control and caches, by name
+    links_inside: int = 0              # symlinks to paths the walk reads where they point, not followed
+    link_names: list[str] = field(default_factory=list)            # the first LISTED_FILES of them
 
 
 @dataclass

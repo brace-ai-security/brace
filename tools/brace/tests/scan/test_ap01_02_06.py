@@ -275,7 +275,7 @@ def test_a_list_named_for_what_it_passes_is_not_a_deny_list(tmp_path, name):
     assert rules(tmp_path) == ["AP01", "AP01"]
 
 
-@pytest.mark.parametrize("name", ["BLOCKED_FLAGS", "denyList", "disallowed_args", "FORBIDDEN", "GUARDS",
+@pytest.mark.parametrize("name", ["BLOCKED_FLAGS", "denyList", "disallowed_args", "FORBIDDEN",
                                   "blocklist", "rejected_flags"])
 def test_a_list_named_as_blocked_is_a_deny_list(tmp_path, name):
     write(tmp_path, "agent.py", f'{name} = ["{FLAG}"]\n')
@@ -345,3 +345,101 @@ def test_a_gated_flag_on_a_continued_line_counts(tmp_path):
     write(tmp_path, "run.sh", "gemini -p 'fix' \\\n  --yolo\n")
     write(tmp_path, "other.sh", "echo hi\n  --yolo\n")
     assert [f["file"] for f in report(tmp_path)["findings"]] == ["run.sh"]
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("run.sh", "npm install -g @google/gemini-cli && sudo apt-get install -y jq\n"),
+    ("Dockerfile", "FROM node:20\nRUN npm install -g @google/gemini-cli@0.9.0 \\\n    && apt-get update \\\n"
+                   "    && apt-get install -y jq\n"),
+    ("run.sh", "deno run --allow-all x.ts && codex exec 'fix'\n"),
+    ("run.sh", "pip install qwen; python train.py --yolo\n"),
+    ("run.sh", "npm install -g @github/copilot --allow-all\n"),
+])
+def test_round9_gated_flags_of_another_command_do_not_count(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert not {"AP01", "AP02"} & set(rules(tmp_path))
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("run.sh", "npm install -g @google/gemini-cli && gemini -y -p 'fix'\n"),
+    ("run.sh", "sudo timeout 300 gemini --yolo -p fix\n"),
+    ("run.sh", "OUT=$(gemini --yolo -p fix)\n"),
+    ("agent.py", 'cmd = [\n    "gemini",\n    "--yolo",\n    "-p",\n    prompt,\n]\n'),
+    (".github/workflows/w.yml", "jobs:\n  a:\n    steps:\n      - uses: openai/codex-action@v1\n        with:\n"
+                                "          codex-args: '[\"--yolo\"]'\n"),
+    (".github/workflows/w.yml", "jobs:\n  a:\n    steps:\n      - uses: google-github-actions/run-gemini-cli@v0\n"
+                                "        with:\n          gemini_cli_args: --yolo\n"),
+    ("agent.yml", "gemini_cli_args: --yolo\n"),
+])
+def test_round9_gated_flags_of_the_cli_still_count(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert rules(tmp_path) in (["AP01"], ["AP02"])
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("check.sh", f'if grep -q -- "{FLAG}" "$1"; then exit 1; fi\n'),
+    ("check.sh", f'case "$arg" in\n  {FLAG}) echo "refused"; exit 1 ;;\nesac\n'),
+    ("check.sh", f'case "$arg" in {FLAG}) exit 1 ;; esac\n'),
+    ("check.sh", f'if [[ "$*" == *{FLAG}* ]]; then exit 1; fi\n'),
+    ("check.sh", f'if [[ "$*" =~ {FLAG} ]]; then exit 1; fi\n'),
+    ("check.sh", f'[ "$1" = "{FLAG}" ] && exit 1\n'),
+    (".claude/settings.json", json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{
+        "type": "command", "command": f"jq -r .tool_input.command | grep -q -- '{FLAG}' && exit 2"}]}]}}, indent=2)),
+    (".claude/settings.json", json.dumps({"permissions": {"ask": [f"Bash(claude {FLAG}:*)"]}}, indent=2)),
+    (".claude/settings.json", json.dumps({"permissions": {"deny": [f"Bash(claude {FLAG}:*)"]}}, indent=2)),
+    ("guard.py", f'raise ValueError("refusing to run claude with {FLAG}")\n'),
+    ("guard.sh", f'echo "Never run claude with {FLAG}"\n'),
+    (".github/workflows/w.yml", f'jobs:\n  a:\n    steps:\n      - run: echo "::error::claude {FLAG} is not allowed here"\n'),
+])
+def test_round9_guards_that_search_for_or_refuse_the_flag_are_mentions(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert not {"AP01", "AP02"} & set(rules(tmp_path))
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("run.sh", f'claude {FLAG} -p "never touch the tests" | grep -v noise\n'),
+    ("run.sh", f'OUT=$(claude {FLAG} -p "fix")\n'),
+    ("run.py", f'os.system("claude {FLAG} -p \'do not stop\'")\n'),
+    ("run.sh", f'[[ -n "$CI" ]] && claude {FLAG} -p fix\n'),
+    ("agent.json", json.dumps({"profiles": {"ci": {"permissions": {"defaultMode": "bypassPermissions"}}}}, indent=2)),
+    (".devcontainer/devcontainer.json", json.dumps({"postCreateCommand": "echo '{\"permissions\":{\"defaultMode\":"
+                                                   "\"bypassPermissions\"}}' > ~/.claude/settings.json"})),
+    (".vscode/settings.json", json.dumps({"claudeCode.initialPermissionMode": "bypassPermissions"})),
+    ("tox.ini", f"[testenv]\ncommands = sh -c cd repo ; claude {FLAG} -p x\n"),
+    ("agent.py", f'const_guard_cmd = 1\nguard_cmd = ["claude", "{FLAG}"]\n'),
+    ("agent.yml", f"blocks:\n  - run: claude {FLAG} -p x\n"),
+])
+def test_round9_passed_flags_are_still_reported(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert {"AP01", "AP02"} & set(rules(tmp_path))
+
+
+def test_round9_structural_and_inline_default_mode_report_once(tmp_path):
+    write(tmp_path, ".claude/settings.json", json.dumps({"permissions": {"defaultMode": "bypassPermissions"}}, indent=2))
+    assert rules(tmp_path) == ["AP01"]
+
+
+def test_round9_semicolon_comment_at_line_start_in_ini(tmp_path):
+    write(tmp_path, "tox.ini", f"; claude {FLAG}\n")
+    assert rules(tmp_path) == []
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("Jenkinsfile", "pipeline {\n  stages {\n    stage('a') {\n      steps {\n        sh '''\n          rm -rf build/*\n"
+                    f"          claude {FLAG} -p fix\n        '''\n        junit 'build/*/x.xml'\n      }}\n    }}\n  }}\n}}\n"),
+    ("build.groovy", f'def s = """rm build/*"""\nexec(["claude", "{FLAG}"])\n/* x */\n'),
+    ("Main.kt", f'val s = """\n  cp src/* out\n"""\nProcessBuilder("claude", "{FLAG}")\n/* x */\n'),
+    ("Main.java", f'String s = """\n  cp src/* out\n  """;\nnew ProcessBuilder("claude", "{FLAG}");\n/* x */\n'),
+    ("Main.scala", f'val s = """cp src/* out"""\nSeq("claude", "{FLAG}").!\n/* x */\n'),
+    ("a.ts", f'const s = `${{a ? `x/*` : "y"}}`;\nspawn("claude", ["{FLAG}"]);\n/* x */\n'),
+    ("a.rs", f'let s = r#"a " /* b"#;\nCommand::new("claude").arg("{FLAG}");\n/* x */\n'),
+    ("a.go", f'/* setup\nclaude {FLAG} -p fix\n*/\n'),
+])
+def test_round9_strings_that_hold_a_slash_star_do_not_hide_flags(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert {"AP01", "AP02"} & set(rules(tmp_path))
+
+
+def test_round9_a_real_block_comment_still_hides_a_mention(tmp_path):
+    write(tmp_path, "a.ts", f'/*\n * Never pass {FLAG}: spawn("claude", ["{FLAG}"])\n */\n')
+    assert rules(tmp_path) == []

@@ -107,11 +107,37 @@ def test_symlinked_agent_config_makes_the_scan_incomplete(tmp_path):
 
 @needs_symlinks
 def test_other_symlinks_are_counted_in_a_note_only(tmp_path):
-    write(tmp_path, "README.md", "hi\n")
-    (tmp_path / "CLAUDE.md").symlink_to("README.md")
-    r = report(tmp_path)
+    write(tmp_path / "outside", "README.md", "hi\n")
+    write(tmp_path / "repo", "README.md", "hi\n")
+    (tmp_path / "repo" / "CLAUDE.md").symlink_to(tmp_path / "outside" / "README.md")
+    r = report(tmp_path / "repo")
     assert r["incomplete"] is False and any("1 symlink(s), not followed: CLAUDE.md" in n for n in r["notes"])
-    assert "1 file could not be read" in scan(tmp_path)[1]  # review 6, finding 3: every symlink hedges the headline
+    assert "1 file could not be read" in scan(tmp_path / "repo")[1]  # review 6, finding 3: a symlink out hedges
+
+
+@needs_symlinks
+def test_round9_symlinks_to_paths_the_walk_reads_are_noted_only(tmp_path):
+    """Review 9, finding 3: `CLAUDE.md -> AGENTS.md` and `.claude/skills -> ../.agents/skills`
+    hide nothing, so they neither hedge the headline nor make the scan incomplete."""
+    write(tmp_path, "AGENTS.md", "hi\n")
+    write(tmp_path, ".agents/skills/s/SKILL.md", "hi\n")
+    write(tmp_path, ".claude/settings.json", "{}")
+    (tmp_path / "CLAUDE.md").symlink_to("AGENTS.md")
+    (tmp_path / ".claude" / "skills").symlink_to("../.agents/skills")
+    r = report(tmp_path)
+    assert r["incomplete"] is False
+    assert any("2 symlinks to paths inside the folder" in n for n in r["notes"])
+    assert "No known-dangerous" in scan(tmp_path)[1]
+
+
+@needs_symlinks
+def test_round9_ignore_entries_clear_a_symlinked_folder(tmp_path):
+    write(tmp_path / "outside", "SKILL.md", "hi\n")
+    (tmp_path / "repo" / ".claude").mkdir(parents=True)
+    (tmp_path / "repo" / ".claude" / "skills").symlink_to(tmp_path / "outside")
+    assert report(tmp_path / "repo")["incomplete"] is True
+    write(tmp_path / "repo", ".open-agent-security-ignore", ".claude/skills/\n")
+    assert report(tmp_path / "repo")["incomplete"] is False
 
 
 @needs_symlinks
@@ -152,10 +178,11 @@ def test_a_symlinked_file_the_rules_need_makes_the_scan_incomplete(tmp_path, rel
 
 @needs_symlinks
 def test_every_skipped_symlink_hedges_the_headline(tmp_path):
-    write(tmp_path, "README.md", "hi\n")
-    (tmp_path / "docs.md").symlink_to(tmp_path / "README.md")
-    (tmp_path / "linked").symlink_to(tmp_path)
-    out = scan(tmp_path)[1]
+    write(tmp_path / "outside", "README.md", "hi\n")
+    (tmp_path / "repo").mkdir()
+    (tmp_path / "repo" / "docs.md").symlink_to(tmp_path / "outside" / "README.md")
+    (tmp_path / "repo" / "linked").symlink_to(tmp_path / "outside")
+    out = scan(tmp_path / "repo")[1]
     assert "2 files could not be read" in out and "No known-dangerous" not in out
 
 

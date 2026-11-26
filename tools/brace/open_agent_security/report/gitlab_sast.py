@@ -30,14 +30,18 @@ def identifiers(r: RuleMeta) -> list[dict]:
 
 
 def vulnerability(f, m: RuleMeta, shared: bool) -> dict:
-    """One finding. When it shares its rule and line with another, its detail goes in the name and
-    its short id in the location, which GitLab uses to tell findings apart."""
+    """One finding. GitLab deduplicates findings by location (file and lines) and identifiers, so
+    when a finding shares its rule and line with another, it also carries an identifier of its
+    own (its fingerprint, after the rule, which stays primary), its detail in the name and its
+    short id in the location. GitLab may still merge such findings into one; see SCAN.md."""
     location = {"file": safe_path(f.file), "start_line": max(1, f.line)}
+    ids = identifiers(m)
     if shared:
         location["method"] = f"finding {f.id[:8]}"
+        ids.insert(1, {"type": "open_agent_security_finding", "name": f"finding {f.id[:8]}", "value": f.id})
     return {"id": str(uuid.UUID(hex=f.id)), "name": f"{m.title}: {f.detail}" if shared else m.title,
             "description": f"{m.why}\n\nFound: {f.detail}", "severity": SEVERITY[f.severity], "solution": m.fix,
-            "identifiers": identifiers(m), "location": location}
+            "identifiers": ids, "location": location}
 
 
 def timestamp(t) -> str:

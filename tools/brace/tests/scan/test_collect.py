@@ -195,3 +195,11 @@ def test_naming_the_scanner_in_agent_config_hides_nothing(tmp_path):
                                              "mcpServers": {"s": {"command": "npx", "args": ["evil"]}}}))
     write(tmp_path, "x.json", json.dumps({"scanner": "open-agent-security", "findings": [], "args": [FLAG]}))
     assert rules(tmp_path) == ["AP01", "AP04"]
+
+
+@pytest.mark.parametrize("name", [".zshrc", ".bashrc", ".bash_aliases", ".bash_profile", ".zprofile", ".profile",
+                                  ".envrc", ".zshenv"])
+def test_round9_shell_startup_files_are_read(tmp_path, name):
+    write(tmp_path, name, "# alias c='claude --dangerously-skip-permissions'\n"
+                          "alias c='claude --dangerously-skip-permissions'\n")
+    assert [(f["rule"], f["line"]) for f in report(tmp_path)["findings"]] == [("AP01", 2)]

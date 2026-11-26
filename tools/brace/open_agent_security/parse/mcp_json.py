@@ -2,8 +2,10 @@
 
 Shapes read: `mcpServers` (Claude, Cursor, Windsurf, Gemini CLI, Qwen Code, Cline, Roo and
 others), `mcp_servers`, `projects.<path>.mcpServers` (~/.claude.json), `servers` (VS Code
-mcp.json), `mcp.servers` (VS Code settings.json), `mcp` (opencode, whose `command` is a list
-and env is `environment`) and `context_servers` (Zed, whose `command` may be {path, args, env}).
+mcp.json), `mcp.servers` (VS Code settings.json), `amp.mcpServers` (Amp, a literal dotted key in
+.amp/settings.json and VS Code settings), `mcp` (opencode, whose `command` is a list and env is
+`environment`, and Crush) and `context_servers` (Zed, whose `command` may be {path, args, env}).
+A dotted key is read as one literal key when the file has it, else as nested keys.
 
 Each entry becomes a Server whose command is normalised to the runner it wraps (env, exec,
 sh -c, cmd /c, wsl, secret injectors such as `op run --`, `npx ...` written in `command`,
@@ -15,7 +17,7 @@ import re
 import shlex
 from pathlib import Path
 
-from ..agents import OPENCODE_FILE
+from ..agents import MCP_KEY_FILE
 from ..limits import MAX_VALUE, WRAPPER_DEPTH
 from ..model import Document, Server, SourceFile
 
@@ -24,12 +26,16 @@ URL_KEYS = ("url", "serverUrl", "httpUrl")
 WRAPPERS = {"npx", "uvx", "bunx", "pnpx", "pnpm", "yarn", "npm", "uv", "pipx", "bun", "docker", "podman", "cmd",
             "bash", "sh", "zsh", "node", "python", "python3", "deno", "env", "exec", "wsl", "op", "dotenvx",
             "doppler", "infisical", "aws-vault", "direnv"}
-RUNNERS = {"npx": "npm", "bunx": "npm", "pnpx": "npm", "uvx": "pypi"}  # fetch and run a package, from this ecosystem
+# Fetch and run a package, from this ecosystem (Deno's npm: and jsr: specifiers count as Deno's).
+RUNNERS = {"npx": "npm", "bunx": "npm", "pnpx": "npm", "uvx": "pypi", "deno": "deno"}
 # Longer spellings of a runner: (program, leading arguments) -> the runner they amount to.
 ALIASES = {("uv", ("tool", "run")): "uvx", ("npm", ("exec",)): "npx", ("npm", ("x",)): "npx", ("pipx", ("run",)): "uvx",
-           ("pnpm", ("dlx",)): "pnpx", ("yarn", ("dlx",)): "pnpx", ("bun", ("x",)): "bunx"}
+           ("pnpm", ("dlx",)): "pnpx", ("yarn", ("dlx",)): "pnpx", ("bun", ("x",)): "bunx", ("deno", ("run",)): "deno"}
 CONTAINERS = {"docker", "podman", "nerdctl"}
 SHELLS = {"bash", "sh", "zsh"}
+ELEVATE = {"sudo", "doas"}
+SUDO_VALUE_FLAGS = {"-u", "--user", "-g", "--group", "-C", "--close-from", "-D", "--chdir", "-h", "--host",
+                    "-p", "--prompt", "-r", "--role", "-t", "--type", "-T", "--command-timeout"}
 SHELL_OPERATOR = re.compile(r"&&|\|\||[;|\n]")
 ENV_VALUE_FLAGS = {"-u", "--unset", "-C", "--chdir"}
 WSL_VALUE_FLAGS = {"-d", "--distribution", "-u", "--user", "--cd"}
@@ -37,7 +43,7 @@ WSL_VALUE_FLAGS = {"-d", "--distribution", "-u", "--user", "--cd"}
 # doppler, infisical, aws-vault exec <profile> --, uv run --), except for these, whose `run`
 # starts a script or container and pass what follows `--` to it as arguments.
 RUN_PASSES_ARGS = {"npm", "pnpm", "yarn", "bun", "cargo", "go", "deno", "make", "just", "poetry", "pdm", "hatch"}
-COMMON_KEYS = ("mcpServers", "mcp_servers", "projects.*.mcpServers", "mcp.servers", "context_servers")
+COMMON_KEYS = ("mcpServers", "mcp_servers", "projects.*.mcpServers", "mcp.servers", "amp.mcpServers", "context_servers")
 ALL_SERVER_KEYS = COMMON_KEYS + ("servers", "mcp")
 NOT_JSON = (".toml", ".yaml", ".yml")
 
@@ -50,7 +56,7 @@ def is_json(src: SourceFile) -> bool:
 
 def repo_server_keys(rel: str) -> list[str]:
     return list(COMMON_KEYS) + (["servers"] if MCP_FILE.search(rel) else []) + \
-        (["mcp"] if OPENCODE_FILE.search(rel) else [])
+        (["mcp"] if MCP_KEY_FILE.search(rel) else [])
 
 
 def launches(entry) -> bool:
@@ -80,10 +86,12 @@ def servers_at(data, keys, project: Path | None = None) -> list[tuple[tuple, str
                     found += [(("projects", pn, "mcpServers", str(n)), str(n), e)
                               for n, e in block["mcpServers"].items() if isinstance(e, dict)]
             continue
-        path = tuple(key.split("."))
-        val = data
-        for part in path:
-            val = val.get(part) if isinstance(val, dict) else None
+        if key in data:  # a literal dotted key, such as "amp.mcpServers"
+            path, val = (key,), data[key]
+        else:
+            path, val = tuple(key.split(".")), data
+            for part in path:
+                val = val.get(part) if isinstance(val, dict) else None
         if isinstance(val, dict):
             found += [(path + (str(n),), str(n), e) for n, e in val.items()
                       if isinstance(e, dict) and (key != "mcp" or launches(e))]
@@ -138,8 +146,9 @@ def command_and_args(entry: dict) -> tuple[str, list[str]]:
 
 
 def resolve(words: list[str], depth: int = 0) -> tuple[str, list[str]]:
-    """The program a command line runs, looking through `env [VAR=value...]`, `exec`, shell
-    `-c` strings, `cmd /c` and runner aliases such as `uv tool run` and `npm exec`."""
+    """The program a command line runs, looking through `env [VAR=value...]`, `exec`, `sudo` and
+    `doas`, shell `-c` strings (after any other shell flags), `cmd /c` and runner aliases such as
+    `uv tool run`, `npm exec` and `deno run`."""
     if not words:
         return "", []
     cmd, args = _prog(words[0]), list(words[1:])
@@ -165,8 +174,19 @@ def resolve(words: list[str], depth: int = 0) -> tuple[str, list[str]]:
         return resolve(rest, depth + 1) if rest else (cmd, args)
     if cmd == "direnv" and args[:1] == ["exec"] and len(args) > 2:
         return resolve(args[2:], depth + 1)
-    if cmd in SHELLS and len(args) >= 2 and args[0] in ("-c", "-lc", "-ic"):
-        return shell_string(args[1], depth + 1)
+    if cmd in ELEVATE:
+        i = 0
+        while i < len(args) and args[i].startswith("-") and args[i] != "--":
+            i += 2 if args[i] in SUDO_VALUE_FLAGS else 1
+        i += args[i:i + 1] == ["--"]
+        return resolve(args[i:], depth + 1) if i < len(args) else (cmd, args)
+    if cmd in SHELLS:
+        # `bash -c "..."`, `bash -l -c "..."`, `sh -ec "..."`: the string after the flags, one of which holds c
+        for i, a in enumerate(args):
+            if not a.startswith("-") or i + 1 >= len(args):
+                break
+            if not a.startswith("--") and "c" in a[1:]:
+                return shell_string(args[i + 1], depth + 1)
     if cmd in ("cmd", "powershell", "pwsh") and args and args[0].lower() in ("/c", "/k", "-c", "-command"):
         rest = args[1:]
         if len(rest) == 1 and " " in rest[0]:

@@ -7,7 +7,6 @@ ceilings, and anything malformed or unknown is an error rather than silently ign
 """
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
@@ -15,6 +14,7 @@ from typing import Mapping
 from .agents import CODEX_FILE
 from .catalog import SEVERITY_ORDER
 from .fsio import ReadFailure, read
+from .toml_text import loads as load_toml
 from .ignore import PathGlob, PatternTooDeep, flex, parse_pattern
 from .limits import (
     CEILINGS,
@@ -78,7 +78,7 @@ def load(root: Path, known_rules, path: str | None = None, enabled: bool = True)
     if isinstance(text, ReadFailure):
         raise ConfigError(f"{shown}: not a readable regular file of at most {CONFIG_FILE_BYTES // 1024} KB")
     try:
-        data = tomllib.loads(text)
+        data = load_toml(text)
     except (ValueError, RecursionError) as e:  # TOMLDecodeError is a ValueError; deep nesting recurses
         reason = "nested too deeply" if isinstance(e, RecursionError) else str(e)
         raise ConfigError(f"{shown}: not valid TOML ({reason})") from None

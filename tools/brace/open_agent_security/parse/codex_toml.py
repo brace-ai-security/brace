@@ -1,16 +1,16 @@
 """MCP servers in Codex's config.toml: `[mcp_servers.<name>]` tables and their `.env` tables.
 
-tomllib reads the file; a file that does not parse makes the scan incomplete. tomllib keeps
-no line numbers, so findings point at the line of the server's table header, found with one
-bounded regex per line.
+tomllib reads the file, behind toml_text's linear pre-scan; a file that does not parse makes
+the scan incomplete. tomllib keeps no line numbers, so findings point at the line of the
+server's table header, found with one bounded regex per line.
 """
 from __future__ import annotations
 
 import re
-import tomllib
 
 from ..agents import CODEX_FILE
 from ..model import Document, ParseError, SourceFile
+from ..toml_text import loads as load_toml
 from .mcp_json import servers_at, to_server
 
 HEADER = re.compile(r"^[ \t]*\[(?!\[)[ \t]*([^\]\n]{1,300})\][ \t]*(?:#.*)?$")
@@ -50,7 +50,7 @@ def table_lines(text: str) -> dict[tuple, int]:
 
 def load(text: str) -> tuple[dict, dict[tuple, int]]:
     try:
-        return tomllib.loads(text), table_lines(text)
+        return load_toml(text), table_lines(text)
     except (ValueError, RecursionError) as e:  # TOMLDecodeError is a ValueError; deep nesting recurses
         raise ParseError("nested too deeply" if isinstance(e, RecursionError) else str(e)) from None
 
