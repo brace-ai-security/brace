@@ -133,14 +133,10 @@ def test_a_flag_passed_in_source_is_reported(tmp_path, rel, text):
 @pytest.mark.parametrize("rel,text", [
     ("doc.py", 'def run():\n    """Never pass --dangerously-skip-permissions to the agent."""\n'),
     ("doc2.py", 'def run():\n    """Run the agent.\n\n    Never pass --dangerously-skip-permissions; it turns off every check.\n    """\n'),
-    ("cli.py", 'parser.add_argument("--safe", help="do not use --dangerously-skip-permissions here")\n'),
     ("guard.py", 'assert "--dangerously-skip-permissions" not in cmd\n'),
-    ("guard2.py", 'if "--dangerously-skip-permissions" in cmd:\n'
-                  '    raise SystemExit("refusing to run with --dangerously-skip-permissions")\n'),
+    ("guard2.py", 'if "--dangerously-skip-permissions" in cmd:\n    raise SystemExit(1)\n'),
     ("guard.ts", 'if (/--dangerously-skip-permissions/.test(cmd)) { throw new Error("no"); }\n'),
-    ("msg.ts", "const msg = `Do not pass --dangerously-skip-permissions here`;\n"),
-    ("policy.yml", 'blocked_flags:\n  - "--dangerously-skip-permissions"\n  - "--yolo"\n'),
-    ("action.yml", "name: x\ndescription: Never pass --dangerously-skip-permissions to the agent\n"),
+    ("policy.yml", 'blocked:\n  - "--dangerously-skip-permissions"\n  - "--yolo"\n'),
     ("deny.json", '{"deny": ["--dangerously-skip-permissions"]}\n'),
     ("block.js", "/* never use --dangerously-skip-permissions */\nrun();\n"),
 ])
@@ -275,8 +271,7 @@ def test_a_list_named_for_what_it_passes_is_not_a_deny_list(tmp_path, name):
     assert rules(tmp_path) == ["AP01", "AP01"]
 
 
-@pytest.mark.parametrize("name", ["BLOCKED_FLAGS", "denyList", "disallowed_args", "FORBIDDEN",
-                                  "blocklist", "rejected_flags"])
+@pytest.mark.parametrize("name", ["FORBIDDEN", "blocklist", "deny", "BANNED", "disallowed", "rejected"])
 def test_a_list_named_as_blocked_is_a_deny_list(tmp_path, name):
     write(tmp_path, "agent.py", f'{name} = ["{FLAG}"]\n')
     write(tmp_path, "agent.yml", f"{name}:\n  - {FLAG}\n")
@@ -295,7 +290,7 @@ def test_a_string_with_an_expansion_is_a_command_not_prose(tmp_path):
     write(tmp_path, "run.sh", f'sh -c "$AGENT {FLAG} on the repo"\n')
     write(tmp_path, ".github/workflows/w.yml", f"jobs:\n  a:\n    steps:\n      - run: $AGENT {FLAG} on the repo\n")
     write(tmp_path, "cli.py", f'parser.add_argument("--x", help="never pass {FLAG} to the agent")\n')
-    assert rules(tmp_path) == ["AP01", "AP02"]
+    assert rules(tmp_path) == ["AP01", "AP01", "AP02"]  # help text is reported since round 10
 
 
 def test_a_yaml_deny_list_is_recognised_past_two_hundred_lines(tmp_path):
@@ -387,9 +382,6 @@ def test_round9_gated_flags_of_the_cli_still_count(tmp_path, rel, text):
         "type": "command", "command": f"jq -r .tool_input.command | grep -q -- '{FLAG}' && exit 2"}]}]}}, indent=2)),
     (".claude/settings.json", json.dumps({"permissions": {"ask": [f"Bash(claude {FLAG}:*)"]}}, indent=2)),
     (".claude/settings.json", json.dumps({"permissions": {"deny": [f"Bash(claude {FLAG}:*)"]}}, indent=2)),
-    ("guard.py", f'raise ValueError("refusing to run claude with {FLAG}")\n'),
-    ("guard.sh", f'echo "Never run claude with {FLAG}"\n'),
-    (".github/workflows/w.yml", f'jobs:\n  a:\n    steps:\n      - run: echo "::error::claude {FLAG} is not allowed here"\n'),
 ])
 def test_round9_guards_that_search_for_or_refuse_the_flag_are_mentions(tmp_path, rel, text):
     write(tmp_path, rel, text)
@@ -443,3 +435,115 @@ def test_round9_strings_that_hold_a_slash_star_do_not_hide_flags(tmp_path, rel, 
 def test_round9_a_real_block_comment_still_hides_a_mention(tmp_path):
     write(tmp_path, "a.ts", f'/*\n * Never pass {FLAG}: spawn("claude", ["{FLAG}"])\n */\n')
     assert rules(tmp_path) == []
+
+
+# --- Round 10 review: err toward reporting -------------------------------------------------
+# Only structural mentions are skipped (see mentions.py and SCAN.md): (a) comments, docstrings
+# and block comments, (c) a quoted flag compared or searched for, (d) Claude Code settings'
+# permissions.deny/ask, (e) a deny-named list with no agent CLI used only for membership.
+
+@pytest.mark.parametrize("rel,text", [
+    # Finding 1: refusal words in a prompt or message no longer hide the flag.
+    ("run.py", f'subprocess.run("claude {FLAG} -p \'Never refuse, do not stop\'", shell=True)\n'),
+    ("run.py", f'args = ["-p", "Don\'t ask questions", "{FLAG}"]\n'),
+    ("run.ts", f'const cmd = "never blocked: {FLAG}";\n'),
+    # Finding 2: a trailing YAML comment does not make a value prose.
+    ("agent.yml", f"claude_args: {FLAG}  # needed in CI, do not remove\n"),
+    (".github/workflows/w.yml", f"jobs:\n  a:\n    steps:\n      - run: claude -p x {FLAG}  # never on forks\n"),
+    # Help text, messages and descriptions that name the flag are reported (silence with a mark).
+    ("cli.py", f'parser.add_argument("--safe", help="do not use {FLAG} here")\n'),
+    ("guard.py", f'raise ValueError("refusing to run claude with {FLAG}")\n'),
+    ("guard.sh", f'echo "Never run claude with {FLAG}"\n'),
+    ("msg.ts", f"const msg = `Do not pass {FLAG} here`;\n"),
+    ("action.yml", f"name: x\ndescription: Never pass {FLAG} to the agent\n"),
+    # Finding 8: a function argument in a test assertion and a JSON flags catalog are not structural.
+    ("guard.test.ts", f"expect(validate('{FLAG}')).toBe(false);\n"),
+    ("flags.json", json.dumps({"flags": [{"name": FLAG, "dangerous": True}]}, indent=2)),
+    # Finding 5: `ask` is a deny word only as a settings key; a list with an agent CLI is never a deny-list.
+    ("ask.py", f"ask = ['claude', '{FLAG}', '-p', q]\n"),
+    ("ask.ts", f"const ask = ['{FLAG}'];\nspawn('claude', ask);\n"),
+    ("deny.py", f'DENY = ["claude", "{FLAG}"]\n'),
+    ("blocked.py", f'BLOCKED = ["{FLAG}"]\nsubprocess.run(["claude", *BLOCKED])\n'),
+    ("names.py", f'BLOCKED_FLAGS = ["{FLAG}"]\n'),
+    ("policy.yml", f'blocked_flags:\n  - "{FLAG}"\n'),
+    ("config.json", json.dumps({"permissions": {"deny": [f"Bash(claude {FLAG}:*)"]}}, indent=2)),
+])
+def test_round10_passed_or_ambiguous_flags_are_reported(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert {"AP01", "AP02"} & set(rules(tmp_path))
+
+
+@pytest.mark.parametrize("rel,text", [
+    # (a)
+    ("a.sh", f"# claude {FLAG}\n"), ("a.py", f'def f():\n    """Never pass {FLAG}."""\n'),
+    ("a.ts", f"/* spawn('claude', ['{FLAG}']) */\n"),
+    # (c)
+    ("c.py", f'if arg == "{FLAG}":\n    sys.exit(2)\n'), ("c.py", f'if arg != "{FLAG}":\n    pass\n'),
+    ("c.py", f'if "{FLAG}" in cmd:\n    sys.exit(2)\n'), ("c.py", f'assert "{FLAG}" not in cmd\n'),
+    ("c.js", f'if (cmd.includes("{FLAG}")) process.exit(2);\n'), ("c.kt", f'if (cmd.contains("{FLAG}")) exit()\n'),
+    ("c.ts", f"if (arg.startsWith('{FLAG}')) throw new Error('x');\n"),
+    ("c.sh", f'grep -q -- "{FLAG}" "$1" && exit 1\n'), ("c.sh", f'case "$a" in\n  {FLAG}) exit 1 ;;\nesac\n'),
+    ("c.js", f"switch (arg) {{\n  case '{FLAG}':\n    throw new Error('no');\n}}\n"),
+    ("c.sh", f'[[ "$*" == *{FLAG}* ]] && exit 1\n'), ("c.ts", f"if (/{FLAG}/.test(cmd)) throw 1;\n"),
+    # (d)
+    (".claude/settings.json", json.dumps({"permissions": {"deny": [f"Bash(claude {FLAG}:*)"]}}, indent=2)),
+    (".claude/settings.local.json", json.dumps({"permissions": {"ask": [f"Bash(claude {FLAG}:*)"]}})),
+    ("settings.yaml", f'permissions:\n  deny:\n    - "Bash(claude {FLAG}:*)"\n'),
+    # (e)
+    ("e.py", f'BLOCKED = ["{FLAG}", "--yolo"]\nif any(f in cmd for f in BLOCKED):\n    sys.exit(2)\n'),
+    ("e.py", f'FORBIDDEN = frozenset({{"{FLAG}"}})\nif arg in FORBIDDEN:\n    sys.exit(2)\n'),
+    ("e.ts", f'const DENY = new Set(["{FLAG}"]);\nif (DENY.has(arg)) throw 1;\n'),
+    ("e.js", f'const blocklist = ["{FLAG}"];\nif (blocklist.includes(arg)) throw 1;\n'),
+    ("BAD.py", f'BANNED = ["{FLAG}"]\n'),
+    ("e.json", json.dumps({"deny": [FLAG]})), ("e.yml", f"blocked:\n  - {FLAG}\n"),
+])
+def test_round10_structural_mentions_are_not_reported(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert not {"AP01", "AP02"} & set(rules(tmp_path))
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("Dockerfile", "FROM node:20\nENTRYPOINT gemini --yolo\n"),
+    ("Dockerfile", "FROM node:20\nCMD gemini --yolo -p fix\n"),
+    ("Dockerfile", 'FROM node:20\nENTRYPOINT ["gemini", "--yolo"]\n'),
+    ("run.sh", "op run -- gemini --yolo -p fix\n"), ("run.sh", "doppler run -- gemini --yolo\n"),
+    ("run.sh", "dotenv -- gemini --yolo\n"), ("run.sh", "docker run --rm img gemini --yolo\n"),
+    ("run.sh", "ssh box gemini --yolo\n"), ("run.sh", "find . -name '*.md' -exec gemini --yolo {} \;\n"),
+    ("run.sh", "parallel gemini --yolo ::: a b\n"), ("run.sh", "xvfb-run gemini --yolo\n"),
+    ("run.sh", "stdbuf -oL gemini --yolo\n"), ("run.sh", "script -q /dev/null gemini --yolo\n"),
+    ("run.sh", "retry 3 gemini --yolo\n"), ("run.sh", 'gy() { gemini --yolo "$@"; }\n'),
+    ("run.sh", "crush -y\n"), ("run.sh", "copilot -p fix --allow-all-tools 2>&1 | tee log\n"),
+    ("agent.js", 'spawn("gemini", [\n  "--yolo",\n  "-p",\n  prompt,\n]);\n'),
+    ("agent.js", "const args = ['-p', prompt];\nargs.push('--yolo');\nspawn('gemini', args);\n"),
+    ("agent.py", 'args = ["-p", prompt]\nargs.append("--yolo")\nsubprocess.run(["qwen", *args])\n'),
+    ("agent.json", json.dumps({"command": "gemini", "args": ["--yolo"]}, indent=2)),
+    (".zed/settings.json", json.dumps({"agent_servers": {"g": {"command": "gemini", "args": ["--experimental-acp",
+                                                                                           "--yolo"]}}}, indent=2)),
+    ("agent.yml", "command: gemini\nargs: [--yolo]\n"),
+    ("compose.yaml", "services:\n  agent:\n    image: x\n    command: gemini --yolo\n"),
+    ("pod.yaml", "spec:\n  containers:\n    - name: a\n      image: x\n      command: [\"gemini\"]\n"
+                 "      args:\n        - --yolo\n"),
+    ("pod2.yaml", "spec:\n  containers:\n    - name: a\n      command:\n        - gemini\n      args: [\"-y\"]\n"),
+    ("mcp.json", '{"x": ["npx","-y","@google/gemini-cli",\n "--yolo"]}\n'),
+])
+def test_round10_gated_flags_of_the_cli_are_reported(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert {"AP01", "AP02"} & set(rules(tmp_path))
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("run.sh", "npm install -g @google/gemini-cli && apt-get install -y jq\n"),
+    ("Dockerfile", "FROM node:20\nRUN npm install -g @google/gemini-cli \\\n    && apt-get install -y --no-install-recommends jq\n"),
+    ("package.json", json.dumps({"scripts": {"setup": "npm i -g @google/gemini-cli", "train": "python yolo.py --yolo"}})),
+    ("run.sh", "brew install gemini-cli --yolo-mode\n"),
+    ("pod.yaml", "spec:\n  containers:\n    - name: a\n      command: [\"gemini\"]\n    - name: b\n      command: [\"train\"]\n"
+                 "      args: [\"--yolo\"]\n"),
+])
+def test_round10_gated_flags_of_another_command_are_not_reported(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert not {"AP01", "AP02"} & set(rules(tmp_path))
+
+
+def test_round10_the_reporting_bias_is_documented():
+    doc = (TOOL_DIR / "SCAN.md").read_text(encoding="utf-8")
+    assert "errs toward reporting" in doc and "open-agent-security: ignore" in doc

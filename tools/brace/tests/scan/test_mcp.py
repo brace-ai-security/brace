@@ -476,3 +476,38 @@ def test_round9_an_opaque_value_is_never_shown_as_the_package(tmp_path):
     out = scan(tmp_path, "--fail-on", "none")[1] + json.dumps(report(tmp_path))
     assert value not in out
     assert sorted(found(tmp_path)) == [("AP04", "s0: npx <redacted>"), ("AP04", "s0: npx pkg")]
+
+
+# --- Round 10 review -----------------------------------------------------------------------
+
+@pytest.mark.parametrize("env", [
+    {"DB_PASSWORD": "CHANGE_ME"}, {"CLIENT_SECRET": "client-secret-here"}, {"JWT_SECRET": "INSERT_SECRET_HERE"},
+    {"PWD": "/workspace/project1"}, {"OLDPWD": "/home/u/src"},
+    {"DB_PASSWORD_SECRET": "projects/123/secrets/db-pass/versions/latest"},
+    {"PASS_THROUGH_ENV": "PATH,HOME,USER123"}, {"API_KEY": "TODO-fill-me-in-later-1234"},
+    {"DB_PASSWORD": "<your password>"}, {"SECRET_NAMES": "GITHUB_TOKEN,NPM_TOKEN"},
+])
+def test_round10_password_like_names_with_placeholders_or_references_are_not_secrets(tmp_path, env):
+    """Finding 6."""
+    write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {"s": {"command": "node", "args": ["s.js"], "env": env}}}))
+    assert "AP05" not in rules(tmp_path)
+
+
+def test_round10_real_passwords_are_still_secrets(tmp_path):
+    write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {"s": {"command": "node", "args": ["s.js"],
+                                                                  "env": {"DB_PASSWORD": "Sup3rS3cretP@ssw0rd!"}}}}))
+    assert "AP05" in rules(tmp_path)
+
+
+@pytest.mark.parametrize("server,expected", [
+    ({"url": "https://mcp.zapier.com/api/mcp/s/NjY2ZDk4ZTItYWJjZC00ZWZnLTEyMzQtNTY3ODkwYWJjZGVm/mcp"}, True),
+    ({"command": "npx", "args": ["-y", "mcp-remote@1.0.0",
+                                 "https://x.example/s/Qm9hcmRfM2Y4ZDJhOTFjN2U0YjZhMDVmMWUyZDNjNGI1YTY3/sse"]}, True),
+    ({"url": "https://example.com/repo/commit/" + "a1b2c3d4" * 5 + "/mcp"}, False),
+    ({"url": "https://example.com/blobs/sha256/" + "0f1e2d3c" * 8}, False),
+    ({"url": "https://example.com/api/mcp/server-for-my-team-and-project-docs"}, False),
+])
+def test_round10_a_secret_in_a_url_path_is_reported(tmp_path, server, expected):
+    """Finding 7."""
+    write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {"s": server}}))
+    assert ("AP05" in rules(tmp_path)) is expected

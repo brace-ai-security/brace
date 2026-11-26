@@ -39,8 +39,8 @@ MAX_PER_LINE = 20                    # bypass matches examined on one line; one 
 MAX_LINE = 2000                      # characters of a workflow line the line heuristics read
 WORD_PART_CHARS = 200                # characters of each name, package, image or host AP09 reads words from
 WRAPPER_DEPTH = 6                    # wrappers looked through to find a server's program (env exec sh -c ...)
-MAX_PROSE = 2000                     # longest quoted string read as a sentence about a flag
 MAX_OPEN_BRACKETS = 1000             # brackets tracked when deciding whether a flag sits in a deny-list
+MAX_PER_COMMAND = 200                # gated flags examined in one logical command (a line and its continuations)
 JSON_INDEX_KEYS = 200_000            # object keys indexed for line numbers in one JSON file
 JSON_INDEX_DEPTH = 8                 # findings point at most 6 keys deep (projects.<p>.mcpServers.<n>.env.<k>)
 

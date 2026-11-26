@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from ..limits import MAX_VALUE
 from ..model import CheckContext, Document, Finding
 from ..parse.mcp_json import CONTAINERS, RUNNERS
-from ..secrets import opaque, random_token, secret_kind, secret_name
+from ..secrets import opaque, random_token, secret_kind, secret_name, url_path_secret
 
 LOOPBACK = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}
 # Flags whose next argument is a value, not the package, from the npm/npx, uv/uvx, bunx and
@@ -185,11 +185,12 @@ class McpServers:
                     if ctx.secrets.secret_pair(k, v):
                         yield Finding("AP05", where, doc.line_of(s.path + (section, k)),
                                       f"{s.name}: {section}.{k} = <redacted>{secret_kind(v)}")
-            if ctx.secrets.secret_in_command((*s.args, s.url)):
-                note = secret_kind(" ".join((*s.args, s.url)))
-                yield Finding("AP05", where, line, f"{s.name}: secret in arguments or URL (<redacted>){note}")
             # A remote URL in `url`, or passed to a bridge such as mcp-remote run by a runner.
             urls = (s.url, *(s.args if s.command in RUNNERS else ()))
+            if ctx.secrets.secret_in_command((*s.args, s.url)) or \
+                    any(url_path_secret(u) for u in urls if u.lower().startswith(("http:", "https:"))):
+                note = secret_kind(" ".join((*s.args, s.url)))
+                yield Finding("AP05", where, line, f"{s.name}: secret in arguments or URL (<redacted>){note}")
             host = next((h for h in (plain_http_host(u) for u in urls if u.lower().startswith("http:")) if h), "")
             if host:
                 yield Finding("AP07", where, line, f"{s.name}: http://{host}")

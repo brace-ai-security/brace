@@ -27,39 +27,64 @@ Details and fixes: https://braceframework.org/anti-patterns/
 
 AP01 and AP02 count a bare `--yolo`, and Copilot CLI's `--allow-all-tools` and `--allow-all`,
 only as arguments of an agent CLI that takes them (Gemini CLI, Qwen Code, Codex, Crush,
-Copilot), because object-detection tools and Deno use the same flags: in the same simple
-command as the CLI (split at `&&`, `||`, `;`, `|`, `&` and line breaks not continued with
-`\`), with the CLI as the command (after only `VAR=value`, wrappers such as `sudo`, `env`,
-`timeout` or `npx -y`, or as the first item of a string or list), not as an argument of an
-install command; or as an item of a list whose first item is the CLI, written over several
-lines; or, in YAML, under a key that names the CLI (`codex-args:`, `gemini_cli_args:`) or in a
-step that uses an agent action. So `npm install -g @google/gemini-cli && apt-get install -y jq`
-and `deno run --allow-all x.ts && codex exec ...` count nothing. Gemini CLI's and Qwen Code's
-short `-y` counts only after `gemini` or `qwen` in that command, so `npx -y` does not.
-Codex's full-access sandbox counts in any spelling:
+Copilot), because object-detection tools and Deno use the same flags. Such a flag counts when
+the CLI (`gemini`, `qwen`, `codex`, `copilot`, `crush`, `@google/gemini-cli`, `@qwen-code/...`)
+is a word anywhere in the same simple command (split at `&&`, `||`, `;`, `|` and line breaks
+not continued with `\`; in a JSON file also at string quotes), so wrappers such as `op run --`,
+`docker run img`, `ssh box`, `find -exec`, `parallel` or `xvfb-run` do not hide it, unless that
+word is an argument of an install command (`npm`/`pnpm`/`yarn`/`bun install|add|i`,
+`pip`/`pipx`/`uv install`, `brew install`, `apt`/`apt-get`/`apk`/`yum`/`dnf install`). It also
+counts as an item of a list whose earlier quoted item is the CLI, or of a list passed to a call
+that names it (`spawn("gemini", [` then `"--yolo"` on the next line); in a JSON object or YAML
+mapping whose `command:`, `cmd:` or `entrypoint:` is the CLI (compose, Kubernetes, Zed
+`agent_servers`); when pushed onto a list (`args.push("--yolo")`, `.append`, `+= [...]`) that a
+later spawn, exec or subprocess call passes with the CLI; and, in YAML, under a key that names
+the CLI (`codex-args:`, `gemini_cli_args:`) or in a step that uses an agent action. So
+`npm install -g @google/gemini-cli && apt-get install -y jq` and `deno run --allow-all x.ts &&
+codex exec ...` count nothing. The short `-y` (Gemini CLI, Qwen Code, Crush) counts only after
+the CLI, so `npx -y` does not. Codex's full-access sandbox counts in any spelling:
 `--sandbox danger-full-access`, `sandbox_mode`, the TypeScript SDK's `sandboxMode` and
-openai/codex-action's `sandbox:` input. A bypass flag that is
-only mentioned is not reported: inside a docstring or block comment; inside a string that
-is prose (other words, no other flag, agent name or `$VAR` expansion, as in `help=` or
-`description:`), or a sentence that refuses it (`never`, `don't`, `do not`, `refuse`,
-`refusing`, `not allowed`, `forbidden`, `blocked`, `must not`) even when it names the agent,
-unless the string is itself a command that starts with the agent; in a comparison or search
-(`in`, `not in`, `==`, `!=`, `.includes(`, `.contains(`), an argument of `grep`, `egrep`,
-`fgrep`, `rg`, `ag`, `ack`, `findstr` or `Select-String`, a shell `case` pattern (`--flag)`),
-or the right side of `==`, `!=`, `=~` or `=` in `[[ ]]`, `[ ]` or `test`; inside a regular
-expression; or as an item of a list or YAML/JSON key whose last word says it refuses its
-items (`blocked`, `blocklist`, `deny`, `denylist`, `forbidden`, `ban`, `disallowed`,
-`rejected`, `blacklist`, and Claude Code settings' `ask`), or whose last two words are such a
-word and a noun for the items (`BLOCKED_FLAGS`, `denyList`, `disallowed-tools`). Names such as
-`UNSAFE_ARGS`, `dangerousFlags`, `guard_cmd` or `blocks` say what is passed, not what is
-refused, so their items count. A block comment never hides a line whose command is an agent
-CLI, and strings are skipped whole when looking for block comments (template literals with
-their `${...}`, Groovy `'''`/`"""`, Kotlin, Java and Scala `"""`, Go and Rust raw strings).
+openai/codex-action's `sandbox:` input.
+
+**This scanner errs toward reporting.** A missed bypass costs more than a false positive, and
+a false positive is easy to silence after review: add `open-agent-security: ignore` on the
+line, or list the file in `.open-agent-security-ignore` (see below). So a reviewed guard,
+help text or test that names a bypass flag may be reported; silence it with an inline mark or
+the ignore file. A bypass flag is treated as only mentioned, and not reported, in these forms
+only:
+
+- inside a comment, a Python docstring or a block comment (strings are skipped whole when
+  looking for block comments: template literals with their `${...}`, Groovy and Kotlin, Java
+  and Scala triple-quoted strings, Go and Rust raw strings); a block comment never hides a
+  line whose command is an agent CLI;
+- in Markdown files, which are not read for these rules;
+- as a quoted literal compared or searched for: `== "--flag"`, `!= "--flag"`, `"--flag" in x`,
+  `"--flag" not in x`, `x in ("--a", "--flag")` (not `for x in`), `.includes(`, `.contains(`,
+  `.has(`, `.indexOf(`, `.startsWith(`, `.endsWith(`, a `re.*(` or `RegExp(` pattern, a
+  JavaScript or Ruby `/regex/` literal; an argument of `grep`, `egrep`, `fgrep`, `rg`, `ag`,
+  `ack`, `findstr` or `Select-String`; a shell `case` pattern (`--flag)`); a JavaScript
+  `case '--flag':` label; or the right side of `==`, `!=`, `=~` or `=` in `[[ ]]`, `[ ]` or
+  `test`;
+- as a value under Claude Code settings' `permissions.deny` or `permissions.ask`, in a JSON or
+  YAML file whose name contains `settings`;
+- as an item of a list assigned to a name whose last word is `block`, `blocked`, `blocklist`,
+  `deny`, `denied`, `denylist`, `forbid`, `forbidden`, `ban`, `banned`, `disallow`,
+  `disallowed`, `reject` or `rejected` (`BLOCKED`, `deny`, `forbidden`), when the list names no
+  agent CLI and, in code, every other use of the name in the file is a membership test
+  (`x in NAME`, `any(f in cmd for f in NAME)`, `NAME.includes(x)`, `NAME.has(x)`); in JSON and
+  YAML the key alone qualifies.
+
+Everything else counts: help text, prompts, error messages and descriptions that name the flag
+(even with words such as "never" or "do not"), a function argument in a test assertion
+(`expect(validate("--flag"))`), a `"name": "--flag"` entry in a flags catalog, lists named
+`BLOCKED_FLAGS`, `ask` or `UNSAFE_ARGS`, a lone quoted flag in an argument list and an item of
+a `for` loop's list. Trailing comments are removed before a value is examined, so a comment
+after a YAML value does not change how the value is read.
+
 Bypass mode written as JSON counts anywhere: nested under another key, inside a JSON string
 (a devcontainer command that writes settings), or as the VS Code extension's
 `claudeCode.initialPermissionMode`. In `.ini` and `.cfg` files `;` starts a comment only at
-the start of a line. Any other occurrence counts, including a
-lone quoted flag in an argument list and an item of a `for` loop's list. A file's own report
+the start of a line. A file's own report
 format cannot hide anything either: only a whole `.json` or `.sarif` file that is exactly a
 JSON, SARIF or GitLab SAST report from this scanner is skipped, never a script, workflow,
 Dockerfile or agent config file. AP03 reads

@@ -6,10 +6,10 @@ import re
 from pathlib import Path
 from typing import Iterator
 
-from ..agents import ACTIONS, BYPASS, GATED_BYPASS, GATED_CLI, GATED_FLAG_CLIS, SHORT_YOLO, SHORT_YOLO_CLI, alternation, \
-    command_position
+from ..agents import ACTIONS, BYPASS, GATED_BYPASS, GATED_CLI, GATED_FLAG_CLIS, QUOTED_GATED_CLI, QUOTED_SHORT_YOLO_CLI, \
+    SHORT_YOLO, SHORT_YOLO_CLI, alternation
 from ..jsonc import Lines
-from ..limits import MAX_PER_LINE
+from ..limits import MAX_OPEN_BRACKETS, MAX_PER_COMMAND, MAX_PER_LINE
 from ..model import CheckContext, Document, Finding
 from ..parse.dockerfile import is_dockerfile
 from ..secrets import secret_kind
@@ -30,14 +30,31 @@ COMMENT_MARKERS = {**dict.fromkeys((".yml", ".yaml", ".sh", ".bash", ".zsh", ".f
                    **dict.fromkeys((".bat", ".cmd"), ("REM ", "rem ", "Rem ", "@REM ", "@rem ", "::"))}
 LINE_COMMENTS = {".ini": ";", ".cfg": ";"}  # comment markers only at the start of a line (after whitespace)
 MAKE_NAMES = {"makefile", "gnumakefile", "justfile", ".justfile"}
-# Flags that count only next to a CLI that takes them: the CLI, and whether it must come first.
-GATES = {GATED_BYPASS: (GATED_CLI, False), SHORT_YOLO: (SHORT_YOLO_CLI, True)}
+# Flags that count only next to a CLI that takes them: the CLI as a word, the CLI as a quoted
+# item, and whether the CLI must come before the flag (`npx -y @google/gemini-cli` is npx's -y).
+GATES = {GATED_BYPASS: (GATED_CLI, QUOTED_GATED_CLI, False), SHORT_YOLO: (SHORT_YOLO_CLI, QUOTED_SHORT_YOLO_CLI, True)}
 CONTINUATION = ("\\", "^", "`")  # a line continued on the next (shell, cmd.exe, PowerShell)
-CONTINUED_LINES = 20  # lines looked back through continuations for the CLI a gated flag belongs to
-COMMAND_WINDOW = 4000  # characters looked back for the start of a gated flag's command
-LIST_WINDOW = 500      # characters looked back for the list a gated flag is an item of
-SEPARATOR = re.compile(r"&&|\|\||[;|&]")  # ends a simple command, as does a line break that is not continued
-LIST_HEAD = re.compile(r"[ \t\n]{0,40}[\"']([^\"'\s,]{1,100})[\"'][ \t]{0,20},")
+SEPARATOR = re.compile(r"&&|\|\||[;|]")  # ends a simple command, as does a line break that is not continued
+JSON_SEPARATOR = re.compile(r"&&|\|\||[;|]|(?<!\\)\"")  # in JSON a string's quotes end one too (minified package.json)
+INSTALL_TOOLS = frozenset("npm pnpm yarn bun pip pip3 pipx uv brew apt apt-get apk yum dnf".split())
+INSTALL_VERBS = frozenset(("install", "add", "i"))
+INSTALL_LOOKBACK = 300  # characters of a simple command before the CLI searched for an install command
+CLI_CANDIDATES = 5      # CLI words in one simple command checked for one that is not an install argument
+BRACKETS = re.compile(r"[()\[\]{}]")
+# A `command:`, `cmd:` or `entrypoint:` key (JSON or YAML) whose value starts with a gated CLI.
+COMMAND_KEY = re.compile(rf"[\"']?\b(?:command|cmd|entrypoint)[\"']?[ \t]*:[ \t]*\[?[ \t]*[\"']?(?:[\w.~-]{{0,100}}/)?"
+                         rf"(?:{alternation(GATED_FLAG_CLIS)}|@google/gemini-cli|@qwen-code/|@github/copilot)(?![\w-])",
+                         re.I)
+YAML_ENTRY = re.compile(r"^([ \t]*)(-[ \t]+)?(?:[\"']?([\w.\-]{1,80})[\"']?[ \t]*:(?:[ \t]|$))?")
+COMMAND_KEYS = frozenset(("command", "cmd", "entrypoint"))
+# `NAME.push('--yolo')`, `NAME.append("--yolo")`, `NAME += ["--yolo"]`: the name an argument
+# list is built under, matched on the reversed text before the flag so the match is anchored.
+PUSHED_REVERSED = re.compile(r"^[\"'][ \t]{0,20}(?:\[[ \t]{0,20})?(?:\((?:hsup|dneppa|dnetxe|tfihsnu)\.|\[[ \t]{0,20}=\+[ \t]{0,20})"
+                             r"([\w$]{1,60})")
+SPAWN = re.compile(r"\b(?:spawn|spawnSync|exec|execSync|execFile|execFileSync|execa|Popen|run|call|check_call|"
+                   r"check_output|Command|ProcessBuilder)[ \t]*\(")
+SPAWN_WINDOW = 300  # characters around a use of a pushed-to name searched for the spawn call and CLI
+NAME_USES = 50      # later uses of a pushed-to name looked at
 YAML_KEY = re.compile(r"^[ \t]*(?:-[ \t]+)?[\"']?([\w.\-]{1,80})[\"']?[ \t]*:")
 AGENT_ACTION = re.compile(rf"^[ \t]*(?:-[ \t]+)?uses[ \t]*:[ \t]*[\"']?(?:{alternation(ACTIONS)})", re.I)
 SPACES = re.compile(r"\s+")
@@ -60,38 +77,186 @@ def file_kind(display: str) -> str:
     return Path(name).suffix
 
 
-def logical_start(text: str, lines: Lines, n: int) -> int:
-    """Where line n's command starts: back through lines that end with a continuation."""
-    first = n
-    while first > 1 and n - first < CONTINUED_LINES:
-        start, end = lines.span(first - 1)
-        if not text[start:end].rstrip().endswith(CONTINUATION):
-            break
-        first -= 1
-    return lines.span(first)[0]
+class Brackets:
+    """Open brackets enclosing an offset, from one forward pass (restarted when it goes back)."""
+
+    def __init__(self, text: str):
+        self.text, self.cursor, self.opens = text, 0, []
+
+    def at(self, pos: int) -> list[int]:
+        if pos < self.cursor:
+            self.cursor, self.opens = 0, []
+        for m in BRACKETS.finditer(self.text, self.cursor, pos):
+            if m.group(0) in "([{":
+                if len(self.opens) < MAX_OPEN_BRACKETS:
+                    self.opens.append(m.start())
+            elif self.opens:
+                self.opens.pop()
+        self.cursor = pos
+        return self.opens
 
 
-def in_command(text: str, lines: Lines, n: int, m, cli, cli_first: bool) -> bool:
-    """Whether the CLI is the command of the simple command that holds the flag (split at &&, ||,
-    ;, |, & and line breaks that are not continued), so `npm install -g @google/gemini-cli &&
-    apt-get install -y jq` or `deno run --allow-all x.ts && codex exec ...` does not count."""
-    begin = max(logical_start(text, lines, n), m.start() - COMMAND_WINDOW)
-    seps = [s.end() for s in SEPARATOR.finditer(text, begin, m.start())]
-    start, end = seps[-1] if seps else begin, lines.span(n)[1]
-    after = SEPARATOR.search(text, m.end(), end)
-    stop = m.start() if cli_first else (after.start() if after else end)
-    return any(command_position(text[start:c.start()]) for c in cli.finditer(text, start, stop))
+def install_argument(before: str) -> bool:
+    """Whether a CLI after `before` (its simple command up to it) is an argument of an install
+    command: `npm install -g @google/gemini-cli`, `pip install qwen`, `brew install gemini-cli`."""
+    words = [w.strip("\"'[](),").rsplit("/", 1)[-1] for w in before.split()]
+    tool = next((i for i, w in enumerate(words) if w in INSTALL_TOOLS), -1)
+    return tool >= 0 and any(w in INSTALL_VERBS for w in words[tool + 1:])
 
 
-def list_item(text: str, at: int, cli) -> bool:
-    """Whether the flag at `at` is an item of a list whose first item is the CLI, written over
-    several lines (`[\n    "gemini",\n    "--yolo",\n]`): the nearest unclosed bracket before it."""
-    lo = max(0, at - LIST_WINDOW)
-    i = max(text.rfind("[", lo, at), text.rfind("(", lo, at))
-    if i < 0 or "]" in text[i:at] or ")" in text[i:at]:
+class Gate:
+    """Whether a gated flag (--yolo, --allow-all-tools, --allow-all, -y) belongs to a CLI that
+    takes it. Everything is computed once per file and looked up per flag: line continuations,
+    separators, CLI positions, the objects and YAML mappings whose command is the CLI."""
+
+    def __init__(self, text: str, lines: Lines, kind: str, cli, quoted, cli_first: bool):
+        self.text, self.lines, self.kind = text, lines, kind
+        self.cli_first = cli_first
+        sep = JSON_SEPARATOR if kind == ".json" else SEPARATOR
+        self.seps = [(m.start(), m.end()) for m in sep.finditer(text)]
+        self.sep_starts = [s for s, _ in self.seps]
+        self.clis = [(m.start(), m.end()) for m in cli.finditer(text)]
+        self.cli_starts = [s for s, _ in self.clis]
+        self.quoted = [m.start() for m in quoted.finditer(text)]
+        self.install: dict[int, bool] = {}
+        self.first: list[int] | None = None   # first line of each line's logical command
+        self.last: list[int] | None = None    # last line of each line's logical command
+        self.per_command: dict[int, int] = {}
+        self.brackets = Brackets(text)
+        self._objects: set[int] | None = None   # `{` of objects whose command is the CLI
+        self._mappings: list[int] | None = None  # YAML mapping of each line
+        self._command_maps: set[int] = set()
+        self._pushed: dict[str, bool] = {}
+
+    def logical(self, n: int) -> tuple[int, int]:
+        """The first and last line of line n's logical command (lines joined by continuations)."""
+        if self.first is None:
+            text, count = self.text, len(self.lines.breaks) + 1
+            cont = [text[slice(*self.lines.span(k))].rstrip().endswith(CONTINUATION) for k in range(1, count + 1)]
+            self.first, self.last = [0] * (count + 2), [0] * (count + 2)
+            for k in range(1, count + 1):
+                self.first[k] = self.first[k - 1] if k > 1 and cont[k - 2] else k
+            for k in range(count, 0, -1):
+                self.last[k] = self.last[k + 1] if k < count and cont[k - 1] else k
+        return self.first[n], self.last[n]
+
+    def counts(self, n: int, start: int, end: int) -> bool:
+        return self.in_command(n, start, end) or self.listed(start) or self.in_object(start) \
+            or self.in_mapping(n) or self.pushed(start)
+
+    def in_command(self, n: int, start: int, end: int) -> bool:
+        """The CLI is a word of the simple command that holds the flag (split at &&, ||, ;, | and
+        line breaks that are not continued; in JSON also at string quotes), and not an argument
+        of an install command. For -y the CLI must come before the flag."""
+        first, last = self.logical(n)
+        lo, hi = self.lines.span(first)[0], self.lines.span(last)[1]
+        seen = self.per_command.get(lo, 0) + 1
+        self.per_command[lo] = seen
+        if seen > MAX_PER_COMMAND:
+            return False
+        k = bisect.bisect_left(self.sep_starts, start)
+        begin = max(lo, self.seps[k - 1][1] if k else 0)
+        stop = start if self.cli_first else min(hi, self.sep_starts[k] if k < len(self.sep_starts) else hi)
+        i = bisect.bisect_left(self.cli_starts, begin)
+        for c, ce in self.clis[i:i + CLI_CANDIDATES]:
+            if c >= stop:
+                return False
+            if begin <= c and not (start <= c < end):
+                if c not in self.install:
+                    self.install[c] = install_argument(self.text[max(begin, c - INSTALL_LOOKBACK):c])
+                if not self.install[c]:
+                    return True
         return False
-    head = LIST_HEAD.match(text, i + 1)
-    return bool(head and cli.fullmatch(head.group(1)))
+
+    def listed(self, start: int) -> bool:
+        """A gated CLI is a quoted item before the flag in the list that holds it, or in the call
+        that list is an argument of (`spawn("gemini", [\n  "--yolo"])`)."""
+        opens = self.brackets.at(start)
+        if not opens:
+            return False
+        lo = opens[-2] if len(opens) >= 2 and self.text[opens[-2]] == "(" else opens[-1]
+        i = bisect.bisect_right(self.quoted, lo)
+        return i < len(self.quoted) and self.quoted[i] < start
+
+    def in_object(self, start: int) -> bool:
+        """The innermost object holding the flag has `"command": "gemini"` (JSON, Zed agent_servers)."""
+        if self._objects is None:
+            self._objects = set()
+            stack = Brackets(self.text)
+            for m in COMMAND_KEY.finditer(self.text):
+                braces = [o for o in stack.at(m.start()) if self.text[o] == "{"]
+                if braces:
+                    self._objects.add(braces[-1])
+        if not self._objects:
+            return False
+        braces = [o for o in self.brackets.at(start) if self.text[o] == "{"]
+        return bool(braces) and braces[-1] in self._objects
+
+    def in_mapping(self, n: int) -> bool:
+        """In YAML, the mapping that holds line n has `command: gemini` (or `command: [gemini]`,
+        `command:` then `- gemini`): compose services, Kubernetes containers, agent configs."""
+        if self.kind not in (".yml", ".yaml"):
+            return False
+        if self._mappings is None:
+            self._mappings = self.yaml_mappings()
+        return 0 < n < len(self._mappings) and self._mappings[n] in self._command_maps
+
+    def yaml_mappings(self) -> list[int]:
+        """The mapping id of each line, in one pass with a stack of (key column, mapping id, last
+        key) per indentation level; ids of mappings whose command is the CLI go to _command_maps."""
+        rows = self.text.split("\n")
+        ids, stack, next_id = [0] * (len(rows) + 1), [], 1
+        for n, line in enumerate(rows, 1):
+            body = line.lstrip()
+            if not body or body.startswith("#"):
+                ids[n] = stack[-1][1] if stack else 0
+                continue
+            m = YAML_ENTRY.match(line)
+            indent, item, key = len(m.group(1)), bool(m.group(2)), m.group(3)
+            col = indent + (len(m.group(2)) if item else 0)
+            if key:
+                while stack and (stack[-1][0] > col or (item and stack[-1][0] >= col)):
+                    stack.pop()
+                if not stack or stack[-1][0] != col:
+                    stack.append([col, next_id, ""])
+                    next_id += 1
+                stack[-1][2] = key.lower()
+                if key.lower() in COMMAND_KEYS and COMMAND_KEY.search(line):
+                    self._command_maps.add(stack[-1][1])
+            else:
+                while stack and stack[-1][0] > indent:
+                    stack.pop()
+                if item and stack and stack[-1][2] in COMMAND_KEYS and GATED_CLI.match(body[2:].lstrip(" \t\"'[")):
+                    self._command_maps.add(stack[-1][1])
+            ids[n] = stack[-1][1] if stack else 0
+        return ids
+
+    def pushed(self, start: int) -> bool:
+        """`NAME.push('--yolo')` (or append, `NAME += [...]`) and later in the file a spawn, exec
+        or subprocess call that passes NAME next to a gated CLI."""
+        text = self.text
+        m = PUSHED_REVERSED.match(text[max(0, start - 120):start][::-1])
+        if not m:
+            return False
+        name = m.group(1)[::-1]
+        if name not in self._pushed:
+            self._pushed[name] = self.spawned(name, start)
+        return self._pushed[name]
+
+    def spawned(self, name: str, after: int) -> bool:
+        text, pos = self.text, after
+        for _ in range(NAME_USES):
+            at = text.find(name, pos)
+            if at < 0:
+                return False
+            pos = at + len(name)
+            if (at and (text[at - 1].isalnum() or text[at - 1] in "_$")) or (pos < len(text) and (text[pos].isalnum()
+                                                                                                or text[pos] in "_$")):
+                continue
+            window = text[max(0, at - SPAWN_WINDOW):at + SPAWN_WINDOW]
+            if SPAWN.search(window) and GATED_CLI.search(window):
+                return True
+        return False
 
 
 def agent_key(line: str) -> bool:
@@ -154,7 +319,8 @@ class PermissionFlags:
     """Bypass flags and settings written as text in any file in the folder, except Markdown.
 
     Raw text, not parsed facts: these flags appear in shell scripts, workflows, code and
-    config of every kind. A flag that is only mentioned (see mentions.py) is not reported.
+    config of every kind. A flag that is only mentioned (see mentions.py for the few structural
+    cases) is not reported; anything else is, erring toward reporting.
     Files on this machine are read structurally only."""
     name = "permission-flags"
     emits = ("AP01", "AP02")
@@ -172,10 +338,11 @@ class PermissionFlags:
         perms = doc.permissions
         structural = doc.line_of(("permissions", "defaultMode")) \
             if perms is not None and perms.default_mode == "bypassPermissions" else 0
-        mentions = Mentions(text, kind)
+        mentions = Mentions(text, kind, settings="settings" in src.display.rsplit("/", 1)[-1].lower())
         steps: list[tuple[int, int]] | None = None
         for rx in patterns:
-            gate = GATES.get(rx)
+            gate_args = GATES.get(rx)
+            gate: Gate | None = None
             per_line: dict[int, int] = {}
             comment_at: dict[int, int] = {}  # computed once per line, not per match
             for m in rx.finditer(text):
@@ -191,14 +358,17 @@ class PermissionFlags:
                                              else comment_start(line, markers) if markers else len(line))
                 if m.start() >= comment_at[n] or (rx is INLINE_DEFAULT_MODE and n == structural):
                     continue
-                if gate and not (in_command(text, lines, n, m, *gate) or list_item(text, m.start(), gate[0])):
-                    if kind not in (".yml", ".yaml"):
-                        continue
-                    if steps is None:
-                        steps = agent_action_steps(text)
-                    if not (agent_key(text[start:end]) or in_steps(steps, n)):
-                        continue
-                if mentions.is_mention(start, text[start:end], n, m.start(), m.end()):
+                if gate_args:
+                    if gate is None:
+                        gate = Gate(text, lines, kind, *gate_args)
+                    if not gate.counts(n, m.start(), m.end()):
+                        if kind not in (".yml", ".yaml"):
+                            continue
+                        if steps is None:
+                            steps = agent_action_steps(text)
+                        if not (agent_key(text[start:end]) or in_steps(steps, n)):
+                            continue
+                if mentions.is_mention(start, text[start:comment_at[n]], n, m.start(), m.end()):
                     continue
                 detail = "defaultMode: bypassPermissions" if rx is INLINE_DEFAULT_MODE else \
                     "-y (--yolo)" if rx is SHORT_YOLO else " ".join(m.group(0).split())

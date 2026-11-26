@@ -44,7 +44,7 @@ found. It doesn't mean the agent is secure; for that, use the
 
 ### AP01: Agent runs with all permission checks turned off
 
-**Looks like:** `claude --dangerously-skip-permissions`, `--permission-mode bypassPermissions`, `"defaultMode": "bypassPermissions"`, `permission_mode="bypassPermissions"` in SDK code, `codex --dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access`, `sandbox_mode = "danger-full-access"` (`sandboxMode` in the Codex SDK, `sandbox: danger-full-access` in openai/codex-action), `gemini --yolo`, `gemini -y` or `--approval-mode yolo`.
+**Looks like:** `claude --dangerously-skip-permissions`, `--permission-mode bypassPermissions`, `"defaultMode": "bypassPermissions"`, `permission_mode="bypassPermissions"` in SDK code, `codex --dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access`, `sandbox_mode = "danger-full-access"` (`sandboxMode` in the Codex SDK, `sandbox: danger-full-access` in openai/codex-action), `gemini --yolo`, `gemini -y`, `--approval-mode yolo`, `crush -y` or `copilot --allow-all-tools`.
 
 **Why it's dangerous:** Every tool call runs without anyone approving it, including shell commands, file deletes and network requests. One injected instruction in a README, issue, dependency or web page can then run any command as you, with your SSH keys, cloud credentials and browser cookies within reach.
 

@@ -1,11 +1,25 @@
 """Whether a bypass flag in text is only mentioned, not passed to an agent.
 
-A flag is a mention only on positive evidence that it is not being passed: it is inside a
-docstring or block comment, inside a string that is prose, compared or searched for, inside
-a regular expression, or an item of a list named as a deny-list. Anything else counts,
-including a lone quoted flag in an argument list. Every look-around is bounded, so the cost
-per flag is constant, and each per-file pass (Regions, YAML parents) looks at each character
-a bounded number of times.
+The scanner errs toward reporting: every heuristic that guessed a flag was "only mentioned"
+from its wording (prose, refusal words, names) was beaten in one direction or the other, and a
+missed bypass costs more than a false positive, which an inline mark or the ignore file
+silences. So a flag is a mention only in these structural cases:
+
+(a) inside a comment, docstring or block comment (comments are found by the caller; docstrings
+    and block comments here, with a string-aware tokenizer);
+(b) Markdown files are never read (the caller skips them);
+(c) a quoted literal directly compared or searched for (`== "--flag"`, `"--flag" in x`,
+    `.includes("--flag")`), an argument of grep, a shell `case` pattern, a JS `case '--flag':`
+    label, the right side of a test in `[[ ]]`, `[ ]` or `test`, or a regular expression;
+(d) a value under Claude Code settings' `permissions.deny` or `permissions.ask` in a JSON or
+    YAML settings file;
+(e) an item of a list assigned to a name whose last word refuses its items (`BLOCKED`,
+    `deny`, `forbidden`), when the list names no agent CLI and the name is used in the file only
+    for membership tests (`x in NAME`, `NAME.includes(x)`).
+
+Anything else counts, including help text, prompts and error messages that name the flag.
+Every look-around is bounded, and each per-file pass looks at each character a bounded
+number of times.
 """
 from __future__ import annotations
 
@@ -13,45 +27,39 @@ import bisect
 import re
 
 from ..agents import AGENT_COMMAND, command_position
-from ..limits import MAX_OPEN_BRACKETS, MAX_PROSE
+from ..limits import MAX_OPEN_BRACKETS
 
 HEAD = 200             # characters before a list's opening bracket searched for its name
+LIST_SPAN = 4000       # characters after a list's opening bracket searched for its end
+NAME_USES = 50         # uses of a deny-list's name checked; a name used more often is not a deny-list
 BRACKETS = re.compile(r"[()\[\]{}]")
-# A name that says its list is refused: its last word is a deny word (`BLOCKED`, `deny`,
-# `ask` in Claude Code settings), or its last two are a deny word and a noun for the items
-# (`BLOCKED_FLAGS`, `denyList`, `disallowed-tools`). `UNSAFE_ARGS`, `dangerousFlags`, `guard_cmd`
-# or `blocks` name what is passed, not refused.
+CLOSER = {"(": ")", "[": "]", "{": "}"}
+# A name that says its list is refused: its last word is a deny word. `BLOCKED_FLAGS` (last word
+# `flags`), `UNSAFE_ARGS`, `guard_cmd` or `blocks` do not qualify.
 NAME_PART = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+")
-DENY_PART = re.compile(r"(?i)(?:blocked|blocklist(?:ed)?|deny|denied|denylist|forbid(?:den|s)?|bans?|banned|"
-                       r"disallow(?:ed|s)?|reject(?:ed|s)?|blacklist(?:ed)?|ask)")
-DENY_NOUNS = frozenset("flags flag args arguments tools commands cmds options opts patterns items list set words values"
-                       .split())
+DENY_PART = re.compile(r"(?i)(?:block|blocked|blocklist|deny|denied|denylist|forbid|forbidden|ban|banned|"
+                       r"disallow|disallowed|reject|rejected)")
+SETTINGS_DENY = frozenset(("deny", "ask"))  # keys under Claude Code settings' `permissions`
 # A name assigned or keyed just before the list opens (`BLOCKED: list[str] = [`, `"deny": [`,
 # `const DENY = new Set([`), matched on the reversed text so the match is anchored.
 ASSIGNED_REVERSED = re.compile(r"^[ \t]{0,20}(?:\([ \t]{0,20}\w{1,40}(?:[ \t]{1,20}wen)?[ \t]{0,20})?"
                                r"(?:=[ \t]{0,20}(?:[^=:\n\"']{0,80}:)?|:)[ \t]{0,20}[\"']?([\w$-]{1,80})")
 MEMBERSHIP = re.compile(r"\bin[ \t]{0,20}$")
 FOR_LOOP = re.compile(r"\bfor\b")  # `for flag in [...]` passes each item; it is not a membership test
+ANY_ALL = re.compile(r"\b(?:any|all)[ \t]{0,20}\(")  # `any(f in cmd for f in NAME)`: a membership test
+MEMBER_AFTER = re.compile(r"[ \t]{0,20}\.(?:includes|has|contains|indexOf|__contains__)\(")
 COMPARED_AFTER = re.compile(r"[ \t]{0,20}(?:not[ \t]{1,20}in\b|in\b|[!=]==?)")
-COMPARED_BEFORE = re.compile(r"(?:[!=]==?|\.(?:includes|contains|has|indexOf|startswith|startsWith)\(|"
-                             r"\bre\.\w{1,12}\(|\bRegExp\()[ \t]*[rRbB]?$")
+COMPARED_BEFORE = re.compile(r"(?:[!=]==?|\.(?:includes|contains|has|indexOf|startswith|startsWith|endswith|"
+                             r"endsWith)\(|\bre\.\w{1,12}\(|\bRegExp\()[ \t]*[rRbB]?$")
 # Tests of the flag rather than uses of it, in the flag's own simple command: an argument of a
-# search tool (`grep -q -- "--flag"`), a `case` pattern (`--flag)`), or the right side of a
-# comparison in `[[ ]]`, `[ ]` or `test` (`[[ "$*" == *--flag* ]]`).
+# search tool (`grep -q -- "--flag"`), a `case` pattern (`--flag)`), a JS `case "--flag":` label,
+# or the right side of a comparison in `[[ ]]`, `[ ]` or `test` (`[[ "$*" == *--flag* ]]`).
 SEARCHED = re.compile(r"(?<![\w-])(?:grep|egrep|fgrep|rg|ag|ack|findstr|Select-String)(?![\w-])", re.I)
 CASE_BEFORE = re.compile(r"(?:^|\bin)[ \t*\"']*$")
 CASE_AFTER = re.compile(r"[*\"']{0,3}[ \t]{0,20}\)")
+JS_CASE_BEFORE = re.compile(r"\bcase[ \t]{1,20}[\"'`]$")
+JS_CASE_AFTER = re.compile(r"[\"'`][ \t]{0,20}:")
 TESTED = re.compile(r"(?:\[\[?|\btest)[ \t][^\n]{0,200}?(?:==|!=|=~|=)[ \t]*[\"'*]*$")
-# Words that refuse the flag: a sentence with one is about the flag even when it names the agent,
-# unless the string is itself a command (it starts with the agent in command position).
-REFUSAL = re.compile(r"(?i)\b(?:never|don'?t|do not|refus(?:e|es|ed|ing)|not allowed|forbidden|blocked|must not)\b")
-FLAG_TOKEN = re.compile(r"(?<![\w-])--?[A-Za-z][\w-]*")
-EXPANSION = re.compile(r"\$[\w{(]|`")  # `$AGENT`, `${X}`, `$(...)`: a command line built from parts
-# Words of prose that a command line rarely holds.
-PROSE_WORDS = frozenset("a an the to not never no do don't dont is are be use using pass passing with without this that "
-                        "these here only refuse refusing refused avoid must should if when or and of for in on we you it "
-                        "disallowed blocked forbidden allowed unsafe dangerous".split())
-YAML_PLAIN = re.compile(r"^[ \t]*(?:-[ \t]+)?[\"']?[\w.\-]{1,80}[\"']?[ \t]*:[ \t]+(?![\"'|>\[{])")
 YAML_KEY = re.compile(r"^[ \t]*(?:-[ \t]+)?[\"']?([\w.\-]{1,80})[\"']?[ \t]*:[ \t]*(?:#.*)?$")
 TRIPLE = re.compile(r"\"\"\"|'''")
 BLOCK_COMMENT_EXT = {".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".go", ".rs", ".java", ".kt",
@@ -60,6 +68,7 @@ BLOCK_COMMENT_EXT = {".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts
 # kinds; Kotlin, Java text blocks and Scala have """.
 TRIPLE_QUOTES = {".groovy": ('"""', "'''"), ".kt": ('"""',), ".java": ('"""',), ".scala": ('"""',)}
 REGEX_LITERAL_EXT = {".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".rb"}
+STRUCTURED_EXT = {".json", ".jsonc", ".yml", ".yaml"}  # where settings keys and deny-list keys are read
 
 
 # Tokens outside strings in C-like files: a block or line comment, or a string's opening quote
@@ -265,6 +274,8 @@ def opens_docstring(text: str, line_start: int) -> bool:
     return False
 
 
+
+
 def string_spans(line: str) -> list[tuple[int, int]]:
     """(open quote, close quote) of each quoted string on a line; an unclosed one runs to the end."""
     spans, quote, opened, i = [], "", 0, 0
@@ -292,23 +303,14 @@ def string_around(spans: list[tuple[int, int]], start: int, end: int) -> tuple[i
     return None
 
 
-def prose(s: str, flag: str) -> bool:
-    """A sentence about the flag, not a command line: plain words, and no other flag or agent
-    command, and nothing expanded: `npx @anthropic-ai/claude-code <flag> "fix the tests"` and
-    `$AGENT <flag> on the repo` are command lines, not prose."""
-    rest = s.replace(flag, " ")
-    if AGENT_COMMAND.search(rest) or FLAG_TOKEN.search(rest) or EXPANSION.search(rest):
-        return False
-    return any(w.lower().strip(".,;:!?()") in PROSE_WORDS for w in rest.split())
-
-
 def tested(before: str, after: str) -> bool:
     """Whether the flag is searched for or compared, not passed (see SEARCHED, CASE_*, TESTED);
     `before` is its line up to the flag, `after` what follows it."""
     window = before[-HEAD * 5:]
     command = window[max(window.rfind("&"), window.rfind(";"), window.rfind("|")) + 1:]
     return bool(SEARCHED.search(command) or TESTED.search(command)
-                or (CASE_AFTER.match(after) and CASE_BEFORE.search(command)))
+                or (CASE_AFTER.match(after) and CASE_BEFORE.search(command))
+                or (JS_CASE_AFTER.match(after) and JS_CASE_BEFORE.search(window)))
 
 
 def runs_agent(line: str) -> bool:
@@ -316,14 +318,6 @@ def runs_agent(line: str) -> bool:
     agent = AGENT_COMMAND.search(line, 0, HEAD)
     before = line[:agent.start()] if agent else ""
     return bool(agent) and not any(c in before for c in "\"'`([{,*") and command_position(before)
-
-
-def refused(body: str) -> bool:
-    """A sentence that refuses the flag (`refusing to run claude with --flag`), not a command."""
-    if not REFUSAL.search(body):
-        return False
-    agent = AGENT_COMMAND.search(body)
-    return not (agent and command_position(body[:agent.start()]))
 
 
 def in_regex(line: str, start: int, end: int) -> bool:
@@ -336,57 +330,71 @@ def in_regex(line: str, start: int, end: int) -> bool:
 
 
 def deny_name(name: str) -> bool:
-    """A name that says its items are refused (see DENY_PART)."""
+    """A name whose last word says its items are refused (see DENY_PART)."""
     parts = NAME_PART.findall(name[:80])
-    return bool(parts) and bool(DENY_PART.fullmatch(parts[-1]) or (
-        len(parts) > 1 and DENY_PART.fullmatch(parts[-2]) and parts[-1].lower() in DENY_NOUNS))
+    return bool(parts) and bool(DENY_PART.fullmatch(parts[-1]))
 
 
-def deny_list(text: str, opens: list[int]) -> bool:
-    """An item of a list, set or call whose assigned name or key reads as a deny-list, or that
-    is tested for membership (`x in (...)`, not `for x in (...)`). `opens` are the brackets
-    that enclose the item, innermost last."""
-    for at in reversed(opens[-3:]):  # `frozenset({` and `new Set([` open twice
-        head = text[max(text.rfind("\n", max(0, at - HEAD), at) + 1, at - HEAD):at]
-        if MEMBERSHIP.search(head) and not FOR_LOOP.search(head):  # `if arg in ("--x", "--dangerously-skip-permissions"):`
+def head_name(text: str, at: int) -> str | None:
+    """The name assigned or keyed just before the bracket at `at`, if any."""
+    head = text[max(text.rfind("\n", max(0, at - HEAD), at) + 1, at - HEAD):at]
+    m = ASSIGNED_REVERSED.match(head[::-1])
+    return m.group(1)[::-1] if m else None
+
+
+def list_end(text: str, at: int) -> int:
+    """The offset of the bracket that closes the one at `at`, or -1 past LIST_SPAN characters."""
+    depth = 0
+    for m in BRACKETS.finditer(text, at, min(len(text), at + LIST_SPAN)):
+        depth += 1 if m.group(0) in "([{" else -1
+        if not depth:
+            return m.start()
+    return -1
+
+
+def membership_use(text: str, at: int, end: int) -> bool:
+    """Whether the use of a name at at..end is a membership test: `x in NAME` (not a `for` loop,
+    unless inside `any(`/`all(`), or `NAME.includes(x)`, `.has(`, `.contains(`."""
+    if MEMBER_AFTER.match(text, end):
+        return True
+    line = text[max(text.rfind("\n", max(0, at - HEAD), at) + 1, at - HEAD):at]
+    if not MEMBERSHIP.search(line):
+        return False
+    return not FOR_LOOP.search(line) or bool(ANY_ALL.search(line))
+
+
+def only_membership(text: str, name: str, assigned: int) -> bool:
+    """Every use of `name` in the file other than its assignment (the one ending near `assigned`)
+    is a membership test; a name used more than NAME_USES times is not checked and does not count."""
+    if not name or not (name[0].isalpha() or name[0] in "_$"):
+        return False
+    pos, uses = 0, 0
+    while True:
+        at = text.find(name, pos)
+        if at < 0:
             return True
-        m = ASSIGNED_REVERSED.match(head[::-1])
-        if m:
-            return deny_name(m.group(1)[::-1])
-        if not head.rstrip().endswith(("(", "[", "{")):
-            return False
-    return False
-
-
-def yaml_deny_items(text: str) -> set[int]:
-    """Line numbers (1-based) of YAML list items under a key that reads as a deny-list, found in
-    one pass with a stack of the keys enclosing each line (one entry per indentation level, so
-    its size is bounded by the line's indentation). An item's key is the nearest line above it
-    that is indented less, or as much but is not itself an item."""
-    items: set[int] = set()
-    stack: list[tuple[int, bool, bool]] = []  # (indent, is an item, is a deny-list key)
-    for n, line in enumerate(text.split("\n"), 1):
-        body = line.lstrip()
-        if not body or body.startswith("#"):
+        end, pos = at + len(name), at + len(name)
+        if (at and (text[at - 1].isalnum() or text[at - 1] in "_$")) or (end < len(text) and
+                                                                         (text[end].isalnum() or text[end] in "_$")):
             continue
-        indent, item = len(line) - len(body), body.startswith("- ")
-        while stack and (stack[-1][0] > indent or (stack[-1][0] == indent and (stack[-1][1] or not item))):
-            stack.pop()
-        if item and stack and stack[-1][2]:
-            items.add(n)
-        key = YAML_KEY.match(line)
-        stack.append((indent, item, bool(key and deny_name(key.group(1)))))
-    return items
+        if assigned - HEAD <= at < assigned:  # the assignment itself
+            continue
+        uses += 1
+        if uses > NAME_USES or not membership_use(text, at, end):
+            return False
 
 
 class Mentions:
     """Answers is_mention() for the flags found in one file."""
 
-    def __init__(self, text: str, suffix: str):
-        self.text, self.suffix = text, suffix
+    def __init__(self, text: str, suffix: str, settings: bool = False):
+        """`settings`: the file is a settings file (rule (d) applies)."""
+        self.text, self.suffix, self.settings = text, suffix, settings
         self.yaml = suffix in (".yml", ".yaml")
+        self.structured = suffix in STRUCTURED_EXT
         self._regions: Regions | None = None
-        self._deny_items: set[int] | None = None  # YAML list items under a deny-list key
+        self._yaml_items: set[int] | None = None  # YAML list items that are mentions under (d) or (e)
+        self._lists: dict[int, bool] = {}       # opening bracket -> its items are mentions
         self._cursor, self._opens = 0, []
         self._spans: tuple[int, list] = (0, [])  # the quoted strings of the last line looked at
 
@@ -404,39 +412,103 @@ class Mentions:
         return self._opens
 
     def is_mention(self, line_start: int, line: str, n: int, start: int, end: int) -> bool:
-        """`line` is the text of line n (1-based) starting at offset line_start; start..end is the flag."""
+        """`line` is the text of line n (1-based, its trailing comment removed) starting at offset
+        line_start; start..end is the flag."""
         if self._regions is None:
             self._regions = Regions(self.text, self.suffix)
         if self._regions.inside(start):
             # A block comment never hides a line that runs an agent: if the tokenizer misread a
             # string as opening one, that line is still code.
             return not (self._regions.comments and runs_agent(line))
-        s, e, flag = start - line_start, end - line_start, self.text[start:end]
+        s, e = start - line_start, end - line_start
         if tested(line[:s], line[e:e + HEAD]):
             return True
         if self._spans[0] != n:
             self._spans = (n, string_spans(line))
         span = string_around(self._spans[1], s, e)
-        plain = YAML_PLAIN.match(line) if self.yaml and span is None else None
-        if plain:
-            return prose(line[plain.end():], flag)
         if span is None:
             return (self.suffix in REGEX_LITERAL_EXT and in_regex(line, s, e)) or self.yaml_listed(n)
-        body = line[span[0] + 1:span[1]]
-        return (len(body) <= MAX_PROSE and (prose(body, flag) or refused(body))) \
-            or bool(COMPARED_AFTER.match(line, span[1] + 1)) \
+        return bool(COMPARED_AFTER.match(line, span[1] + 1)) \
             or bool(COMPARED_BEFORE.search(line[max(0, span[0] - HEAD):span[0]].rstrip())) \
             or self.listed(n, start, line_start + span[0])
 
     def yaml_listed(self, n: int) -> bool:
-        """Line n is an item of a YAML list under a deny-list key, quoted or not."""
+        """Line n is an item of a YAML list that is a mention under (d) or (e), quoted or not."""
         if not self.yaml:
             return False
-        if self._deny_items is None:
-            self._deny_items = yaml_deny_items(self.text)
-        return n in self._deny_items
+        if self._yaml_items is None:
+            self._yaml_items = yaml_mention_items(self.text, self.settings)
+        return n in self._yaml_items
 
     def listed(self, n: int, start: int, opened: int) -> bool:
-        """An item of a deny-list; brackets inside the flag's own string (opened at `opened`, such
-        as `"Bash(claude --flag:*)"`) do not enclose it."""
-        return self.yaml_listed(n) or deny_list(self.text, [o for o in self.enclosing(start) if o < opened])
+        """An item of a list that is a mention under (d) or (e); brackets inside the flag's own
+        string (opened at `opened`, such as `"Bash(claude --flag:*)"`) do not enclose it."""
+        if self.yaml_listed(n):
+            return True
+        opens = [o for o in self.enclosing(start) if o < opened]
+        if not opens:
+            return False
+        inner = opens[-1]
+        if inner not in self._lists:
+            self._lists[inner] = self.mention_list(opens)
+        return self._lists[inner]
+
+    def mention_list(self, opens: list[int]) -> bool:
+        """Whether the items of the innermost list in `opens` are mentions: the list is tested
+        for membership (`x in (...)`, not `for x in (...)`), or it is (d) or (e)."""
+        text = self.text
+        for at in reversed(opens[-3:]):  # `frozenset({` and `new Set([` open twice
+            head = text[max(text.rfind("\n", max(0, at - HEAD), at) + 1, at - HEAD):at]
+            if MEMBERSHIP.search(head) and not FOR_LOOP.search(head):  # `if arg in ("--x", "--flag"):`
+                return True
+            name = head_name(text, at)
+            if name:
+                return self.named_list(opens, at, name.strip("\"'"))
+            if not head.rstrip().endswith(("(", "[", "{")):
+                return False
+        return False
+
+    def named_list(self, opens: list[int], at: int, name: str) -> bool:
+        """(d) or (e) for the list opened at `at` and assigned to `name`."""
+        text = self.text
+        if self.structured and self.settings and name in SETTINGS_DENY:
+            outer = [o for o in opens if o < at]
+            if outer and (head_name(text, outer[-1]) or "").strip("\"'") == "permissions":
+                return True  # (d)
+        if not deny_name(name):
+            return False
+        close = list_end(text, at)
+        if close < 0 or AGENT_COMMAND.search(text, at, close):
+            return False
+        return self.structured or only_membership(text, name, at)  # (e)
+
+
+def yaml_mention_items(text: str, settings: bool) -> set[int]:
+    """Line numbers (1-based) of YAML list items under a key that is (d) `permissions.deny` or
+    `.ask` in a settings file, or (e) a deny-list name whose items name no agent CLI. Found in one
+    pass with a stack of the keys enclosing each line (one entry per indentation level). An item's
+    key is the nearest line above it that is indented less, or as much but is not itself an item."""
+    items: set[int] = set()
+    groups: dict[int, list] = {}  # key line -> [deny-list key, items, an item names an agent]
+    stack: list[tuple[int, bool, str, int]] = []  # (indent, is an item, key, key line)
+    for n, line in enumerate(text.split("\n"), 1):
+        body = line.lstrip()
+        if not body or body.startswith("#"):
+            continue
+        indent, item = len(line) - len(body), body.startswith("- ")
+        while stack and (stack[-1][0] > indent or (stack[-1][0] == indent and (stack[-1][1] or not item))):
+            stack.pop()
+        if item and stack and stack[-1][3] in groups:
+            group = groups[stack[-1][3]]
+            group[1].append(n)
+            group[2] = group[2] or bool(AGENT_COMMAND.search(line))
+        key = YAML_KEY.match(line)
+        name = key.group(1) if key else ""
+        if name and (deny_name(name) or (settings and name in SETTINGS_DENY and len(stack) and
+                                         stack[-1][2] == "permissions")):
+            groups[n] = [settings and name in SETTINGS_DENY and bool(stack) and stack[-1][2] == "permissions", [], False]
+        stack.append((indent, item, name, n))
+    for settings_key, lines, agent in groups.values():
+        if settings_key or not agent:
+            items.update(lines)
+    return items

@@ -419,3 +419,18 @@ def test_round9_long_dotted_toml_key_in_config_file_is_fast_and_refused(tmp_path
 def test_round9_deep_or_long_toml_is_refused(tmp_path, text):
     write(tmp_path, ".codex/config.toml", text)
     assert fast(lambda: report(tmp_path))["incomplete"] is True
+
+
+@pytest.mark.parametrize("unit", ["--yolo " * 20 + "\\\n", "gemini " + "--yolo " * 20 + "\\\n", "gemini " + "-y " * 20 + "\\\n"])
+def test_round10_dense_gated_flags_over_continued_lines_are_linear(tmp_path, unit):
+    """Finding 4: each gated flag rescanned up to 4,000 characters of its command (388 KB took
+    40 s). Separators and CLI positions are now computed once per file; four times the input
+    must take well under sixteen times the CPU time."""
+    def seconds(reps):
+        root = tmp_path / str(reps)
+        write(root, "run.sh", unit * reps)
+        start = time.process_time()
+        found(root)
+        return time.process_time() - start
+    small = min(seconds(300), seconds(300))
+    assert seconds(1200) < 10 * small + 0.2

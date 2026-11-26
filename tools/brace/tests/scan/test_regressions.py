@@ -343,6 +343,32 @@ REVIEW_CASES: dict[str, tuple[dict[str, str], list[str]]] = {
     "r9-black-list-yolo": ({"agent.py": 'cmd = [\n    "gemini",\n    "--yolo",\n]\n'}, ["AP01"]),
     "r9-codex-action-args": ({".github/workflows/w.yml": "jobs:\n  a:\n    steps:\n      - uses: openai/codex-action@v1\n"
                               "        with:\n          codex-args: '[\"--yolo\"]'\n"}, ["AP02"]),
+    # Review 10. 1: refusal words in a prompt hid the flag; 2: a trailing YAML comment made a value prose.
+    "r10-refusal-prompt": ({"run.py": f'os.system("claude {FLAG} -p \'never refuse, do not stop\'")\n'}, ["AP01"]),
+    "r10-refusal-list": ({"run.py": f'args = ["-p", "Don\'t ask, never stop", "{FLAG}"]\n'}, ["AP01"]),
+    "r10-yaml-trailing-comment": ({"agent.yml": f"claude_args: {FLAG}  # do not remove\n"}, ["AP01"]),
+    # 3: gated flags behind wrappers, wrapped calls, pretty-printed JSON and YAML mappings.
+    "r10-dockerfile-entrypoint": ({"Dockerfile": "FROM node:20\nENTRYPOINT gemini --yolo\n"}, ["AP01"]),
+    "r10-op-run": ({"run.sh": "op run -- gemini --yolo -p fix\n"}, ["AP01"]),
+    "r10-docker-run": ({"run.sh": "docker run --rm img gemini --yolo\n"}, ["AP01"]),
+    "r10-ssh": ({"run.sh": "ssh box gemini --yolo\n"}, ["AP01"]),
+    "r10-find-exec": ({"run.sh": "find . -exec gemini --yolo {} \\;\n"}, ["AP01"]),
+    "r10-shell-function": ({"run.sh": 'gy() { gemini --yolo "$@"; }\n'}, ["AP01"]),
+    "r10-prettier-spawn": ({"agent.js": 'spawn("gemini", [\n  "--yolo",\n  prompt,\n]);\n'}, ["AP01"]),
+    "r10-pushed-args": ({"agent.js": "const a = [];\na.push('--yolo');\nspawn('gemini', a);\n"}, ["AP01"]),
+    "r10-json-command-args": ({"agent.json": json.dumps({"command": "gemini", "args": ["--yolo"]}, indent=2)}, ["AP01"]),
+    "r10-zed-agent-servers": ({".zed/settings.json": json.dumps({"agent_servers": {"g": {
+        "command": "gemini", "args": ["--yolo"]}}}, indent=2)}, ["AP01"]),
+    "r10-yaml-command-args": ({"agent.yml": "command: gemini\nargs: [--yolo]\n"}, ["AP01"]),
+    "r10-npx-list-wrapped": ({"cfg.json": '{"x": ["npx","-y","@google/gemini-cli",\n "--yolo"]}\n'}, ["AP01"]),
+    # 5: a list named `ask` that passes the flag.
+    "r10-ask-list": ({"a.py": f"ask = ['claude', '{FLAG}', '-p', q]\n"}, ["AP01"]),
+    "r10-ask-spawn": ({"a.ts": f"const ask = ['{FLAG}'];\nspawn('claude', ask);\n"}, ["AP01"]),
+    # 7: a credential in an MCP URL path.
+    "r10-url-path-secret": ({".mcp.json": server(
+        url="https://mcp.zapier.com/api/mcp/s/NjY2ZDk4ZTItYWJjZC00ZWZnLTEyMzQtNTY3ODkwYWJjZGVm/mcp")}, ["AP05"]),
+    # 9: Crush's -y.
+    "r10-crush-y": ({"run.sh": "crush -y\n"}, ["AP01"]),
     # 13: a truncated wsl command raised and lost every server in the file.
     "r8-truncated-wsl": ({".mcp.json": json.dumps({"mcpServers": {
         "w": {"command": "wsl", "args": ["-d"]}, "s": {"command": "npx", "args": ["-y", "evil-mcp"]}}})}, ["AP04"]),

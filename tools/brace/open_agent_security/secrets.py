@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from .limits import MAX_VALUE
 
@@ -63,8 +64,17 @@ FILE_PATH = re.compile(r"^[\w.\-]{0,200}(?:/[\w.\-]{1,200}){1,20}\.[A-Za-z]{1,6}
 FLAG_ASSIGN = re.compile(r"(?<![\w-])(--?[A-Za-z][\w-]{0,60})=([^\s\"',]{8,2000})")
 # `NAME=value`: an environment assignment (`-e API_TOKEN=...`) or a URL query parameter (`?api_key=...`).
 NAME_ASSIGN = re.compile(r"(?<![\w.\-])([A-Za-z_][\w.\-]{0,60})=([^\s\"',&#;]{8,2000})")
-PLACEHOLDER = re.compile(r"your[-_ ]|example|placeholder|changeme|replace[-_ ]?me|dummy|<[^<>]{0,200}>|\$\{|\{\{|"
-                         r"x{8,}|X{8,}|\*{6,}|0{12,}", re.I)
+PLACEHOLDER = re.compile(r"your[-_ ]|example|placeholder|change[-_ ]?me|replace[-_ ]?me|dummy|insert|[-_]here\b|todo|"
+                         r"xxx|<[^<>]{0,200}>|\$\{|\{\{|\*{6,}|0{12,}", re.I)
+# Values that point at a secret kept elsewhere or at a place, not a credential: an absolute
+# path (`/workspace/project1`, `~/x`, `C:\\x`) or a GCP Secret Manager name.
+NOT_A_CREDENTIAL = re.compile(r"^(?:/|~/|[A-Za-z]:\\)|^projects/[^/\s]{1,200}/secrets/")
+NOT_SECRET_NAMES = frozenset(("pwd", "oldpwd"))  # the shell's working directories
+LIST_WORDS = frozenset(("through", "list", "names", "vars"))  # PASS_THROUGH_ENV, SECRET_NAMES: names, not values
+# A path segment of a URL that is a credential (`https://mcp.zapier.com/api/mcp/s/<token>/mcp`):
+# 32 or more base64url characters; commit and digest SHAs (40 or 64 hex) are not.
+URL_SEGMENT = re.compile(r"^[A-Za-z0-9_-]{32,400}$")
+HEX_SHA = re.compile(r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
 
 # The user-info part of a URL (`https://user:password@host`). Shown as <redacted> everywhere;
 # a password in it is a literal credential. Bounded, so matching stays linear.
@@ -169,11 +179,12 @@ def named_secret(name, value) -> bool:
     8+ printable characters under a password-like name), not a placeholder, a reference to a
     secret kept elsewhere, a URL or a file path."""
     name, value = str(name)[:100].strip("-_ "), str(value)[:MAX_VALUE]
-    if not secret_name(name) or not_secret_name(name):
+    if not secret_name(name) or not_secret_name(name) or name.lower() in NOT_SECRET_NAMES \
+            or LIST_WORDS.intersection(name_words(name)):
         return False
     password = any(w.endswith(PASSWORD_ENDINGS) or any(p in w for p in PASSWORD_PARTS) for w in name_words(name))
     return bool((PASSWORD_VALUE if password else SECRET_VALUE).match(value) and not PLACEHOLDER.search(value)
-                and not REFERENCE.search(value) and not FILE_PATH.match(value))
+                and not REFERENCE.search(value) and not FILE_PATH.match(value) and not NOT_A_CREDENTIAL.search(value))
 
 
 def secret_kind(v) -> str:
@@ -194,6 +205,17 @@ def random_token(s: str) -> bool:
     s = s[:MAX_VALUE]
     return len(s) >= 16 and s.isascii() and s.isalnum() and not s.isdigit() and any(c.isdigit() for c in s) \
         and any(c.isupper() for c in s) and any(c.islower() for c in s)
+
+
+def url_path_secret(url) -> bool:
+    """Whether a URL's path holds a credential segment (see URL_SEGMENT): 32 or more base64url
+    characters that look generated (random_token, separators aside), not a hex SHA."""
+    try:
+        path = urlsplit(str(url)[:MAX_VALUE].strip()).path
+    except ValueError:
+        return False
+    return any(URL_SEGMENT.match(seg) and not HEX_SHA.match(seg) and random_token(seg.replace("-", "").replace("_", ""))
+               for seg in path.split("/"))
 
 
 def url_password(v) -> bool:

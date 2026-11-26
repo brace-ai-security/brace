@@ -35,7 +35,7 @@ CLI_NAME = re.compile(rf"(?<![\w-])(?:{alternation(CLIS)})(?![\w-])")
 AGENT_COMMAND = re.compile(rf"{alternation(PACKAGES)}|{alternation(ACTIONS)}|"
                            rf"(?<![\w.])(?:{alternation(CLIS)})(?:-[a-z]{{1,20}}){{0,2}}(?:\.exe|\.cmd)?(?![\w.])")
 GATED_CLI = re.compile(rf"(?<![\w-])(?:{alternation(GATED_FLAG_CLIS)})(?![\w-])|@google/gemini-cli|@qwen-code/|"
-                       r"@github/copilot", re.I)
+                       r"@github/copilot|@charmland/crush", re.I)
 
 AGENT_SIGNAL = re.compile("|".join(SDKS) + "|" + alternation(ACTIONS) + "|" + alternation(PACKAGES), re.M)
 
@@ -59,10 +59,20 @@ BYPASS = re.compile(
 # Bypasses only next to an agent CLI that takes them: Gemini/Qwen/Codex/Crush --yolo, and
 # Copilot CLI's --allow-all-tools ("allow every tool without asking") and --allow-all.
 GATED_BYPASS = re.compile(r"--(?:yolo|allow-all-tools|allow-all)" + END)
-# Gemini CLI's and Qwen Code's short -y (--yolo), only as an argument of one of them: after the
-# CLI in the same command, so `npx -y @google/gemini-cli -p hi` (npx's own -y) does not count.
+# Gemini CLI's, Qwen Code's and Crush's short -y (--yolo), only as an argument of one of them:
+# after the CLI in the same command, so `npx -y @google/gemini-cli -p hi` (npx's own -y) does not count.
 SHORT_YOLO = re.compile(r"(?<![\w-])-y(?![\w-])")
-SHORT_YOLO_CLI = re.compile(r"(?<![\w-])(?:gemini|qwen)(?![\w-])|@google/gemini-cli|@qwen-code/qwen-code")
+SHORT_YOLO_CLIS = ("gemini", "qwen", "crush")
+SHORT_YOLO_CLI = re.compile(r"(?<![\w-])(?:gemini|qwen|crush)(?![\w-])|@google/gemini-cli|@qwen-code/qwen-code|"
+                            r"@charmland/crush", re.I)
+# The same CLIs as a quoted list item (`["gemini", "--yolo"]`, `"@google/gemini-cli"`), with an
+# optional path and a version on a package.
+QUOTED_GATED_CLI = re.compile(rf"[\"'](?:[\w.~-]{{0,100}}/)?(?:{alternation(GATED_FLAG_CLIS)})(?:\.exe|\.cmd)?[\"']|"
+                              r"[\"'](?:@google/gemini-cli|@qwen-code/[\w-]{1,40}|@github/copilot|@charmland/crush)"
+                              r"(?:@[\w.-]{1,40})?[\"']", re.I)
+QUOTED_SHORT_YOLO_CLI = re.compile(r"[\"'](?:[\w.~-]{0,100}/)?(?:gemini|qwen|crush)(?:\.exe|\.cmd)?[\"']|"
+                                   r"[\"'](?:@google/gemini-cli|@qwen-code/qwen-code|@charmland/crush)"
+                                   r"(?:@[\w.-]{1,40})?[\"']", re.I)
 # Words that may stand before a program in command position: wrappers, runners that fetch it
 # and their subcommands, shell keywords, a line's lead-in (`RUN`, a YAML item's `-`) and openers.
 # Flags, numbers (timeout's duration), `VAR=value` and YAML keys (`run:`) may stand there too.
