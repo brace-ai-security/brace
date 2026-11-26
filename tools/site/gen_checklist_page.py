@@ -176,6 +176,15 @@ def blocks(lines: list[str]) -> str:
         if not s or s == "---" or s.startswith("*Part of [BRACE]"):
             i += 1
             continue
+        if s.startswith("```"):
+            code = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                code.append(lines[i])
+                i += 1
+            i += 1
+            out.append('<pre class="code"><code>' + html.escape("\n".join(code)) + "</code></pre>")
+            continue
         if s.startswith("|"):
             rows = []
             while i < len(lines) and lines[i].strip().startswith("|"):
@@ -206,7 +215,7 @@ def blocks(lines: list[str]) -> str:
             continue
         para = [s]
         i += 1
-        while i < len(lines) and lines[i].strip() and not re.match(r"^(\||#|- |\d+\. )", lines[i].strip()):
+        while i < len(lines) and lines[i].strip() and not re.match(r"^(\||#|- |\d+\. |```)", lines[i].strip()):
             para.append(lines[i].strip())
             i += 1
         out.append(f"<p>{inline(' '.join(para))}</p>")

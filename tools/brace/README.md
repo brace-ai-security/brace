@@ -271,7 +271,7 @@ and the output of two MCP scanners. These count as "found", like traced code:
 
 `--host-config` reads Claude Desktop, Claude Code (`~/.claude.json`, managed
 `managed-mcp.json`), Cursor, VS Code and Windsurf settings for the current operating
-system. `host_scan.py` lists the paths and their sources. `--import-scan` reads
+system. `open_agent_security/host_scan.py` lists the paths and their sources. `--import-scan` reads
 Snyk Agent Scan `--json` output (v0.5 and v0.6 layouts) and Cisco mcp-scanner
 `--format raw` output. Neither runs a scan.
 

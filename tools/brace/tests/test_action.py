@@ -17,6 +17,11 @@ EXAMPLE = TOOL_DIR / "examples" / "billing-agent"
 pytest.importorskip("jsonschema")
 
 
+def _deps_importable() -> bool:
+    import importlib.util
+    return all(importlib.util.find_spec(m) for m in ("yaml", "jsonschema"))
+
+
 def evaluate(expr: str, inputs: dict, outputs: dict) -> str:
     expr = expr.strip()
     if expr == "github.action_path":
@@ -46,6 +51,12 @@ def run_action(workdir: Path, **overrides) -> tuple[list[tuple[str, int]], dict,
         cond = step.get("if", "")
         m = re.fullmatch(r"inputs\.([\w-]+) == '(\w+)'", cond)
         if m and inputs[m.group(1)] != m.group(2):
+            continue
+        if step["name"] == "Install BRACE dependencies" and _deps_importable():
+            # The hosted runner has pip; a local uv venv may not. The deps the step installs
+            # are already importable here, so running pip would test the environment, not the action.
+            assert step["run"].split()[:4] == ["python", "-m", "pip", "install"], step["run"]
+            results.append((step["name"], 0))
             continue
         out_file = workdir / f"out-{len(results)}.txt"
         out_file.write_text("")

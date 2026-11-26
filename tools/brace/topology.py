@@ -251,11 +251,11 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
 
     # Found on host: MCP servers in client settings on the machine, or in scanner output.
     # These are detected evidence (the server is configured where the agent runs), never
-    # declarations. Only names, keys and redacted shapes are kept (see host_scan.py).
+    # declarations. Only names, keys and redacted shapes are kept (see open_agent_security/host_scan.py).
     for rec in host or []:
         ref = f"mcp:{rec['name']}"
         source = "scan" if rec.get("scanner") else "host"
-        where = f"{rec['client']}: {rec['file']}#{rec['key']}"
+        where = redact_home(f"{rec['client']}: {rec['file']}#{rec['key']}")
         svc = by_server.get(rec["name"])
         if svc is None:
             svc = {"bom-ref": ref, "name": rec["name"],
@@ -421,9 +421,14 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
 def flow_direction(risks: list[str], label: str) -> str:
     """Which way the data mostly goes on a call: `call` (caller to callee), `return` or `both`."""
     rs = set(risks)
-    send = bool(rs & {"writes", "money"}) or any(w in label.lower() for w in ("send", "post", "write", "book", "pay"))
-    recv = "untrusted_input" in rs or any(w in label.lower() for w in ("read", "fetch", "search", "get", "return"))
+    words = set(re.findall(r"\b[a-z]+\b", label.lower()))
+    stems = lambda ws: any(w == s or w in (s + "s", s + "es", s + "ed", s + "ing", s + "ings") for w in words for s in ws)
+    send = bool(rs & {"writes", "money"}) or stems(("send", "post", "write", "book", "pay"))
+    recv = "untrusted_input" in rs or stems(("read", "fetch", "search", "get", "return"))
     return "both" if send == recv else "call" if send else "return"
+
+
+RETURN_NOTE = "data coming back on the call from"
 
 
 def finalize(bom: dict) -> None:
@@ -476,6 +481,12 @@ def finalize(bom: dict) -> None:
         elif a in service_refs:
             host = a
         else:
+            # Component to component (e.g. code reading a data store): CycloneDX has no
+            # data flows on components, so keep label and risks as simple properties.
+            src_props = nodes[a].setdefault("properties", [])
+            if f["label"]:
+                src_props.append(prop(f"flow:{b}", f["label"]))
+            src_props += [prop(f"flow_risk:{b}", r) for r in f["risks"]]
             continue
         way = flow_direction(f["risks"], f["label"]) if is_call else "call"
         src, dst = (a, b) if way != "return" else (b, a)
@@ -486,6 +497,7 @@ def finalize(bom: dict) -> None:
         for cls in f["risks"] or ["unclassified"]:
             nodes[host].setdefault("data", []).append(
                 {"flow": flow, "classification": cls, "name": f["label"] or f"{a} to {b}",
+                 **({"description": f"{RETURN_NOTE} {a} to {b}"} if way == "return" else {}),
                  "source": [src], "destination": [dst]})
     out = []
     for d in bom["dependencies"]:
@@ -609,7 +621,9 @@ def connections(bom: dict) -> list[dict]:
             if "flow" not in f or not f.get("source") or not f.get("destination"):
                 continue
             a, b = f["source"][0], f["destination"][0]
-            key = (b, a) if (b, a) in call_set and (a, b) not in call_set else (a, b)
+            # Only a flow recorded as the answer to a call is folded back onto that call.
+            returned = str(f.get("description", "")).startswith(RETURN_NOTE)
+            key = (b, a) if returned and (b, a) in call_set else (a, b)
             m = meta.setdefault(key, {"label": "", "source": "declared", "evidence": "", "risks": []})
             if f.get("name") and f["name"] != f"{key[0]} to {key[1]}":
                 m["label"] = f["name"]
@@ -620,6 +634,11 @@ def connections(bom: dict) -> list[dict]:
             if name.startswith("edge:"):
                 m = meta.setdefault((ref, name[5:]), {"label": "", "source": "declared", "evidence": "", "risks": []})
                 m.update(source="traced", evidence=vals[0])
+            elif name.startswith("flow:"):
+                meta.setdefault((ref, name[5:]), {"label": "", "source": "declared", "evidence": "", "risks": []})["label"] = vals[0]
+            elif name.startswith("flow_risk:"):
+                m = meta.setdefault((ref, name[10:]), {"label": "", "source": "declared", "evidence": "", "risks": []})
+                m["risks"] += [v for v in vals if v not in m["risks"]]
     edges = calls + [k for k in meta if k not in call_set and k[0] in nodes and k[1] in nodes]
     out = []
     for frm, to in edges:
@@ -1015,17 +1034,29 @@ def host_evidence(repo: Path, host_config: bool, host_files: list[Path], scans: 
 
     import host_scan
     home = home or Path.home()
-    sources = host_scan.host_sources(home, system or platform.system()) if host_config else []
+    sources = host_scan.host_sources(home, system or platform.system(), project=repo) if host_config else []
     sources += [{"client": "settings file", "path": f, "keys": ["mcpServers", "servers", "projects.*.mcpServers"]}
                 for f in host_files]
-    recs, notes = host_scan.read_host(sources)
+    recs, notes = host_scan.read_host(sources, project=repo)
     for f in scans:
         r, n = host_scan.import_scan(f)
         recs += r
         notes += n
-    for r in recs:  # show the home folder as ~ so a user name is not copied into the map
-        r["file"] = r["file"].replace(str(home), "~")
+    for r in recs:  # show home folders as ~ so a user name is not copied into the map
+        for k in ("file", "key"):
+            r[k] = redact_home(r.get(k, ""), home)
     return recs, notes
+
+
+def redact_home(text: str, home: Path | None = None) -> str:
+    """Replace a leading home folder (this machine's, or any /Users/<name>, /home/<name>,
+    C:\\Users\\<name>) with `~`, wherever a path starts inside the text. Imported scans may come
+    from another machine, so generic home prefixes are redacted too."""
+    if home:
+        h = re.escape(str(home).rstrip("/\\"))
+        text = re.sub(rf"(?<![\w.~-]){h}(?=[/\\]|$|[\s\"'#,;)\]}}])", "~", text)
+    return re.sub(r"(?<![\w.~-])(?:/Users|/home|[A-Za-z]:[/\\]Users)[/\\][^/\\\s\"'#]+(?=[/\\]|$|[\s\"'#,;)\]}])",
+                  "~", text)
 
 
 # ---------------------------------------------------------------------------- main

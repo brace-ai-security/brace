@@ -114,7 +114,7 @@ BRACE (Build-time, Run-time, Agent, Configuration, Ecosystem) is offered here as
 
 The framework is described in full in:
 
-> The BRACE Project (2026). *BRACE: A Unified Security Framework for Autonomous AI Agents.* https://github.com/brace-ai-security/brace
+> The BRACE Project (2026). *BRACE: A Unified Security Framework for Autonomous AI Agents.* https://github.com/brace-ai-security/open-agent-security
 
 We would welcome the opportunity to provide further detail on any of the above.
 

@@ -1,0 +1,68 @@
+name: open-agent-security
+description: >-
+  Finds known-dangerous AI agent setups in your repository: permission checks turned off,
+  unpinned MCP servers, secrets in agent config, agents on pull_request_target, lethal
+  capability combinations and more. Local and read-only: runs no model, needs no account.
+author: BRACE
+branding:
+  icon: shield
+  color: orange
+
+inputs:
+  path:
+    description: Folder to scan.
+    default: "."
+  fail-on:
+    description: "Fail the job when a finding is this severe or worse: critical, high, medium, low or none."
+    default: high
+  upload-sarif:
+    description: Upload findings to GitHub code scanning so they show on pull requests (needs permission security-events write).
+    default: "false"
+  python-version:
+    description: Python version to set up.
+    default: "3.12"
+
+outputs:
+  findings:
+    description: Number of findings.
+    value: ${{ steps.scan.outputs.findings }}
+  sarif:
+    description: Path to the SARIF file.
+    value: open-agent-security.sarif
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Scan for dangerous agent setups
+      id: scan
+      shell: bash
+      env:
+        SCAN_PATH: ${{ inputs.path }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        SCANNER: ${{ github.action_path }}/tools/brace/scan.py
+      run: |
+        set +e
+        python -I "$SCANNER" "$SCAN_PATH" --fail-on "$FAIL_ON" --sarif open-agent-security.sarif \
+          --markdown "$GITHUB_STEP_SUMMARY"
+        code=$?
+        set -e
+        python -c "import json;print('findings=%d' % len(json.load(open('open-agent-security.sarif'))['runs'][0]['results']))" >> "$GITHUB_OUTPUT"
+        echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+
+    - name: Upload to code scanning
+      if: inputs.upload-sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: open-agent-security.sarif
+        category: open-agent-security
+
+    - name: Apply the fail-on threshold
+      if: steps.scan.outputs.exit_code != '0'
+      shell: bash
+      run: |
+        echo "open-agent-security scan found problems at or above '${{ inputs.fail-on }}'. See the job summary."
+        exit 1

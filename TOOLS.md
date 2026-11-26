@@ -8,6 +8,8 @@ The split is deliberate. **The AI drafts. People approve.** An AI reading a repo
 
 | Piece | What it does | Where |
 |---|---|---|
+| `open-agent-security` | Finds known-dangerous agent setups in seconds: disabled permission checks, unpinned MCP servers, secrets in agent config, `pull_request_target` agents, lethal capability combinations. Local, read-only, standard library only; also a GitHub Action with SARIF output. Not a review: a clean scan is not a Pass. | [tools/brace/SCAN.md](tools/brace/SCAN.md), [ANTI-PATTERNS.md](ANTI-PATTERNS.md) |
+| `open-agent-security` | Finds known-dangerous agent setups in seconds: disabled permission checks, unpinned MCP servers, secrets in agent config, `pull_request_target` agents, lethal capability combinations. Local, read-only, standard library only; also a GitHub Action with SARIF output. Not a review: a clean scan is not a Pass. | [tools/brace/SCAN.md](tools/brace/SCAN.md), [ANTI-PATTERNS.md](ANTI-PATTERNS.md) |
 | `brace-threat-model` skill | Models a proposed design's assets, trust boundaries, capability combinations and harm paths, mapped to controls, assumptions and verification needs. | [skills/brace-threat-model/](skills/brace-threat-model/SKILL.md) |
 | `brace-review` skill | Reads the agent's code and config and rates all 53 items: likely_pass, gap, needs_evidence, or na_candidate, with file and line evidence. Reports text in the repo that tries to steer the review. | [skills/brace-review/](skills/brace-review/SKILL.md) |
 | `brace-mcp-review` skill | Focused static MCP server/client/gateway review, mapped to BRACE items and primary research. Reports evidence, gaps and unknowns; never launches servers or approves deployment. | [skills/brace-mcp-review/](skills/brace-mcp-review/SKILL.md) |

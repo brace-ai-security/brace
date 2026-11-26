@@ -1,6 +1,6 @@
 # Adopters & assessors
 
-Teams, security firms, and products that use the BRACE Framework. Using BRACE? **[Get listed](https://github.com/brace-ai-security/brace/issues/new?template=get-listed.yml)**: open a short issue and we'll add you.
+Teams, security firms, and products that use the BRACE Framework. Using BRACE? **[Get listed](https://github.com/brace-ai-security/open-agent-security/issues/new?template=get-listed.yml)**: open a short issue and we'll add you.
 
 Listings are public, under CC BY 4.0. We list what organizations *do* with BRACE. A listing is not an endorsement either way.
 

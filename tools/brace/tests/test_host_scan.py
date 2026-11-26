@@ -32,7 +32,7 @@ def test_reads_host_files_without_secret_values(tmp_path):
     (home / ".cursor/mcp.json").write_text((HS / "claude_desktop_config.json").read_text())
     (home / ".claude.json").write_text(json.dumps({"projects": {"/w/app": {"mcpServers": {
         "crm": {"type": "http", "url": "https://user:pw@crm.example/mcp#x", "headers": {"Authorization": "Bearer abc"}}}}}}))
-    recs, notes = host_scan.read_host(host_scan.host_sources(home, "Linux"))
+    recs, notes = host_scan.read_host(host_scan.host_sources(home, "Linux"), project=Path("/w/app"))
     assert notes == []
     by = {r["name"]: r for r in recs}
     assert by["travel-docs"]["url"] == "https://travel-docs.internal.example/mcp"
@@ -94,3 +94,62 @@ def test_host_evidence_in_map_and_report(tmp_path):
     text = json.dumps(bom) + page
     for s in SECRETS[:3]:
         assert s not in text
+
+
+def test_redacts_home_folders_in_scan_import(tmp_path):
+    pytest.importorskip("jsonschema")
+    repo = EX / "repo"
+    host, _ = topology.host_evidence(repo, False, [], [HS / "snyk-agent-scan-v05.json"], home=Path("/Users/bob"))
+    bom = topology.build(repo, repo / "brace-inventory.json", repo / "config/agent.yaml",
+                         EX / "brace-topology.overlay.json", host=host)
+    text = json.dumps(host) + json.dumps(bom)
+    assert "/home/sample" not in text and "sample/" not in text and "~/.cursor/mcp.json" in text
+
+
+def test_redact_home_only_leading_prefix():
+    home = Path("/srv/bob")
+    assert topology.redact_home("/srv/bob/x.json", home) == "~/x.json"
+    assert topology.redact_home("/srv/bobby/x.json", home) == "/srv/bobby/x.json"
+    assert topology.redact_home("/opt/srv/bob/x", home) == "/opt/srv/bob/x"
+    assert topology.redact_home("c: /Users/alice/a.json#/home/carol/b", None) == "c: ~/a.json#~/b"
+
+
+def test_claude_json_reads_only_this_project(tmp_path):
+    proj, other = tmp_path / "proj", tmp_path / "other"
+    proj.mkdir()
+    (tmp_path / ".claude.json").write_text(json.dumps({"mcpServers": {"user": {"command": "u"}}, "projects": {
+        str(proj.resolve()): {"mcpServers": {"mine": {"command": "m"}}},
+        str(other): {"mcpServers": {"theirs": {"command": "t"}}}}}))
+    recs, _ = topology.host_evidence(proj, True, [], [], home=tmp_path, system="Linux")
+    names = {r["name"] for r in recs}
+    assert "mine" in names and "user" in names and "theirs" not in names
+
+
+def test_host_config_reads_project_files(tmp_path):
+    proj = tmp_path / "proj"
+    for rel, key, name in ((".cursor/mcp.json", "mcpServers", "cur"), (".vscode/mcp.json", "servers", "vsc"),
+                           (".devin/mcp_config.json", "mcpServers", "dev")):
+        (proj / rel).parent.mkdir(parents=True, exist_ok=True)
+        (proj / rel).write_text(json.dumps({key: {name: {"command": "x"}}}))
+    recs, _ = topology.host_evidence(proj, True, [], [], home=tmp_path / "home", system="Linux")
+    assert {"cur", "vsc", "dev"} <= {r["name"] for r in recs}
+
+
+def test_clean_url_bad_port():
+    assert host_scan.clean_url("http://h:abc/p?q=1") == "http://h/p"
+
+
+@pytest.mark.parametrize("data", [
+    {"/p": {"servers": "nope"}},
+    {"/p": {"servers": [{"name": "s", "signature": {"tools": "x"}}], "issues": {"a": 1}}},
+    {"scan_path_responses": [{"server_risks": {"a": 1}}]},
+    {"scan_path_responses": [{"server_risks": [{"name": "s", "entities": "x", "risk_indexes": [1]}]}]},
+    {"scan_path_responses": [{"server_risks": [{"name": "s", "risk_indexes": {"r": {"affected_tools": 3}}}]}]},
+    {"server_url": "http://h", "scan_results": "x"},
+    {"server_url": "http://h", "scan_results": [{"tool_name": "t", "findings": ["x"]}]},
+])
+def test_scanner_wrong_types_noted_not_crash(tmp_path, data):
+    f = tmp_path / "scan.json"
+    f.write_text(json.dumps(data))
+    recs, notes = host_scan.import_scan(f)
+    assert notes and all("skipped" in n for n in notes)

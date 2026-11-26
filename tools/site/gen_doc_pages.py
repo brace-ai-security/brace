@@ -21,6 +21,13 @@ import gen_checklist_page as base  # noqa: E402  (shared markdown, links and ite
 
 ROOT = base.ROOT
 PAGES = [
+    {"src": ROOT / "ANTI-PATTERNS.md", "out": ROOT / "anti-patterns" / "index.html",
+     "path": "/anti-patterns/", "crumb": "Anti-patterns", "eyebrow": "BRACE · Agent security anti-patterns",
+     "desc": "The setups that most often turn an AI agent into a security incident, and what to do instead.",
+     "cards": False},
+    {"src": ROOT / "STARTER.md", "out": ROOT / "starter" / "index.html",
+     "path": "/starter/", "crumb": "Starter", "eyebrow": "BRACE · Starter",
+     "desc": "Ten checks before an AI agent touches anything real.", "cards": False},
     {"src": ROOT / "CHECKLIST-VERIFICATION.md", "out": ROOT / "verification" / "index.html",
      "path": "/verification/", "crumb": "Verification guide", "eyebrow": "BRACE · Verification guide",
      "desc": "A test, the expected result and the evidence to keep for each of the 53 BRACE checklist items.",
@@ -207,6 +214,8 @@ TEMPLATE = r"""<!DOCTYPE html>
   a{color:var(--accent); text-decoration:none}
   a:hover{text-decoration:underline}
   code{background:var(--tint2); border-radius:4px; padding:1px 5px; font:13.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; overflow-wrap:anywhere}
+  pre.code{background:var(--tint2); border-radius:6px; padding:12px 14px; overflow-x:auto; margin:0 0 1em}
+  pre.code code{background:none; padding:0; overflow-wrap:normal; white-space:pre}
   .wrap{max-width:800px; margin:0 auto; padding:0 24px}
   main p,.intro p{max-width:68ch}
   .crumb{background:#1a4d6e; color:#fff; font-size:13px; padding:10px 0}

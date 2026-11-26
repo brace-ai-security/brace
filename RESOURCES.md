@@ -4,7 +4,7 @@ Resources for putting BRACE’s controls in place. Use the standards and threat 
 
 Each entry is tagged with the BRACE concern it most relates to: **Build-time · Run-time · Agent · Config · Ecosystem · Observability · Governance**. Status flags: **Open source · Commercial · Free · Emerging · Deprecating** (or **Unmaintained repository**).
 
-> Source review: 2026-09-16; sources rechecked 2026-09-30; MCP references updated 2026-10-16; all 53 recommendations re-researched 2026-10-22 (BRACE 2.0.1). See [scope, findings, and verification limits](SOURCE-REVIEW.md). **Listing is not endorsement.** This field changes fast, so check an entry’s status before you rely on it. The website version of this list is at <https://braceframework.org/resources/>. Know something we should add? [Suggest a resource](https://github.com/brace-ai-security/brace/issues/new?template=get-listed.yml).
+> Source review: 2026-09-16; sources rechecked 2026-09-30; MCP references updated 2026-10-16; all 53 recommendations re-researched 2026-10-22 (BRACE 2.0.1). See [scope, findings, and verification limits](SOURCE-REVIEW.md). **Listing is not endorsement.** This field changes fast, so check an entry’s status before you rely on it. The website version of this list is at <https://braceframework.org/resources/>. Know something we should add? [Suggest a resource](https://github.com/brace-ai-security/open-agent-security/issues/new?template=get-listed.yml).
 
 ---
 

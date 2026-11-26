@@ -1,28 +1,63 @@
-# BRACE Framework — security for autonomous AI agents
+# BRACE — practical security for AI agents
 
-**Version: 3.0.0** (see [VERSION](VERSION)).
+**Version: 3.1.0** (see [VERSION](VERSION)) · **Website:** https://braceframework.org
 
-**BRACE Framework** is a practical, vendor-neutral set of security controls for teams that build and run autonomous AI agents. These agents plan several steps, call tools and APIs, change real systems, and start sub-agents, with no person reviewing each action.
+AI agents read untrusted text and then act: they run commands, call APIs, change data and
+start other agents. A language model can't reliably tell your instructions apart from
+instructions hidden in a web page, email, issue or tool result. So **assume some prompt
+injections will succeed, and build the agent so that they still can't do serious harm.**
+BRACE shows you how, and warns you away from the setups that go wrong.
 
-It is built on one idea:
+## Find dangerous agent setups in 10 seconds
 
-> An autonomous agent combines code with a **runtime configuration** — a container, a harness (the loop that runs the model and hands it tools), a system prompt, a set of tools, a memory store, an identity, and a network path. Two agents built from the same model can behave completely differently depending on how those parts are configured. Review the **configuration together with the harness, tools, and generated code**. Code review is still needed, but on its own it doesn't show the whole running agent.
+```bash
+uvx open-agent-security .            # or: pipx run open-agent-security .   (add --host to check your own MCP setup)
+```
 
-BRACE defines controls for that configuration, says which to build first, and lists the records you need to run and check those controls.
+Example output:
 
-**BRACE stands for** its five aspects: **B**uild-time, **R**un-time, **A**gent, **C**onfiguration, **E**cosystem.
+```text
+✗ CRITICAL Unattended agent in CI with permission checks turned off  [AP02] ×1
+    .github/workflows/triage.yml:21  --dangerously-skip-permissions
+    Why:  A CI agent with no approvals and the job's token can be steered by anyone who can
+          write an issue, PR, commit message or file it reads ...
+    Fix:  Keep approvals on, give the job read-only permissions, and run untrusted-input
+          jobs without repository secrets.
 
-**Website:** https://braceframework.org
+✗ HIGH     Lethal combination: untrusted input, private data and a way out  [AP09] ×1
+    .mcp.json:3  likely, from server names — untrusted input: gmail; private data: gmail,
+                 stripe; a way out: gmail, stripe
+```
+
+Local and read-only: no model, no account, no network. It checks for the
+[agent security anti-patterns](ANTI-PATTERNS.md): permission checks turned off, agents
+on `pull_request_target`, unpinned MCP servers, secrets in agent config, any-command shell
+access, containers that can take over the host, and the lethal combination of untrusted
+input, private data and a way out. It also runs in CI as a GitHub Action, with SARIF
+output for pull-request annotations; see [Starter](STARTER.md#add-the-scan-to-ci).
+
+## Pick your depth
+
+| You are | Start with | Time |
+|---|---|---|
+| Building your first agent, or a small team | **[Anti-patterns](ANTI-PATTERNS.md)** and **[BRACE Starter](STARTER.md)**: ten checks before an agent touches anything real | ~1 hour |
+| Approving an agent for production | **[Sign-off checklist](CHECKLIST.md)**: 53 evidence-backed items with release gates | days |
+| Assessing a running deployment or a vendor | **[Self-assessment](SELF-ASSESSMENT.md)** and the [vendor matrix](VENDOR-MATRIX.md) | hours |
+| Wiring BRACE into code review and CI | **[BRACE in your codebase](TOOLS.md)**: AI review skills, `.brace/` records and evidence checks | |
+
+Also: the [role map](ROLES.md) (who leads each item) and the [source review](SOURCE-REVIEW.md) (evidence and its limits).
 
 ---
 
-## Start here
+## What BRACE covers
 
-- **[Sign-off checklist](CHECKLIST.md)** — a 53-item evidence review across all five BRACE aspects. It is for the engineer or manager who approves an agent for production, and it notes what is hard, what to do if you can't fully comply, and which tradeoffs are acceptable. If you read one thing, read this.
-- **[Self-assessment](SELF-ASSESSMENT.md)** — score the same 53 checklist items for a running deployment or a vendor.
-- **[Source review](SOURCE-REVIEW.md)** — supporting sources, corrections, and the limits of the evidence.
-- **[BRACE in your codebase](TOOLS.md)** — AI skills that review an agent's code, a `.brace/` record for exceptions and approvals, and a CI evidence check with findings-only output for high-risk deployments.
-- **[Role map](ROLES.md)** — which team leads each checklist item.
+The core idea: an autonomous agent is code plus a **runtime configuration** — a container,
+a harness (the loop that runs the model and hands it tools), a system prompt, tools,
+memory, an identity and a network path. Two agents built on the same model can behave
+completely differently depending on that configuration, so review the configuration
+together with the harness, tools and generated code.
+
+**BRACE stands for** its five aspects: **B**uild-time, **R**un-time, **A**gent, **C**onfiguration, **E**cosystem.
 
 ---
 
@@ -92,10 +127,10 @@ Use the checklist for the requirements, the [verification guide](CHECKLIST-VERIF
 
 BRACE organizes deployment checks to sit alongside existing security guidance. Its grouping and release gates are this project's design choices. They are not claims that other frameworks lack practical controls:
 
-- **[OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)** — a threat catalog of ten risks ([ASI01–ASI10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)). BRACE names the controls that reduce them. A risk-to-control table is in the [OWASP proposal](outreach/owasp-agentic-controls-proposal.md). It is a historical draft, so check it against the current checklist.
+- **[OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)** — a threat catalog of ten risks (ASI01–ASI10). BRACE names the controls that reduce them; see the [Agentic Top 10 mapping](mappings/owasp-agentic-top-10.md). An older risk-to-control table is in the [OWASP proposal](outreach/owasp-agentic-controls-proposal.md). It is a historical draft, so check it against the current checklist.
 - **[OWASP Agent Control Standard (ACS)](https://genai.owasp.org/resource/agent-control-standard-acs/)** — policy hooks and enforcement while the agent runs. It complements BRACE's deployment review.
 - **[MITRE ATLAS](https://atlas.mitre.org/)** — a catalog of attacker techniques against AI systems. The [ATLAS mapping](mappings/mitre-atlas.md) shows which BRACE items address each of its 208 techniques in release v2026.09.
-- **[OWASP Top 10 for Agentic Applications](https://genai.owasp.org/top-10-for-agentic-applications-2026/) / [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/)** — lists of the main security risks for agents and MCP. See the [Agentic Top 10 mapping](mappings/owasp-agentic-top-10.md) and the [MCP Top 10 mapping](mappings/owasp-mcp-top-10.md). The MCP list is still in beta.
+- **[OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/)** — a list of the main security risks for MCP. See the [MCP Top 10 mapping](mappings/owasp-mcp-top-10.md). The list is still in beta.
 - **[NIST AI RMF](https://www.nist.gov/itl/ai-risk-management-framework) / [ISO/IEC 42001](https://www.iso.org/standard/81230.html)** — references for governance and management systems. BRACE adds technical checks for each deployment alongside them. See the [AI RMF mapping](mappings/nist-ai-rmf.md) and the [ISO/IEC 42001 mapping](mappings/iso-iec-42001.md). Mapping is not compliance: passing BRACE items doesn't mean an organization meets either one.
 
 Use OWASP and MITRE to know *what can go wrong*. Use BRACE to know *what to build and in what order*.

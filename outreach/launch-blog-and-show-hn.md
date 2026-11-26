@@ -78,7 +78,7 @@ Show HN: BRACE – a controls layer for autonomous-agent security
 
 **Body:**
 
-BRACE is a checklist of nine controls plus three observability requirements for securing autonomous AI agents — the kind that take actions without a human reviewing each one. It's for engineers shipping agents who already know the threat taxonomies (OWASP, MITRE, NIST) but need to decide what to actually build, and in what order. The core idea: an agent is a runtime configuration (container, harness, prompt, tools, memory, identity), so you secure the configuration, not the code. The sign-off checklist and verification guide are in the repo: [checklist](https://github.com/brace-ai-security/brace/blob/main/CHECKLIST.md) · [site](https://braceframework.org).
+BRACE is a checklist of nine controls plus three observability requirements for securing autonomous AI agents — the kind that take actions without a human reviewing each one. It's for engineers shipping agents who already know the threat taxonomies (OWASP, MITRE, NIST) but need to decide what to actually build, and in what order. The core idea: an agent is a runtime configuration (container, harness, prompt, tools, memory, identity), so you secure the configuration, not the code. The sign-off checklist and verification guide are in the repo: [checklist](https://github.com/brace-ai-security/open-agent-security/blob/main/CHECKLIST.md) · [site](https://braceframework.org).
 
 ---
 

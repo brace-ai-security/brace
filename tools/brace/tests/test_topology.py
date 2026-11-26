@@ -169,3 +169,57 @@ def test_provides_is_checked(bom):
     assert any("only an MCP server provides" in e for e in topology.validate(bad))
     bad["dependencies"].append({"ref": "mcp:accounting", "provides": ["mcp:nope"]})
     assert any("unknown bom-ref mcp:nope" in e for e in topology.validate(bad))
+
+
+def _working_bom(nodes: dict, edges: list, calls: dict) -> dict:
+    """A pre-finalize topology: nodes {ref: (kind, is_service)}, edges [(from, to, label, risks)]."""
+    P = topology.prop
+    comps, svcs = [], []
+    agent = {"bom-ref": "agent", "name": "agent", "type": "application", "properties": [P("kind", "agent")]}
+    for ref, (kind, is_svc) in nodes.items():
+        n = {"bom-ref": ref, "name": ref, "properties": [P("kind", kind)]}
+        (svcs if is_svc else comps).append(n if is_svc else {**n, "type": "data" if kind == "data_store" else "application"})
+    by = {"agent": agent, **{n["bom-ref"]: n for n in comps + svcs}}
+    for a, b, label, risks in edges:
+        by[a]["properties"].append(P("edge", f"{b}|{label}|traced|x.py:1|{','.join(risks)}"))
+    bom = {"metadata": {"component": agent, "properties": []}, "components": comps, "services": svcs,
+           "dependencies": [{"ref": r, "dependsOn": calls.get(r, [])} for r in by], "compositions": []}
+    topology.finalize(bom)
+    return bom
+
+
+def test_component_to_component_edge_keeps_label_and_risks():
+    bom = _working_bom({"unit:app.py": ("agent_unit", False), "data:customers": ("data_store", False)},
+                       [("unit:app.py", "data:customers", "reads customer notes", ["personal_data", "untrusted_input"])],
+                       {"agent": ["unit:app.py"], "unit:app.py": ["data:customers"]})
+    c = next(c for c in topology.connections(bom) if (c["from"], c["to"]) == ("unit:app.py", "data:customers"))
+    assert c["label"] == "reads customer notes" and {"personal_data", "untrusted_input"} <= set(c["risks"])
+    topology.infer_tags(bom)
+    tags = topology.node_tags(next(c for c in bom["components"] if c["bom-ref"] == "data:customers"))
+    # untrusted_input can only come from the edge's risks, so this proves they survived finalize.
+    assert any(t["tag"] == "untrusted_input" and "unit:app.py -> data:customers" in t["reason"] for t in tags)
+
+def test_reply_edge_stays_distinct_from_call():
+    bom = _working_bom({"unit:app.py": ("agent_unit", False), "api:search": ("external_api", True)},
+                       [("unit:app.py", "api:search", "sends query", ["writes"]),
+                        ("api:search", "unit:app.py", "returns web results", ["untrusted_input"])],
+                       {"agent": ["unit:app.py"], "unit:app.py": ["api:search"], "api:search": ["unit:app.py"]})
+    conns = {(c["from"], c["to"]): c for c in topology.connections(bom)}
+    call, reply = conns[("unit:app.py", "api:search")], conns[("api:search", "unit:app.py")]
+    assert call["label"] == "sends query" and "writes" in call["risks"] and "untrusted_input" not in call["risks"]
+    assert reply["label"] == "returns web results" and reply["risks"] == ["untrusted_input"]
+
+
+def test_return_way_flow_folds_back_onto_its_call():
+    bom = _working_bom({"tool:get": ("tool", True), "api:fx": ("external_api", True)},
+                       [("tool:get", "api:fx", "gets exchange rates", [])],
+                       {"agent": ["tool:get"], "tool:get": ["api:fx"]})
+    conns = {(c["from"], c["to"]): c for c in topology.connections(bom)}
+    assert conns[("tool:get", "api:fx")]["label"] == "gets exchange rates" and ("api:fx", "tool:get") not in conns
+
+
+def test_flow_direction_whole_words():
+    assert topology.flow_direction([], "budget review") == "both"   # no 'get' inside 'budget'
+    assert topology.flow_direction([], "spread sheet") == "both"    # no 'read' inside 'spread'
+    assert topology.flow_direction([], "returns web results") == "return"
+    assert topology.flow_direction([], "sends query") == "call"
