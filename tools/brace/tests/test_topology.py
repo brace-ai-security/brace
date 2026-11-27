@@ -67,8 +67,8 @@ def test_validate_rejects_bad_refs_and_types(bom):
     assert any(e.startswith("schema:") for e in errors)
 
 
-def test_redact_args():
-    assert topology.redact_args(["--token", "abc", "--region", "eu", "API_KEY=x"]) == [
+def test_redact_command_is_the_scanner_one():
+    assert topology.redact_command(["--token", "abc", "--region", "eu", "API_KEY=x"]) == [
         "--token", "<redacted>", "--region", "eu", "API_KEY=<redacted>"]
 
 

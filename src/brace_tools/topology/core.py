@@ -33,6 +33,7 @@ Status: prototype for brace-fjm.1. The `brace:` property names are provisional.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import re
 import sys
@@ -40,6 +41,9 @@ import uuid
 from pathlib import Path
 
 from brace_tools import data
+from brace_tools import io
+from open_agent_security.host_scan import clean_url, cut
+from open_agent_security.secrets import redact_command
 
 CDX_DIR = data.path("schemas", "cyclonedx-1.7")
 SPEC_VERSION = "1.7"
@@ -58,25 +62,10 @@ def prop(name: str, value) -> dict:
 
 def load_yaml(path: Path) -> dict:
     try:
-        import yaml
+        import yaml  # noqa: F401
     except ImportError:
         sys.exit('--agent-config needs PyYAML: pip install "open-agent-security[record]"')
-    return yaml.safe_load(path.read_text()) or {}
-
-
-def redact_args(args: list) -> list[str]:
-    """Keep the argument shape but drop values that follow secret-looking flags."""
-    out, hide_next = [], False
-    for a in map(str, args):
-        if hide_next:
-            out.append("<redacted>")
-            hide_next = False
-        elif "=" in a and SECRET_FLAG.search(a.split("=", 1)[0]):
-            out.append(a.split("=", 1)[0] + "=<redacted>")
-        else:
-            out.append(a)
-            hide_next = a.startswith("-") and bool(SECRET_FLAG.search(a))
-    return out
+    return io.read_yaml(path) or {}
 
 
 SERVICE_KINDS = {"mcp_server", "mcp_tool", "tool", "external_api", "gateway"}
@@ -93,7 +82,10 @@ def check_quote(repo: Path, evidence: str, quote: str) -> str | None:
     f = (repo / path).resolve()
     if repo.resolve() not in f.parents or not f.is_file():
         return f"{path} not found in repository"
-    lines = f.read_text(errors="replace").splitlines()
+    try:
+        lines = io.read_text(f).splitlines()
+    except io.ReadError as exc:
+        return str(exc)
     n = int(line)
     if not 1 <= n <= len(lines):
         return f"{evidence} is past end of file"
@@ -103,7 +95,7 @@ def check_quote(repo: Path, evidence: str, quote: str) -> str | None:
 
 
 def line_of(path: Path, needle: str) -> int:
-    for i, text in enumerate(path.read_text().splitlines(), 1):
+    for i, text in enumerate(io.read_text(path).splitlines(), 1):
         if needle in text:
             return i
     return 1
@@ -166,7 +158,9 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
                                           prop("evidence", f"{cfg_rel}:{line_of(agent_config, 'model:')}")]})
 
     # Inventory: files with model calls become agent units; other sites attach as evidence.
-    sites = json.loads(inventory.read_text()).get("sites", []) if inventory and inventory.exists() else []
+    sites = io.read_json_object(inventory).get("sites", []) if inventory and inventory.exists() else []
+    sites = [x for x in sites if isinstance(x, dict) and isinstance(x.get("evidence"), str) and "kind" in x] \
+        if isinstance(sites, list) else []
     by_file: dict[str, list[dict]] = {}
     for s in sites:
         by_file.setdefault(s["evidence"].split(":")[0], []).append(s)
@@ -200,24 +194,27 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
 
     # MCP servers from .mcp.json.
     mcp_path = repo / ".mcp.json"
-    servers = json.loads(mcp_path.read_text()).get("mcpServers", {}) if mcp_path.exists() else {}
+    servers = io.read_json_object(mcp_path).get("mcpServers", {}) if mcp_path.exists() else {}
+    servers = servers if isinstance(servers, dict) else {}
     by_server: dict[str, dict] = {}
     for name, entry in sorted(servers.items()):
+        if not isinstance(entry, dict):
+            continue
         transport = entry.get("type") or ("stdio" if "command" in entry else "unknown")
         svc = {"bom-ref": f"mcp:{name}", "name": name,
                "properties": [prop("kind", "mcp_server"), prop("transport", transport), prop("source", "mcp_config"),
                               prop("trust_zone", "unknown"),
                               prop("evidence", f".mcp.json:{line_of(mcp_path, json.dumps(name) + ':')}")]}
-        if entry.get("url"):
-            svc["endpoints"] = [entry["url"]]
-        headers = entry.get("headers") or {}
+        if entry.get("url") and clean_url(entry["url"]):  # no user:password@, query or fragment
+            svc["endpoints"] = [clean_url(entry["url"])]
+        headers = entry.get("headers") if isinstance(entry.get("headers"), dict) else {}
         if any(k.lower() in ("authorization", "x-api-key") for k in headers):
             svc["authenticated"] = True  # a credential is configured; its scope is not established
         if entry.get("command"):
-            svc["properties"].append(prop("command", entry["command"]))
-            if entry.get("args"):
-                svc["properties"].append(prop("args", " ".join(redact_args(entry["args"]))))
-        for key in sorted((entry.get("env") or {}) | headers):
+            svc["properties"].append(prop("command", cut(entry["command"])))
+            if isinstance(entry.get("args"), list) and entry["args"]:
+                svc["properties"].append(prop("args", cut(" ".join(redact_command(entry["args"])))))
+        for key in sorted((entry.get("env") if isinstance(entry.get("env"), dict) else {}) | headers):
             svc["properties"].append(prop("credential_key" if SECRET_FLAG.search(key) or key.lower() == "authorization"
                                           or "KEY" in key.upper() else "config_key", key))
         services.append(svc)
@@ -237,7 +234,7 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
         if not short and meta.get("server") in by_server:
             server, short = meta["server"], str(meta.get("qualified", tool)).split("/")[-1]
         rel = src.relative_to(repo).as_posix()
-        text = src.read_text()
+        text = io.read_text(src)
         needle = f"- {tool}" if f"- {tool}" in text else f"{tool}:"
         ev = prop("evidence", f"{rel}:{line_of(src, needle)}")
         if short and server in by_server:
@@ -293,7 +290,7 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
     for sv in services:
         declared.update({t["bom-ref"]: t for t in sv.get("services", [])})
     conns = cfg.get("connections") if isinstance(cfg.get("connections"), list) else []
-    text = agent_config.read_text() if agent_config and conns else ""
+    text = io.read_text(agent_config) if agent_config and conns else ""
     for c in conns:
         if not isinstance(c, dict) or not c.get("to") or c.get("from", "agent") not in declared:
             continue
@@ -315,7 +312,7 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
     # Reviewer overlay: code-traced nodes, edges and trust zones, each re-verified now.
     stale: list[str] = []
     if overlay and overlay.exists():
-        ov = json.loads(overlay.read_text())
+        ov = io.read_json_object(overlay)
         existing = {c["bom-ref"]: c for c in [agent, *components, *services]}
         for sv in services:
             existing.update({t["bom-ref"]: t for t in sv.get("services", [])})
@@ -363,7 +360,7 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
     for s in services:
         for t in s.get("services", []):
             index[t["bom-ref"]] = t
-    cap_text = agent_config.read_text().splitlines() if agent_config else []
+    cap_text = io.read_text(agent_config).splitlines() if agent_config else []
     for ref, tags in capability_entries(cfg):
         line = next((i for i, t in enumerate(cap_text, 1) if t.strip().startswith((f"{ref}:", f'"{ref}":'))), 1)
         for tag in tags:
@@ -372,7 +369,7 @@ def build(repo: Path, inventory: Path | None, agent_config: Path | None,
                 continue
             index[ref]["properties"] += tag_props(tag, "declared", f"{cfg_rel}:{line}")
     if overlay and overlay.exists():
-        for t in json.loads(overlay.read_text()).get("tags", []):
+        for t in io.read_json_object(overlay).get("tags", []):
             err = check_quote(repo, t["evidence"], t["quote"])
             if not err and t["ref"] not in index:
                 err = "unknown bom-ref"
@@ -514,6 +511,17 @@ def finalize(bom: dict) -> None:
 
 
 # ------------------------------------------------------------------------ validate
+@functools.lru_cache(maxsize=1)
+def _cdx_validator(validator_cls, registry_cls, resource_cls):
+    """The CycloneDX 1.7 validator with its referenced schemas, built once per process."""
+    registry = registry_cls()
+    for f in CDX_DIR.glob("*.schema.json"):
+        res = resource_cls.from_contents(json.loads(f.read_text(encoding="utf-8")))
+        registry = registry.with_resource(f.name, res).with_resource(res.id() or f.name, res)
+    schema = json.loads((CDX_DIR / "bom-1.7.schema.json").read_text(encoding="utf-8"))
+    return validator_cls(schema, registry=registry)
+
+
 def validate(bom: dict) -> list[str]:
     errors: list[str] = []
     try:
@@ -521,12 +529,7 @@ def validate(bom: dict) -> list[str]:
         from referencing import Registry, Resource
     except ImportError:
         return ['schema validation needs jsonschema: pip install "open-agent-security[record]"']
-    registry = Registry()
-    for f in CDX_DIR.glob("*.schema.json"):
-        res = Resource.from_contents(json.loads(f.read_text()))
-        registry = registry.with_resource(f.name, res).with_resource(res.id() or f.name, res)
-    schema = json.loads((CDX_DIR / "bom-1.7.schema.json").read_text())
-    for e in sorted(Draft7Validator(schema, registry=registry).iter_errors(bom), key=lambda e: list(e.path)):
+    for e in sorted(_cdx_validator(Draft7Validator, Registry, Resource).iter_errors(bom), key=lambda e: list(e.path)):
         errors.append(f"schema: /{'/'.join(map(str, e.path))}: {e.message[:200]}")
 
     # BRACE checks the schema cannot express.
@@ -982,12 +985,12 @@ def overlay_add(repo: Path, overlay: Path, section: str, entry: dict) -> str | N
     err = check_quote(repo, entry["evidence"], entry["quote"])
     if err:
         return err
-    data = json.loads(overlay.read_text()) if overlay.exists() else {}
+    data = io.read_json_object(overlay) if overlay.exists() else {}
     data.setdefault(section, [])
     key = ("from", "to") if section == "edges" else ("ref", "tag") if section == "tags" else ("ref",)
     data[section] = [x for x in data[section] if tuple(x[k] for k in key) != tuple(entry[k] for k in key)]
     data[section].append(entry)
-    overlay.write_text(json.dumps(data, indent=2) + "\n")
+    io.write_atomic(overlay, json.dumps(data, indent=2) + "\n")
     return None
 
 
@@ -1063,6 +1066,14 @@ def redact_home(text: str, home: Path | None = None) -> str:
 
 # ---------------------------------------------------------------------------- main
 def main(argv: list[str] | None = None, prog: str | None = None) -> int:
+    try:
+        return _main(argv, prog)
+    except io.ReadError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _main(argv: list[str] | None, prog: str | None) -> int:
     ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build", help="build a CycloneDX topology for a repository")
@@ -1126,7 +1137,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
         bom = build(a.repo, a.inventory or a.repo / "brace-inventory.json", a.agent_config,
                     a.overlay or a.repo / "brace-topology.overlay.json", a.tools_config, host)
         errors = validate(bom)
-        a.output.write_text(json.dumps(bom, indent=2) + "\n")
+        io.write_atomic(a.output, json.dumps(bom, indent=2) + "\n")
         for e in errors:
             print(e, file=sys.stderr)
         for x in stale_entries(bom):
@@ -1154,7 +1165,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
         err = overlay_add(a.repo, a.overlay or a.repo / "brace-topology.overlay.json", section, entry)
         print(f"rejected: {err}" if err else f"recorded {section[:-1]}")
         return 1 if err else 0
-    bom = json.loads(a.bom.read_text())
+    bom = io.read_json_object(a.bom, follow=True)
     if a.cmd == "validate":
         errors = validate(bom)
         for e in errors:
@@ -1171,7 +1182,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
     if a.cmd == "record":
         errors, stale = validate(bom), stale_entries(bom)
         exists = a.record.exists()
-        diff = compare(json.loads(a.record.read_text()), bom) if exists else []
+        diff = compare(io.read_json_object(a.record, follow=True), bom) if exists else []
         if exists and not diff:
             print(f"{a.record} matches the current topology.")
             return 0
@@ -1192,12 +1203,12 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
             print("refusing to write: " + "; ".join(errors + [f"stale overlay entry: {x}" for x in stale]))
             return 1
         a.record.parent.mkdir(parents=True, exist_ok=True)
-        a.record.write_text(json.dumps(bom, indent=2) + "\n")
+        io.write_atomic(a.record, json.dumps(bom, indent=2) + "\n")
         print(f"{'updated' if exists else 'created'} {a.record}")
         return 0
     text = mermaid(bom)
     if a.output:
-        a.output.write_text(text)
+        io.write_atomic(a.output, text)
     else:
         sys.stdout.write(text)
     return 0
