@@ -12,7 +12,7 @@ corrections or maintenance; minor for compatible additions; major for incompatib
 requirements, gates, IDs or interfaces. Reset lower components as appropriate and
 synchronize `VERSION`, `index.html`, `README.md` and `CITATION.cff`.
 The `open-agent-security` scanner package version follows `VERSION`: also set
-`__version__` in `tools/brace/open_agent_security/__init__.py` (pyproject,
+`__version__` in `src/open_agent_security/__init__.py` (pyproject,
 `--version`, SARIF, JSON and GitLab reports all read it; a test checks it
 equals `VERSION`).
 Mirror this rule in `CLAUDE.md`.

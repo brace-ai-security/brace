@@ -172,6 +172,7 @@ def action_stage(model, fixture, final, dest, timeout, safety, test_python=None)
         shutil.copytree(ROOT / "evals/fixtures" / fixture, repo)
         shutil.copytree(TOOLS, repo / "tools/brace", ignore=shutil.ignore_patterns(
             "examples", "tests", "__pycache__", "*.pyc"))
+        shutil.copytree(ROOT / "src", repo / "src", ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.egg-info"))
         shutil.copytree(SCRIPTS.parent, work / "skill")
         shutil.copyfile(final, repo / "brace-findings.json")
         try:

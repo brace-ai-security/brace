@@ -32,7 +32,7 @@ def build_tool() -> list[str] | None:
 
 def build_leftovers() -> set[Path]:
     """What setuptools leaves in the source tree: build/ and *.egg-info."""
-    return {*ROOT.glob("build"), *ROOT.glob("*.egg-info"), *(TOOL_DIR.glob("*.egg-info"))}
+    return {*ROOT.glob("build"), *ROOT.glob("*.egg-info"), *TOOL_DIR.glob("*.egg-info"), *(ROOT / "src").glob("*.egg-info")}
 
 
 def test_package_version_is_single_sourced():
@@ -126,7 +126,7 @@ def test_pre_commit_hook_runs_the_whole_repository():
 
 def test_every_module_run_in_the_docs_is_isolated():
     """Finding 12: `python -m` puts the current folder first on sys.path; the docs say `python -I -m`."""
-    docs = [TOOL_DIR / "SCAN.md", TOOL_DIR / "open_agent_security" / "__main__.py"]
+    docs = [TOOL_DIR / "SCAN.md", ROOT / "src" / "open_agent_security" / "__main__.py"]
     for doc in docs:
         text = doc.read_text(encoding="utf-8")
         runs = re.findall(r"python3?(?: -\w+)* -m open_agent_security", text)

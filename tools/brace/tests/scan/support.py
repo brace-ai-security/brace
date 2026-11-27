@@ -18,8 +18,10 @@ import pytest
 
 TOOL_DIR = Path(__file__).resolve().parents[2]
 ROOT = TOOL_DIR.parent.parent
-if str(TOOL_DIR) not in sys.path:
-    sys.path.insert(0, str(TOOL_DIR))
+SRC = ROOT / "src"
+for _p in (TOOL_DIR, SRC):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 from open_agent_security import cli, registry  # noqa: E402
 from open_agent_security.config import load  # noqa: E402

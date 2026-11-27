@@ -18,7 +18,7 @@ from open_agent_security.catalog import RULES, TAXA, TAXONOMIES
 jsonschema = pytest.importorskip("jsonschema")
 GOLDEN = TOOL_DIR / "tests" / "fixtures" / "oas_golden"
 SCHEMAS = TOOL_DIR / "tests" / "fixtures" / "schemas"
-REPORT_SCHEMA = TOOL_DIR / "open_agent_security" / "report" / "schema" / "report-1.schema.json"
+REPORT_SCHEMA = ROOT / "src" / "open_agent_security" / "report" / "schema" / "report-1.schema.json"
 
 
 def validator(path, cls):

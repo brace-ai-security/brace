@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from open_agent_security.host_scan import MAX_SERVERS, cut, load_json, server_record  # noqa: E402
 
 MAX_BYTES = 5 * 1024 * 1024

@@ -36,7 +36,7 @@ try:
     import yaml
 except ImportError:  # pragma: no cover - exercised only without PyYAML
     if len(sys.argv) > 1 and sys.argv[1] == "scan":  # the scanner needs only the standard library
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
         from open_agent_security.cli import main as _scan_main
         sys.exit(_scan_main(sys.argv[2:]))
     sys.stderr.write("brace.py needs PyYAML. Install it with: pip install pyyaml\n")
@@ -551,7 +551,7 @@ def verify_github(gh: GitHub, top: Path, rel: str, approvers: list[str], current
 
 def _scan_cli():
     """The scanner's own command line (open_agent_security/cli.py), so `brace.py scan` matches it."""
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
     from open_agent_security import cli
     return cli
 

@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[3]
 POLICY = ROOT / "examples" / "policy"
 REGO = POLICY / "rego"
 INPUTS = POLICY / "inputs"
-SCHEMA = ROOT / "tools/brace/open_agent_security/report/schema/report-1.schema.json"
+SCHEMA = ROOT / "src/open_agent_security/report/schema/report-1.schema.json"
 
 
 def tool(name):

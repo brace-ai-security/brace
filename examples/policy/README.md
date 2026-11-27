@@ -2,7 +2,7 @@
 
 Small [Open Policy Agent](https://www.openpolicyagent.org/docs/policy-language) (Rego) policies
 that gate a build on an `open-agent-security` JSON report
-([report-1.schema.json](../../tools/brace/open_agent_security/report/schema/report-1.schema.json)).
+([report-1.schema.json](../../src/open_agent_security/report/schema/report-1.schema.json)).
 They are examples to copy and adapt. They are not part of BRACE's requirements.
 
 | Policy | Fails when |

@@ -10,6 +10,7 @@ import yaml
 
 TOOL_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(TOOL_DIR))
+sys.path.insert(0, str(TOOL_DIR.parent.parent / "src"))
 
 import brace  # noqa: E402
 
