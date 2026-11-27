@@ -82,3 +82,19 @@ def local_files(root: str, use: str) -> list[str]:
         return [path]
     path += "/" if use else ""
     return [path + "action.yml", path + "action.yaml"]
+
+
+class OpenTrigger:
+    """AP21: an agent workflow that any GitHub user can start with a comment, an issue, a
+    discussion or a review (or workflow_run), with no actor or permission check anywhere in the
+    file. claude-code-action and codex-action check the actor's write access themselves, so a
+    workflow whose only agent steps are those actions counts as gated unless that check is opened
+    to everyone (allowed_non_write_users / allow-users: "*")."""
+    name = "open-trigger"
+    emits = ("AP21",)
+    scope = "file"
+
+    def run(self, doc: Document, ctx: CheckContext) -> Iterator[Finding]:
+        wf = doc.workflow
+        if wf and wf.event_line and wf.open_agent and not wf.gated:
+            yield Finding("AP21", doc.source.display, wf.event_line, f"{wf.event} + agent step, no actor check")

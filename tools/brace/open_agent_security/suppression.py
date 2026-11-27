@@ -19,7 +19,7 @@ def lowered(limits: Limits) -> tuple[str, ...]:
                  for key, attr in LIMIT_KEYS if (v := getattr(limits, attr)) < getattr(Limits(), attr))
 
 
-def suppression_note(tally: Tally, config_path: str | None) -> str:
+def suppression_note(tally: Tally, config_path: str | None, baseline: str = "") -> str:
     """'' when no filter was in effect; otherwise what was in effect and what it hid."""
     from_config = [plural(tally.rules_off, "rule") + " off" if tally.rules_off else "",
                    plural(tally.overrides, "severity override") if tally.overrides else "",
@@ -28,6 +28,7 @@ def suppression_note(tally: Tally, config_path: str | None) -> str:
              f"{IGNORE_FILE}: {plural(tally.ignore_file_entries, 'entry', 'entries')}"
              if tally.ignore_file_entries else "",
              f"inline ignore marks: {plural(tally.by_mark, 'finding')}" if tally.by_mark else "",
+             f"baseline {baseline}: {plural(tally.baselined, 'finding')}" if baseline else "",
              *tally.lowered]
     parts = [p for p in parts if p]
     if not parts:

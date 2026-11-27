@@ -46,8 +46,10 @@ TAXA = {
     "owasp-asi:ASI02": "Tool Misuse and Exploitation",
     "owasp-asi:ASI04": "Agentic Supply Chain Vulnerabilities",
     "owasp-asi:ASI05": "Unexpected Code Execution (RCE)",
+    "owasp-asi:ASI09": "Human-Agent Trust Exploitation",
     "owasp-mcp:MCP01": "Token Mismanagement & Secret Exposure",
     "owasp-mcp:MCP02": "Privilege Escalation via Scope Creep",
+    "owasp-mcp:MCP03": "Tool Poisoning",
     "owasp-mcp:MCP04": "Software Supply Chain Attacks & Dependency Tampering",
     "owasp-mcp:MCP06": "Intent Flow Subversion",
     "owasp-mcp:MCP07": "Insufficient Authentication & Authorization",
@@ -59,6 +61,7 @@ TAXA = {
     "atlas:AML.T0053": "AI Agent Tool Invocation",
     "atlas:AML.T0055": "Unsecured Credentials",
     "atlas:AML.T0077": "LLM Response Rendering",
+    "atlas:AML.T0081": "Modify AI Agent Configuration",
     "atlas:AML.T0083": "Credentials from AI Agent Configuration",
     "atlas:AML.T0085.001": "Data from AI Services: AI Agent Tools",
     "atlas:AML.T0086": "Exfiltration via AI Agent Tool Invocation",
@@ -69,6 +72,7 @@ TAXA = {
     "atlas:AML.T0132": "Misconfigured or Publicly Exposed AI Services",
     "cwe:250": "Execution with Unnecessary Privileges",
     "cwe:319": "Cleartext Transmission of Sensitive Information",
+    "cwe:494": "Download of Code Without Integrity Check",
     "cwe:798": "Use of Hard-coded Credentials",
     "cwe:829": "Inclusion of Functionality from Untrusted Control Sphere",
 }
@@ -175,6 +179,41 @@ _RULES: tuple[RuleMeta, ...] = (
              "Pin the base image by digest (image@sha256:...) and update it on purpose.",
              ("B10", "C01"),
              refs=("atlas:AML.T0010.004", "cwe:829")),
+    RuleMeta("AP20", "Agent tools approved automatically, without review", "medium",
+             "Settings such as enableAllProjectMcpServers, an MCP server's alwaysAllow or autoApprove list, "
+             "Gemini CLI's trust: true or VS Code's chat.tools.autoApprove start servers or run tool calls "
+             "without asking. Injected text, or a project file someone else wrote, then acts with no person in "
+             "the loop.",
+             "Approve servers one at a time and leave tool calls on ask. Auto-approve only read-only tools you "
+             "have reviewed, and never in settings committed to a shared repository.",
+             ("B06", "B05"),
+             refs=("owasp-asi:ASI09", "atlas:AML.T0086", "atlas:AML.T0100", "atlas:AML.T0101")),
+    RuleMeta("AP21", "Agent workflow anyone can trigger with a comment or issue", "high",
+             "issue_comment, issues, discussion_comment, pull_request_review_comment and workflow_run run with "
+             "the repository's secrets and token. Without a check on who triggered it, any GitHub user can "
+             "write the text the agent reads and steer it.",
+             "Gate the job on the actor: an if: on author_association (OWNER, MEMBER, COLLABORATOR) or a "
+             "permission check, keep the vendor actions' write-access check on, and give the job read-only "
+             "permissions.",
+             ("B02", "B05", "R02"),
+             refs=("owasp-asi:ASI01", "owasp-mcp:MCP02", "owasp-mcp:MCP06", "atlas:AML.T0051", "atlas:AML.T0051.002",
+                   "atlas:AML.T0085.001", "atlas:AML.T0086", "atlas:AML.T0100", "atlas:AML.T0101", "atlas:AML.T0125")),
+    RuleMeta("AP22", "Hidden Unicode characters in agent instructions", "high",
+             "Bidirectional controls, zero-width characters and Unicode tag characters are invisible in "
+             "review but read by the model. A rules file or tool description can carry instructions no "
+             "reviewer saw.",
+             "Remove the characters (the finding names each code point), and block them in review or CI "
+             "for agent instruction files and tool descriptions.",
+             ("B12", "E04", "R02"),
+             refs=("owasp-asi:ASI01", "owasp-mcp:MCP03", "owasp-mcp:MCP06", "atlas:AML.T0051", "atlas:AML.T0051.002",
+                   "atlas:AML.T0081")),
+    RuleMeta("AP23", "Hook or skill runs code fetched from the internet", "high",
+             "A hook or skill that pipes a download into a shell (curl ... | sh) runs whatever that URL serves "
+             "today, on every machine that uses the setting, with the agent's and the user's access.",
+             "Vendor the script into the repository, or download a pinned version and check its hash before "
+             "running it.",
+             ("E02", "B12", "C05"),
+             refs=("owasp-asi:ASI04", "owasp-mcp:MCP04", "atlas:AML.T0081", "cwe:494")),
 )
 
 

@@ -6,6 +6,7 @@ uses no regexes built from user input and no backtracking, so a hostile pattern 
 from __future__ import annotations
 
 import re
+from datetime import date
 from pathlib import Path
 from typing import Collection, NamedTuple
 
@@ -18,6 +19,8 @@ IGNORE_FILE = ".open-agent-security-ignore"
 IGNORE_MARK = "open-agent-security: ignore"
 STARS = re.compile(r"\*+")
 TRAILING_COMMENT = re.compile(r"(?:^|\s)#.*$")
+EXPIRES_NOTE = re.compile(r"(?:^|\s)#[ \t]*expires:[ \t]*(\S{0,40})", re.I)  # `pattern  # expires: 2027-01-31`
+DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 BUILTIN_RULE = re.compile(r"^AP\d\d$")  # a built-in rule ID's form, registered or not
 RULE_PREFIX = re.compile(rf"^({RULE_ID_PATTERN})\s+(.+)$")  # `AP04 path`, or a plugin rule such as `ACME-01 path`
 
@@ -36,6 +39,7 @@ class PathGlob(NamedTuple):
     source: str = ""     # where it was written: IGNORE_FILE, or the config file as shown
     line: int = 0        # its line in the ignore file (0: not known)
     reason: str = ""     # the config entry's reason
+    expires: str = ""    # YYYY-MM-DD: the entry suppresses nothing from this day on (UTC)
 
 
 def flex(entry: PathGlob) -> int:
@@ -131,7 +135,7 @@ def load_ignores(root: Path, limit: int = MB, rules: Collection[str] = ()) -> tu
             "a symlink" if text.reason == "symlink" else text.reason
         return [], [f"ignore file: {IGNORE_FILE} is {why}, so it was not applied"]
     out: list[PathGlob] = []
-    too_deep = too_complex = budget = 0
+    too_deep = too_complex = budget = bad_dates = 0
     for number, raw in enumerate(text.split("\n"), 1):
         if len(raw) > 4 * MAX_PATTERN:
             continue  # far too long to be a pattern, even with a comment
@@ -139,6 +143,11 @@ def load_ignores(root: Path, limit: int = MB, rules: Collection[str] = ()) -> tu
         if not line or len(line) > MAX_PATTERN:
             continue
         rule, written = None, line
+        exp = EXPIRES_NOTE.search(raw)
+        expires = exp.group(1) if exp else ""
+        if expires and not valid_date(expires):
+            bad_dates += 1
+            expires = "0000-00-00"  # a date nobody can read counts as expired: the finding is reported
         m = RULE_PREFIX.match(line)
         if m and (m.group(1) in rules or BUILTIN_RULE.match(m.group(1))):
             rule, line = m.group(1), m.group(2).strip()
@@ -151,16 +160,30 @@ def load_ignores(root: Path, limit: int = MB, rules: Collection[str] = ()) -> tu
             too_complex += 1
         elif entry:
             budget += flex(entry)
-            out.append(entry._replace(text=written, source=IGNORE_FILE, line=number))
+            out.append(entry._replace(text=written, source=IGNORE_FILE, line=number, expires=expires))
         if len(out) >= MAX_IGNORES:
             break
     notes = []
+    if bad_dates:
+        notes.append(f"ignore file: {bad_dates} entr{'y' if bad_dates == 1 else 'ies'} with an expiry date that is not "
+                     "YYYY-MM-DD, treated as expired")
     if too_deep:
         notes.append(f"ignore file: skipped {too_deep} pattern(s) of more than {MAX_SEGMENTS} folders")
     if too_complex:
         notes.append(f"ignore file: skipped {too_complex} pattern(s) past the limit of {MAX_FLEX} segments "
                      "after `**` in all")
     return out, notes
+
+
+def valid_date(text: str) -> bool:
+    """A real calendar date written YYYY-MM-DD."""
+    if not DATE.match(text):
+        return False
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
 
 
 class GlobSet:

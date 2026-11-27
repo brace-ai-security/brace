@@ -37,10 +37,10 @@ TEXT_EXT = {".json", ".jsonc", ".yaml", ".yml", ".toml", ".py", ".ts", ".tsx", "
             # languages and templates (comment markers for each are in checks/permissions.py)
             ".service", ".conf", ".code-workspace", ".tf", ".hcl", ".ipynb", ".php", ".cs", ".swift", ".lua", ".pl",
             ".c", ".h", ".cpp", ".ex", ".exs", ".dart", ".vue", ".svelte", ".html", ".nix", ".j2", ".jinja", ".tpl",
-            ".properties", ".json5", ".txt"}
+            ".properties", ".json5", ".txt", ".mdc"}
 SHELL_STARTUP = {".zshrc", ".bashrc", ".bash_aliases", ".bash_profile", ".zprofile", ".profile", ".envrc", ".zshenv"}
 TEXT_NAMES = {"makefile", "gnumakefile", "justfile", ".justfile", "jenkinsfile", ".mcp.json", "procfile",
-              *SHELL_STARTUP}  # lowercased
+              ".cursorrules", ".windsurfrules", ".clinerules", ".roorules", *SHELL_STARTUP}  # lowercased
 CI_PATH = re.compile(r"(?:^|/)(?:\.github/workflows/|\.gitlab-ci\.ya?ml$|\.gitlab/|\.circleci/|\.buildkite/|Jenkinsfile$|"
                      r"azure-pipelines\.ya?ml$|bitbucket-pipelines\.ya?ml$|\.drone\.ya?ml$|\.woodpecker|\.tekton/)", re.I)
 SCRIPT_EXT = {".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd", ""}

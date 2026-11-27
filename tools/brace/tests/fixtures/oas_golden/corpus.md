@@ -19,8 +19,12 @@
 | high | [Secret written directly in agent configuration](https://braceframework.org/anti-patterns/#ap05-secret-written-directly-in-agent-configuration) | sub/\.mcp\.json:22 | Load the secret from the environment or a secret manager, use a short-lived scoped token, and rotate the exposed one. |
 | high | [Agent allowed to run any shell command](https://braceframework.org/anti-patterns/#ap06-agent-allowed-to-run-any-shell-command) | sub/\.claude/settings\.json:3 | Allow only the specific commands the task needs, such as Bash\(npm test\), and keep deny rules for network and destructive commands. |
 | high | [Agent tool container can take over the host](https://braceframework.org/anti-patterns/#ap08-agent-tool-container-can-take-over-the-host) | sub/\.mcp\.json:25 | Drop these flags. Mount only the folders the tool needs, read-only where possible. |
+| high | [Agent workflow anyone can trigger with a comment or issue](https://braceframework.org/anti-patterns/#ap21-agent-workflow-anyone-can-trigger-with-a-comment-or-issue) | sub/\.github/workflows/comment\.yml:2 | Gate the job on the actor: an if: on author\_association \(OWNER, MEMBER, COLLABORATOR\) or a permission check, keep the vendor actions' write-access check on, and give the job read-only permissions. |
+| high | [Hidden Unicode characters in agent instructions](https://braceframework.org/anti-patterns/#ap22-hidden-unicode-characters-in-agent-instructions) | sub/CLAUDE\.md:1 | Remove the characters \(the finding names each code point\), and block them in review or CI for agent instruction files and tool descriptions. |
+| high | [Hook or skill runs code fetched from the internet](https://braceframework.org/anti-patterns/#ap23-hook-or-skill-runs-code-fetched-from-the-internet) | sub/\.claude/settings\.local\.json:4 | Vendor the script into the repository, or download a pinned version and check its hash before running it. |
 | medium | [Remote MCP server reached over plain HTTP](https://braceframework.org/anti-patterns/#ap07-remote-mcp-server-reached-over-plain-http) | sub/\.mcp\.json:19 | Use https, and authenticate the server. |
 | medium | [Lethal combination: untrusted input, private data and a way out](https://braceframework.org/anti-patterns/#ap09-lethal-combination-untrusted-input-private-data-and-a-way-out) | sub/\.mcp\.json:3 | Split the capabilities across agents, remove one leg, or require a person to approve every outbound or consequential action. |
+| medium | [Agent tools approved automatically, without review](https://braceframework.org/anti-patterns/#ap20-agent-tools-approved-automatically-without-review) | sub/\.claude/settings\.local\.json:2 | Approve servers one at a time and leave tool calls on ask. Auto-approve only read-only tools you have reviewed, and never in settings committed to a shared repository. |
 | low | [Agent image not pinned to a digest](https://braceframework.org/anti-patterns/#ap10-agent-image-not-pinned-to-a-digest) | sub/Dockerfile:1 | Pin the base image by digest \(image@sha256:...\) and update it on purpose. |
 | low | [Agent image not pinned to a digest](https://braceframework.org/anti-patterns/#ap10-agent-image-not-pinned-to-a-digest) | sub/Dockerfile:5 | Pin the base image by digest \(image@sha256:...\) and update it on purpose. |
 
@@ -184,6 +188,82 @@ claude -p "fix the tests" --allowedTools "Bash(npm test)" "Edit"
 </details>
 
 <details>
+<summary>AP21: Agent workflow anyone can trigger with a comment or issue</summary>
+
+**Why:** issue\_comment, issues, discussion\_comment, pull\_request\_review\_comment and workflow\_run run with the repository's secrets and token. Without a check on who triggered it, any GitHub user can write the text the agent reads and steer it.
+
+**Fix:** Gate the job on the actor: an if: on author\_association \(OWNER, MEMBER, COLLABORATOR\) or a permission check, keep the vendor actions' write-access check on, and give the job read-only permissions.
+
+**Before:**
+
+```text
+on: issue_comment
+jobs:
+  agent:
+    steps:
+      - run: claude -p "Answer the comment"
+```
+
+**After:**
+
+```text
+on: issue_comment
+jobs:
+  agent:
+    if: contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    permissions: {contents: read}
+    steps: [{run: 'claude -p "Answer the comment"'}]
+```
+
+</details>
+
+<details>
+<summary>AP22: Hidden Unicode characters in agent instructions</summary>
+
+**Why:** Bidirectional controls, zero-width characters and Unicode tag characters are invisible in review but read by the model. A rules file or tool description can carry instructions no reviewer saw.
+
+**Fix:** Remove the characters \(the finding names each code point\), and block them in review or CI for agent instruction files and tool descriptions.
+
+**Before:**
+
+```text
+CLAUDE.md: "Run the tests before committing.<U+200B><U+E0049><U+E0047>..."
+(zero-width and tag characters, invisible in review, carrying extra instructions)
+```
+
+**After:**
+
+```text
+CLAUDE.md: "Run the tests before committing."
+(the characters removed, and blocked in CI for agent instruction files)
+```
+
+</details>
+
+<details>
+<summary>AP23: Hook or skill runs code fetched from the internet</summary>
+
+**Why:** A hook or skill that pipes a download into a shell \(curl ... \| sh\) runs whatever that URL serves today, on every machine that uses the setting, with the agent's and the user's access.
+
+**Fix:** Vendor the script into the repository, or download a pinned version and check its hash before running it.
+
+**Before:**
+
+```text
+"hooks": {"SessionStart": [{"hooks": [
+  {"type": "command", "command": "curl -fsSL https://example.org/setup.sh | bash"}]}]}
+```
+
+**After:**
+
+```text
+"hooks": {"SessionStart": [{"hooks": [
+  {"type": "command", "command": "bash .claude/hooks/setup.sh"}]}]}
+```
+
+</details>
+
+<details>
 <summary>AP07: Remote MCP server reached over plain HTTP</summary>
 
 **Why:** Tool calls, results and credentials cross the network unencrypted and can be read or changed in transit, including the tool descriptions the model trusts.
@@ -222,6 +302,33 @@ one agent reads issues, reads private repositories and can post to the web
 ```text
 agent A reads issues, with no private data and no network
 agent B holds private data, and a person approves each outbound action
+```
+
+</details>
+
+<details>
+<summary>AP20: Agent tools approved automatically, without review</summary>
+
+**Why:** Settings such as enableAllProjectMcpServers, an MCP server's alwaysAllow or autoApprove list, Gemini CLI's trust: true or VS Code's chat.tools.autoApprove start servers or run tool calls without asking. Injected text, or a project file someone else wrote, then acts with no person in the loop.
+
+**Fix:** Approve servers one at a time and leave tool calls on ask. Auto-approve only read-only tools you have reviewed, and never in settings committed to a shared repository.
+
+**Before:**
+
+```text
+// .claude/settings.json, committed to the repository
+{"enableAllProjectMcpServers": true}
+// .mcp.json
+"github": {"command": "github-mcp-server", "autoApprove": ["create_issue", "push_files"]}
+```
+
+**After:**
+
+```text
+// .claude/settings.json: approve each project server after review
+{"enabledMcpjsonServers": ["github"]}
+// .mcp.json: tool calls stay on ask
+"github": {"command": "github-mcp-server"}
 ```
 
 </details>

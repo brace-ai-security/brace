@@ -30,20 +30,27 @@ Example output:
     Fix:  Pin an exact version (for example pkg@1.4.2), or install it once from a reviewed lockfile.
     BRACE checklist E02, E03, C05 · https://braceframework.org/anti-patterns/#ap04-mcp-server-installed-from-an-unpinned-package
 
+✗ HIGH     Agent workflow anyone can trigger with a comment or issue  [AP21] ×1
+    .github/workflows/triage.yml:1  issues + agent step, no actor check
+    Why:  issue_comment, issues, discussion_comment, pull_request_review_comment and workflow_run run with the repository's secrets and token. Without a check on who triggered it, any GitHub user can write the text the agent reads and steer it.
+    Fix:  Gate the job on the actor: an if: on author_association (OWNER, MEMBER, COLLABORATOR) or a permission check, keep the vendor actions' write-access check on, and give the job read-only permissions.
+    BRACE checklist B02, B05, R02 · https://braceframework.org/anti-patterns/#ap21-agent-workflow-anyone-can-trigger-with-a-comment-or-issue
+
 ✗ MEDIUM   Lethal combination: untrusted input, private data and a way out  [AP09] ×1
     .mcp.json:3  likely, from server and package names — untrusted input: gmail; private data: gmail, stripe; a way out: gmail, stripe
     Why:  The same agent can read content an attacker controls, reach private data and send data or act outside. Prompt injection then becomes data theft; no system prompt reliably stops it.
     Fix:  Split the capabilities across agents, remove one leg, or require a person to approve every outbound or consequential action.
     BRACE checklist B05, B01, R02 · https://braceframework.org/anti-patterns/#ap09-lethal-combination-untrusted-input-private-data-and-a-way-out
 
-1 critical, 1 high, 1 medium  (3 findings). Silence a reviewed line with an 'open-agent-security: ignore' comment, or add an entry to .open-agent-security-ignore.
+1 critical, 2 high, 1 medium  (4 findings). Silence a reviewed line with an 'open-agent-security: ignore' comment, or add an entry to .open-agent-security-ignore.
 ```
 
 Local and read-only: no model, no account, no network. It checks for the
 [agent security anti-patterns](ANTI-PATTERNS.md): permission checks turned off, agents
-on `pull_request_target`, unpinned MCP servers, secrets in agent config, any-command shell
-access, containers that can take over the host, and the lethal combination of untrusted
-input, private data and a way out. It also runs in CI as a GitHub Action, with SARIF
+on `pull_request_target` or on comments and issues anyone can write, unpinned MCP servers,
+secrets in agent config, any-command shell access, auto-approved tools, hidden Unicode in
+agent instructions, hooks and skills that run downloaded code, containers that can take over
+the host, and the lethal combination of untrusted input, private data and a way out. It also runs in CI as a GitHub Action, with SARIF
 output for pull-request annotations (see [Starter](STARTER.md#add-the-scan-to-ci)), as a
 pre-commit hook, and in GitLab CI with GitLab SAST and JUnit reports.
 

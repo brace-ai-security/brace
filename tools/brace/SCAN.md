@@ -17,11 +17,17 @@ It reports each problem with its file and line, why it matters and how to fix it
 | AP03 | critical | Agent workflow triggered by `pull_request_target` |
 | AP04 | high | MCP server installed from an unpinned package |
 | AP05 | high | Secret written directly in agent configuration |
-| AP06 | high | Agent allowed to run any shell command (Claude Code settings) |
+| AP06 | high | Agent allowed to run any shell command (Claude Code, Gemini CLI and Cursor CLI settings) |
 | AP07 | medium | Remote MCP server reached over plain HTTP |
 | AP08 | high | Agent tool container can take over the host |
 | AP09 | medium | Lethal combination: untrusted input, private data and a way out (inferred from server and package names, marked *likely*) |
 | AP10 | low | Agent image not pinned to a digest (Dockerfiles, in repositories that contain an agent) |
+| AP20 | medium | Agent tools approved automatically, without review |
+| AP21 | high | Agent workflow anyone can trigger with a comment or issue |
+| AP22 | high | Hidden Unicode characters in agent instructions |
+| AP23 | high | Hook or skill runs code fetched from the internet |
+
+(AP11 to AP19 in ANTI-PATTERNS.md are review-only; they need a person to judge them.)
 
 Details and fixes: https://braceframework.org/anti-patterns/
 
@@ -44,6 +50,10 @@ a false positive is easy to silence after review: add `open-agent-security: igno
 line, or list the file in `.open-agent-security-ignore` (see below). The exact rules for
 what counts, what is only mentioned, how AP03, AP04 and AP05 read configuration, and the
 list of MCP config formats, are in [SCAN-DETAILS.md](SCAN-DETAILS.md).
+
+AP20 to AP23, and AP06 for Gemini CLI, Qwen Code and the Cursor CLI, read only setting names
+each product documents; exactly what counts is in
+[SCAN-DETAILS.md](SCAN-DETAILS.md#ap20-to-ap23-and-ap06-beyond-claude-code).
 
 ## Safe to run
 
@@ -81,6 +91,9 @@ conditions is in [SCAN-DETAILS.md](SCAN-DETAILS.md#what-the-scanner-reads-and-sk
 | `--list-rules` | List the rules with their severity after config and plugins, then exit. Add `--json` for JSON. |
 | `explain RULE`, `--explain RULE` | Print one rule in full, then exit: title, severity, why, fix, a before/after example, BRACE checklist items, taxonomy entries, the hardened policy template (if any) and the documentation link. Add `--json` for JSON. To scan a folder named `explain`, write `./explain`. See [Fixes and policy templates](#fixes-and-policy-templates). |
 | `--plugin NAME` | Load an installed plugin. Repeat it for more than one. See [Plugins](#plugins). |
+| `--write-baseline FILE` | Also write the reported findings' fingerprints to FILE (see [Baselines](#baselines)). |
+| `--baseline FILE` | Report only findings whose fingerprint is not in FILE; the rest are listed as suppressed. Overrides the config's `baseline`. |
+| `--today YYYY-MM-DD` | Judge expiry dates against this day instead of today (UTC), for reproducible runs. |
 | `--version` | Print the version. |
 
 Exit codes: 0 means nothing at or above the threshold, 1 means findings or an incomplete
@@ -246,6 +259,11 @@ path (`LICENSE files/x.sh`). An `APnn` ID that no loaded rule has matches nothin
 named in a note. An ignore file that is a symlink, larger than the file size limit or
 unreadable is not applied, and a note says so.
 
+An entry can expire: end the line with `# expires: YYYY-MM-DD` (`fixtures/  # expires:
+2027-01-31`). From that day (UTC) the entry suppresses nothing and hides no file, so what it
+covered is reported again, and a note names the expired entry; an entry expiring within 30
+days gets a note too. A date that is not a real `YYYY-MM-DD` counts as expired, with a note.
+
 Whatever hides findings or files is always shown, in every output format: when the ignore
 file or the config file has entries, rules are off or re-rated, inline marks suppressed a
 finding, or limits were lowered, the scan adds a note such as `.open-agent-security-ignore:
@@ -287,6 +305,7 @@ path = "fixtures/"
 path = ".vscode/mcp.json"
 rules = ["AP04"]
 reason = "reviewed"
+expires = "2027-01-31"                   # optional; reported again from this day (UTC)
 
 [[tokens]]
 name = "acme"
@@ -326,6 +345,56 @@ max-files = 200000
   justification of the findings it suppresses in SARIF and JSON (see
   [Suppressed findings in SARIF and JSON](#suppressed-findings-in-sarif-and-json)).
 - The file cannot load plugins. A `plugins` key is ignored with a note.
+- `expires` on an `[[ignore]]` entry is a date (`"2027-01-31"` or TOML's bare
+  `2027-01-31`); it works as in the ignore file. Any other value is an error.
+- `baseline = ".open-agent-security-baseline.json"` (a top-level key, before any table) names
+  a baseline file (see [Baselines](#baselines)); `--baseline` wins. It is a path inside the scanned folder, with the same rules as the globs (no
+  absolute paths, `..` or wildcards); a symlink is not followed.
+
+## Baselines
+
+A baseline lets a team adopt the scanner on a repository with known findings and still fail
+CI on new ones.
+
+```bash
+open-agent-security . --fail-on none --write-baseline .open-agent-security-baseline.json
+git add .open-agent-security-baseline.json     # review it like code
+open-agent-security . --baseline .open-agent-security-baseline.json --fail-on high
+```
+
+A finding in the baseline is a suppressed finding (kind `external`, justification `in
+baseline FILE`): it is listed in JSON, left out of SARIF unless `--sarif-suppressed` is given,
+counted in the suppression note and never affects the verdict or exit code. The baseline
+file is untrusted, since a pull request can change it: have CI read it from the base branch,
+or protect it with CODEOWNERS. Fingerprints, rewriting and the file format are in
+[SCAN-DETAILS.md](SCAN-DETAILS.md#baselines).
+
+## Roll-up across repositories
+
+`open-agent-security merge` combines JSON reports from several repositories into one:
+
+```bash
+open-agent-security merge --output all.json --csv all.csv --markdown all.md \
+    --label api --label web api.json web.json
+```
+
+The merged JSON lists, per repository, its verdict (`clean`, `findings` or `incomplete`),
+counts by severity and rule, every finding with a `repo` label, and totals (including how
+many repositories have each rule). `--label` names each report in order; otherwise the file
+name without `.json` is used. Each input is checked against the report shape (at most 32 MB
+each, 1,000 reports); one that fails stops the merge with exit code 2. CSV cells that a
+spreadsheet would run as a formula are prefixed with `'`. To scan a folder named `merge`,
+write `./merge`.
+
+For a dashboard, use the tools you have instead:
+
+- **GitHub code scanning**: upload each repository's SARIF with
+  `github/codeql-action/upload-sarif` (the GitHub Action does this). The organization's
+  Security tab then shows alerts across repositories, filterable by tool
+  `open-agent-security` and rule, and fingerprints keep alerts stable between runs.
+- **DefectDojo**: import the SARIF file with the "SARIF" parser (`scan_type=SARIF` in the
+  import-scan API), one engagement per repository; DefectDojo deduplicates on the SARIF
+  fingerprints and tracks status and risk acceptance with expiry.
 
 ## Plugins
 

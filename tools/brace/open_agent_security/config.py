@@ -8,6 +8,7 @@ ceilings, and anything malformed or unknown is an error rather than silently ign
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Mapping
 
@@ -15,7 +16,7 @@ from .agents import CODEX_FILE
 from .catalog import SEVERITY_ORDER
 from .fsio import ReadFailure, read
 from .toml_text import loads as load_toml
-from .ignore import PathGlob, PatternTooDeep, flex, parse_pattern
+from .ignore import PathGlob, PatternTooDeep, flex, parse_pattern, valid_date
 from .limits import (
     CEILINGS,
     CONFIG_FILE_BYTES,
@@ -36,7 +37,7 @@ from .secrets import CHARSETS, TOKEN_PREFIX, TokenSpec
 
 CONFIG_FILE = ".open-agent-security.toml"
 FAIL_ON = ("critical", "high", "medium", "low", "none")
-KEYS = {"version", "fail-on", "rules", "ignore", "include", "agent-config", "tokens", "limits", "plugins", "sarif-suppressed"}
+KEYS = {"version", "fail-on", "rules", "ignore", "include", "agent-config", "tokens", "limits", "plugins", "sarif-suppressed", "baseline"}
 
 
 class ConfigError(Exception):
@@ -58,6 +59,10 @@ class Config:
     path: str | None = None                 # the config file applied, as shown to the user
     display_prefix: str = ""                # put before repository paths in findings ("sub/" when run from the parent)
     notes: tuple[str, ...] = ()
+    baseline: str | None = None             # the config's baseline file, relative to the scanned folder
+    baseline_ids: frozenset[str] = frozenset()  # finding ids in the baseline applied
+    baseline_shown: str = ""                # the baseline applied, as shown ("" for none)
+    today: date | None = None               # the date expiry is judged on (UTC); None: today
 
     @property
     def disabled(self) -> frozenset[str]:
@@ -109,7 +114,19 @@ def parse(data: dict, base: Config, shown: str, known_rules: set[str]) -> Config
                   ignore=parse_ignore(data.get("ignore", []), known_rules, shown),
                   include=tuple(globs(data.get("include", []), "include", shown)),
                   agent_config=tuple(agent_config_globs(data.get("agent-config", []), shown)),
-                  tokens=parse_tokens(data.get("tokens", []), shown), limits=limits, path=shown, notes=tuple(notes))
+                  tokens=parse_tokens(data.get("tokens", []), shown), limits=limits, path=shown, notes=tuple(notes),
+                  baseline=parse_baseline(data.get("baseline"), shown))
+
+
+def parse_baseline(value, shown: str) -> str | None:
+    """The baseline file's path: relative, inside the scanned folder, no wildcards."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or len(value) > MAX_PATTERN or not value.isprintable() \
+            or value.startswith(("/", "~")) or "\\" in value or (len(value) > 1 and value[1] == ":") \
+            or any(seg in (".", "..", "") for seg in value.split("/")) or any(c in value for c in "*?["):
+        raise ConfigError(f"{shown}: baseline must be a relative path to a file inside the folder")
+    return value
 
 
 def parse_rules(rules, known: set[str], shown: str) -> dict[str, str]:
@@ -177,16 +194,21 @@ def parse_ignore(items, known: set[str], shown: str) -> tuple[PathGlob, ...]:
     out: list[PathGlob] = []
     paths: list[PathGlob] = []
     for item in items:
-        if not isinstance(item, dict) or set(item) - {"path", "rules", "reason"} or "path" not in item:
-            raise ConfigError(f"{shown}: each [[ignore]] entry takes path, and optionally rules and reason")
+        if not isinstance(item, dict) or set(item) - {"path", "rules", "reason", "expires"} or "path" not in item:
+            raise ConfigError(f"{shown}: each [[ignore]] entry takes path, and optionally rules, reason and expires")
         if not isinstance(item.get("reason", ""), str):
             raise ConfigError(f"{shown}: ignore reason must be text")
+        expires = item.get("expires", "")
+        if isinstance(expires, date):  # TOML's own date type: expires = 2027-01-31
+            expires = expires.isoformat()
+        if not isinstance(expires, str) or (expires and not valid_date(expires)):
+            raise ConfigError(f"{shown}: ignore expires must be a date written YYYY-MM-DD")
         rules = item.get("rules", [None])
         if not isinstance(rules, list) or not rules or any(r is not None and (not isinstance(r, str) or r not in known) for r in rules):
             raise ConfigError(f"{shown}: ignore rules must be a list of known rule IDs")
         entry = glob(item["path"], "ignore", shown, anchor=True)
         paths.append(entry)
-        entry = entry._replace(text=item["path"], source=shown, reason=item.get("reason", ""))
+        entry = entry._replace(text=item["path"], source=shown, reason=item.get("reason", ""), expires=expires)
         out += [entry._replace(rule=r) for r in rules]
     if len(out) > MAX_IGNORE_RULES:
         raise ConfigError(f"{shown}: ignore expands to more than {MAX_IGNORE_RULES} path-and-rule pairs; "

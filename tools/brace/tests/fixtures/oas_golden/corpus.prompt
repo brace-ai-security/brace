@@ -89,22 +89,42 @@ then re-run open-agent-security and confirm they are gone.
    Why: --privileged, a mounted Docker socket, host networking or a mounted root filesystem remove the container boundary. A compromised tool then controls the machine.
    Suggested change: Drop these flags. Mount only the folders the tool needs, read-only where possible.
 
-18. [AP07 medium] sub/.mcp.json:19
+18. [AP21 high] sub/.github/workflows/comment.yml:2
+   Problem: Agent workflow anyone can trigger with a comment or issue (issue_comment + agent step, no actor check)
+   Why: issue_comment, issues, discussion_comment, pull_request_review_comment and workflow_run run with the repository's secrets and token. Without a check on who triggered it, any GitHub user can write the text the agent reads and steer it.
+   Suggested change: Gate the job on the actor: an if: on author_association (OWNER, MEMBER, COLLABORATOR) or a permission check, keep the vendor actions' write-access check on, and give the job read-only permissions.
+
+19. [AP22 high] sub/CLAUDE.md:1
+   Problem: Hidden Unicode characters in agent instructions (3 hidden character(s) on 1 line(s): U+202E RIGHT-TO-LEFT OVERRIDE, U+E0049 TAG, U+E0047 TAG)
+   Why: Bidirectional controls, zero-width characters and Unicode tag characters are invisible in review but read by the model. A rules file or tool description can carry instructions no reviewer saw.
+   Suggested change: Remove the characters (the finding names each code point), and block them in review or CI for agent instruction files and tool descriptions.
+
+20. [AP23 high] sub/.claude/settings.local.json:4
+   Problem: Hook or skill runs code fetched from the internet (hook runs curl -fsSL https://hooks.example.org/h.sh | sh)
+   Why: A hook or skill that pipes a download into a shell (curl ... | sh) runs whatever that URL serves today, on every machine that uses the setting, with the agent's and the user's access.
+   Suggested change: Vendor the script into the repository, or download a pinned version and check its hash before running it.
+
+21. [AP07 medium] sub/.mcp.json:19
    Problem: Remote MCP server reached over plain HTTP (remote: http://tools.example.org)
    Why: Tool calls, results and credentials cross the network unencrypted and can be read or changed in transit, including the tool descriptions the model trusts.
    Suggested change: Use https, and authenticate the server.
 
-19. [AP09 medium] sub/.mcp.json:3
+22. [AP09 medium] sub/.mcp.json:3
    Problem: Lethal combination: untrusted input, private data and a way out (likely, from server and package names — untrusted input: gmail; private data: gmail, postgres; a way out: gmail)
    Why: The same agent can read content an attacker controls, reach private data and send data or act outside. Prompt injection then becomes data theft; no system prompt reliably stops it.
    Suggested change: Split the capabilities across agents, remove one leg, or require a person to approve every outbound or consequential action.
 
-20. [AP10 low] sub/Dockerfile:1
+23. [AP20 medium] sub/.claude/settings.local.json:2
+   Problem: Agent tools approved automatically, without review (enableAllProjectMcpServers: true (project MCP servers start without approval))
+   Why: Settings such as enableAllProjectMcpServers, an MCP server's alwaysAllow or autoApprove list, Gemini CLI's trust: true or VS Code's chat.tools.autoApprove start servers or run tool calls without asking. Injected text, or a project file someone else wrote, then acts with no person in the loop.
+   Suggested change: Approve servers one at a time and leave tool calls on ask. Auto-approve only read-only tools you have reviewed, and never in settings committed to a shared repository.
+
+24. [AP10 low] sub/Dockerfile:1
    Problem: Agent image not pinned to a digest (FROM node:20)
    Why: A mutable tag such as :latest can change under you, so what you tested is not what runs.
    Suggested change: Pin the base image by digest (image@sha256:...) and update it on purpose.
 
-21. [AP10 low] sub/Dockerfile:5
+25. [AP10 low] sub/Dockerfile:5
    Problem: Agent image not pinned to a digest (FROM python:3.12)
    Why: A mutable tag such as :latest can change under you, so what you tested is not what runs.
    Suggested change: Pin the base image by digest (image@sha256:...) and update it on purpose.
@@ -160,6 +180,37 @@ How to fix AP08 (Agent tool container can take over the host):
    Example after:
       "args": ["run", "--rm", "-v", "./data:/data:ro", "tool"]
 
+How to fix AP21 (Agent workflow anyone can trigger with a comment or issue):
+   Example before:
+      on: issue_comment
+      jobs:
+        agent:
+          steps:
+            - run: claude -p "Answer the comment"
+   Example after:
+      on: issue_comment
+      jobs:
+        agent:
+          if: contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+          permissions: {contents: read}
+          steps: [{run: 'claude -p "Answer the comment"'}]
+
+How to fix AP22 (Hidden Unicode characters in agent instructions):
+   Example before:
+      CLAUDE.md: "Run the tests before committing.<U+200B><U+E0049><U+E0047>..."
+      (zero-width and tag characters, invisible in review, carrying extra instructions)
+   Example after:
+      CLAUDE.md: "Run the tests before committing."
+      (the characters removed, and blocked in CI for agent instruction files)
+
+How to fix AP23 (Hook or skill runs code fetched from the internet):
+   Example before:
+      "hooks": {"SessionStart": [{"hooks": [
+        {"type": "command", "command": "curl -fsSL https://example.org/setup.sh | bash"}]}]}
+   Example after:
+      "hooks": {"SessionStart": [{"hooks": [
+        {"type": "command", "command": "bash .claude/hooks/setup.sh"}]}]}
+
 How to fix AP07 (Remote MCP server reached over plain HTTP):
    Example before:
       "url": "http://mcp.example.com/mcp"
@@ -172,6 +223,18 @@ How to fix AP09 (Lethal combination: untrusted input, private data and a way out
    Example after:
       agent A reads issues, with no private data and no network
       agent B holds private data, and a person approves each outbound action
+
+How to fix AP20 (Agent tools approved automatically, without review):
+   Example before:
+      // .claude/settings.json, committed to the repository
+      {"enableAllProjectMcpServers": true}
+      // .mcp.json
+      "github": {"command": "github-mcp-server", "autoApprove": ["create_issue", "push_files"]}
+   Example after:
+      // .claude/settings.json: approve each project server after review
+      {"enabledMcpjsonServers": ["github"]}
+      // .mcp.json: tool calls stay on ask
+      "github": {"command": "github-mcp-server"}
 
 How to fix AP10 (Agent image not pinned to a digest):
    Example before:

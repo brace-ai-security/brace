@@ -139,7 +139,7 @@ CONFIG_FILES = (".mcp.json", "mcp.json", "mcp.jsonc", "mcp_config.json", "mcp-co
                 "claude_desktop_config.json", ".claude/settings.json", ".claude/settings.local.json",
                 ".gemini/settings.json", ".qwen/settings.json", "opencode.json", "opencode.jsonc",
                 "cline_mcp_settings.json", ".codex/config.toml", ".vscode/settings.json", ".cursor/mcp.json",
-                ".roo/mcp.json", ".zed/settings.json", "crush.json", ".crush.json", ".amp/settings.json")
+                ".roo/mcp.json", ".zed/settings.json", "crush.json", ".crush.json", ".amp/settings.json", ".cursor/cli.json")
 CONFIG_FILE = re.compile(rf"(?:^|/)(?:{alternation(CONFIG_FILES)})$", re.I)
 # General editor settings: agent config only when they hold MCP servers.
 SHARED_SETTINGS = re.compile(r"(?:^|/)\.(?:vscode|zed)/settings\.json$", re.I)
@@ -160,9 +160,10 @@ def config_dir(rel: str) -> bool:
 # read because a byte search found one). Markdown, reStructuredText, AsciiDoc, Org, plain text
 # and TeX, extensionless documents such as README or CHANGELOG, and the search indexes docs
 # sites generate.
-PROSE_EXT = frozenset((".md", ".mdx", ".markdown", ".mkd", ".rst", ".adoc", ".asciidoc", ".org", ".txt", ".tex"))
+PROSE_EXT = frozenset((".md", ".mdc", ".mdx", ".qmd", ".rmd", ".markdown", ".mkd", ".rst", ".adoc", ".asciidoc", ".org", ".txt", ".tex"))
 PROSE_NAME = re.compile(r"^(?:readme|changelog|changes|contributing|security|history|news|authors|contributors|"
-                        r"license|licence|copying|notice|code_of_conduct|maintainers|todo)(?:[.-][\w.-]*)?$", re.I)
+                        r"license|licence|copying|notice|code_of_conduct|maintainers|todo|\.cursorrules|\.windsurfrules|"
+                        r"\.clinerules|\.roorules)(?:[.-][\w.-]*)?$", re.I)
 SEARCH_INDEX = re.compile(r"(?:^|/)(?:[\w.-]*search[_-]?index[\w.-]*\.(?:json|js)|[\w.-]+\.search\.json|"
                           r"(?:lunr|pagefind)[\w.-]*/[^\n]*)$", re.I)
 

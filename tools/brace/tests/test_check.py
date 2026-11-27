@@ -168,6 +168,20 @@ def test_g2_gap_exception_wrong_item(repo):
     assert f"is for R02, not {Required}" in reasons(res)
 
 
+@pytest.mark.parametrize("key", ["expires", "review_by"])
+def test_expired_exception_is_an_open_gap(repo, key):
+    exc = good_exception(Required)
+    exc[key] = "2027-01-31"
+    repo.add("exceptions", f"{Required}-x", exc)
+    repo.set_item(Required, outcome="gap", lead="@bob", exception=f"{Required}-x")
+    code, res = repo.check("--approvals", "off", "--today", "2026-12-01")
+    assert code == 0 and not any("expires" in w for w in res["warnings"])
+    code, res = repo.check("--approvals", "off", "--today", "2027-01-10")
+    assert code == 0 and any("expires on 2027-01-31, within 30 days" in w for w in res["warnings"])
+    code, res = repo.check("--approvals", "off", "--today", "2027-01-31")
+    assert code == 1 and "expired on 2027-01-31" in reasons(res)
+
+
 def test_g2_gap_exception_incomplete(repo):
     exc = good_exception(Required)
     del exc["tracking"]

@@ -59,7 +59,7 @@ innermost open `(` or `[`) names an agent CLI or agent package:
   and Scala triple-quoted strings, Go and Rust raw strings); a block comment never hides a
   line whose command is an agent CLI;
 - in documentation, which is prose and not read for these rules: Markdown (`.md`, `.mdx`,
-  `.markdown`, `.mkd`), `.rst`, `.adoc`, `.asciidoc`, `.org`, `.txt` and `.tex` files;
+  `.markdown`, `.mkd`, Cursor `.mdc`), Quarto and R Markdown (`.qmd`, `.rmd`), `.rst`, `.adoc`, `.asciidoc`, `.org`, `.txt` and `.tex` files;
   extensionless README, CHANGELOG, CHANGES, CONTRIBUTING, SECURITY, HISTORY, NEWS, AUTHORS,
   CONTRIBUTORS, LICENSE, COPYING, NOTICE, CODE_OF_CONDUCT, MAINTAINERS and TODO files (also
   with a suffix such as `LICENSE-MIT` or `README.txt`); HTML (`.html`, `.htm`) outside
@@ -240,6 +240,68 @@ An agent config file that does not parse makes the scan incomplete.
   Windsurf and Devin Desktop, and `~/.claude/settings.json`, following symlinks and up to
   5 MB each. It shows paths under your home folder as `~/`.
 
+## AP20 to AP23 and AP06 beyond Claude Code
+
+These rules read only setting names each product documents; nothing else counts.
+
+| Rule | What counts | Where |
+|---|---|---|
+| AP20 | `enableAllProjectMcpServers: true` | Claude Code settings (`.claude/settings.json`, `.claude/settings.local.json`, `managed-settings.json`) |
+| AP20 | a non-empty `alwaysAllow` or `autoApprove` list, or either set to `true` | any MCP server entry (Cline, Roo Code, Kiro, Amazon Q and others) |
+| AP20 | `trust: true` | a Gemini CLI or Qwen Code MCP server entry |
+| AP20 | `chat.tools.autoApprove: true`, `chat.tools.global.autoApprove: true` | VS Code `settings.json` |
+| AP06 | `run_shell_command` (or `ShellTool`) with no command in parentheses, in `tools.allowed` or the older `allowedTools` | `.gemini/settings.json`, `.qwen/settings.json` |
+| AP06 | `Shell(*)` in `permissions.allow` | the Cursor CLI's `.cursor/cli.json` |
+| AP21 | a workflow triggered by `issue_comment`, `issues`, `discussion`, `discussion_comment`, `pull_request_review`, `pull_request_review_comment` or `workflow_run` (in its `on:` block, or inline) that runs an agent step (as AP03 finds them), when nothing in the file checks the actor | `.github/workflows/` |
+| AP22 | U+202A to U+202E, U+2066 to U+2069, U+200B to U+200D, U+2060, U+FEFF (not as the first character) and U+E0000 to U+E007F; in agent config also their JSON escapes (`\u200b`) | instruction files (below) and agent config files |
+| AP23 | a download piped into an interpreter (`curl`/`wget`/`iwr`/`irm` ... `\| sh`, `bash`, `python`, `node`, `iex`, ...), `bash <(curl ...)`, `sh -c "$(curl ...)"` | hook `command` strings in Claude Code settings and a plugin's `hooks/hooks.json`; any file under `.claude/skills`, `.claude/commands`, `.claude/agents`, `.claude/hooks`, `.agents/skills` or a `.claude-plugin` folder, and any `SKILL.md` |
+
+AP21 counts as an actor check: `author_association` anywhere in the file, `github.actor`
+(or `github.triggering_actor`, `github.event.sender.login`, the comment's or issue's
+`user.login`) compared with `==` or `!=` or passed to `contains(...)`, a collaborator
+permission lookup (`getCollaboratorPermissionLevel`, `/collaborators/.../permission`,
+`check-user-permission`), and for `workflow_run` a check of `head_repository`. The check is
+looked for in the whole file, not per job. `anthropics/claude-code-action` and
+`openai/codex-action` check the triggering actor's write access by default, so a workflow
+whose only agent steps are those actions is not reported unless `allowed_non_write_users` or
+`allow-users` is set to `*`. Agent steps in local actions are not followed for AP21.
+
+AP22 reads these instruction files: `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENT.md`,
+`GEMINI.md`, `QWEN.md`, `CONVENTIONS.md`, `SKILL.md`, `.cursorrules`, `.windsurfrules`,
+`.clinerules` (a file or folder), `.roorules*` and `.roo/rules*/`, anything under
+`.cursor/rules/` or `.windsurf/rules/` (`.mdc` included), `.github/copilot-instructions.md`,
+`.github/instructions/*.md`, `*.prompt.md`, `*.instructions.md`, `*.chatmode.md`, and the
+Markdown folders of agent frontmatter listed above. Not reported, because visible text uses
+them: a zero-width joiner or non-joiner with no ASCII character beside it (emoji sequences,
+Persian and Indic scripts) and a flag emoji's tag characters (up to 8 after U+1F3F4). The
+finding gives the count, the first line and up to four code points with their names; the
+hidden text itself is never printed. `.cursorrules`, `.windsurfrules`, `.clinerules` and
+`.roorules` are prose for AP01 and AP02, like Markdown.
+
+Not covered, because the products' settings are not documented precisely enough to match
+without guessing: Codex allow-lists (its full-access sandbox is AP01), Cursor and Windsurf
+per-server auto-approval in `mcp.json`, Claude Code `enabledMcpjsonServers` and plugin
+marketplace pinning.
+
+## Baselines
+
+- The baseline holds each finding's fingerprint: the JSON `id`, the same value as SARIF's
+  `partialFingerprints["openAgentSecurity/v1"]`. It hashes the rule, the path within the
+  scanned folder and the redacted detail, not the line, so moving code does not make a
+  finding new; editing the reported text does.
+- With `--baseline`, a finding in the baseline is listed as suppressed (kind `external`,
+  justification `in baseline FILE`) in JSON, and in SARIF only with `--sarif-suppressed`, counted in the suppression note
+  (`baseline FILE: 12 findings`), and never affects the verdict or exit code. An incomplete
+  scan stays incomplete.
+- `--write-baseline` together with `--baseline` writes the new findings and the baselined
+  ones still found, so rewriting drops fixed findings and keeps the rest.
+- The baseline file is untrusted (a pull request can change it): at most 8 MB and 50,000
+  findings, strict JSON of exactly `{"format": "open-agent-security-baseline", "version": 1,
+  "findings": [{"id": "<32 hex>", "rule": "...", "file": "..."}]}`. Anything else stops the
+  scan with exit code 2. Since a pull request can add its own findings to the baseline, have
+  CI read the baseline from the base branch (`git show origin/main:.open-agent-security-baseline.json
+  > /tmp/base.json`, then `--baseline /tmp/base.json`), or protect the file with CODEOWNERS.
+
 ## Suppressed findings in SARIF and JSON
 
 A suppressed finding is not dropped: JSON always lists it, and SARIF lists it with
@@ -253,6 +315,7 @@ count. Each one says how it was suppressed:
 | a rule-scoped entry in `.open-agent-security-ignore` | `external` | `.open-agent-security-ignore entry 'AP10 legacy/Dockerfile'` | the entry's line |
 | a config `ignore` entry | `external` | its `reason`, or `config ignore entry 'fixtures/' in .open-agent-security.toml` | not given |
 | a rule turned off in the config | `external` | `rule AP10 turned off in .open-agent-security.toml` | not given |
+| a baseline (`--baseline` or the config's `baseline`) | `external` | `in baseline .open-agent-security-baseline.json` | not given |
 
 A rule turned off still runs, so its findings can be listed; if its check fails, that is a
 note rather than an incomplete scan. An entry that ignores a path for every rule skips the

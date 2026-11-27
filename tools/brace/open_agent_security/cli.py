@@ -13,7 +13,11 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from . import __version__
+from datetime import date
+
+from . import __version__, baseline
+from .baseline import BaselineError
+from .ignore import valid_date
 from .catalog import SEVERITY_ORDER, TAXA, TAXONOMIES, RuleMeta
 from .config import FAIL_ON, Config, ConfigError, load
 from .engine import run_scan
@@ -51,6 +55,18 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--explain", metavar="RULE",
                    help="explain one rule: why, the fix, a before/after example, BRACE items, taxonomy entries and "
                         "a hardened template (with --json, as JSON) and exit; same as `explain RULE`")
+    p.add_argument("--baseline", metavar="FILE",
+                   help="report only findings not in this baseline file; the rest are listed as suppressed "
+                        "(overrides the config's baseline)")
+    p.add_argument("--write-baseline", metavar="FILE", help="write the reported findings' fingerprints to FILE")
+    p.add_argument("--today", metavar="YYYY-MM-DD", type=day_arg,
+                   help="judge expiry dates against this day (UTC) instead of today, for reproducible runs")
+
+
+def day_arg(value: str) -> date:
+    if not valid_date(value):
+        raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD, got {value!r}")
+    return date.fromisoformat(value)
 
 
 def output_arg(value: str) -> tuple[str, str]:
@@ -69,7 +85,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    return run_args(build_parser().parse_args(subcommand(sys.argv[1:] if argv is None else argv)))
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["merge"]:  # `open-agent-security merge FILE...`; scan a folder named merge as ./merge
+        from .merge import main as merge_main
+        return merge_main(argv[1:])
+    return run_args(build_parser().parse_args(subcommand(argv)))
 
 
 def subcommand(argv: list[str]) -> list[str]:
@@ -114,7 +134,7 @@ def run(a: argparse.Namespace) -> int:
         registry = builtin()
         load_plugins(registry, requested(a.plugin))
         config = resolve_config(a, root, registry)
-    except (ConfigError, PluginError) as e:
+    except (ConfigError, PluginError, BaselineError) as e:
         error(clean(e, NOTE_CHARS))
         return 2
     if a.list_rules:
@@ -136,6 +156,8 @@ def run(a: argparse.Namespace) -> int:
     report = run_scan(config, registry)
     try:
         write_outputs(report, registry, stdout, files, config.sarif_suppressed)
+        if getattr(a, "write_baseline", None):
+            write_new(a.write_baseline, baseline.render(report))
     except OSError as e:
         error(f"could not write output: {clean(e, NOTE_CHARS)}")
         return 2
@@ -151,9 +173,22 @@ def resolve_config(a: argparse.Namespace, root: Path, registry: Registry) -> Con
         notes += (f"config {config.path}: fail-on {config.fail_on} (the exit code follows the config file, "
                   "not the default high)",)
     sarif_suppressed = config.sarif_suppressed if a.sarif_suppressed is None else a.sarif_suppressed
-    return replace(config, host=a.host, fail_on=a.fail_on or config.fail_on or "high", notes=notes,
-                   sarif_suppressed=bool(sarif_suppressed),
-                   display_prefix=display_prefix(root))
+    config = replace(config, host=a.host, fail_on=a.fail_on or config.fail_on or "high", notes=notes,
+                     sarif_suppressed=bool(sarif_suppressed),
+                     display_prefix=display_prefix(root), today=getattr(a, "today", None))
+    return with_baseline(config, getattr(a, "baseline", None), root)
+
+
+def with_baseline(config: Config, cli_path: str | None, root: Path) -> Config:
+    """The baseline from --baseline (any path, the user's choice) or else the config's baseline
+    (inside the scanned folder, symlinks not followed). Raises BaselineError when it cannot be used."""
+    if cli_path:
+        return replace(config, baseline_ids=baseline.load(Path(cli_path), clean(cli_path)),
+                       baseline_shown=clean(cli_path, redact=False))
+    if config.baseline:
+        ids = baseline.load(root / config.baseline, config.baseline, follow=False)
+        return replace(config, baseline_ids=ids, baseline_shown=config.baseline)
+    return config
 
 
 def display_prefix(root: Path) -> str:

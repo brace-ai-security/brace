@@ -36,6 +36,26 @@ ACTION_FILE = re.compile(r"(?:^|/)action\.ya?ml$", re.I)
 LOCAL_USES = re.compile(r"^[ \t]*(?:-[ \t]+)?uses[ \t]*:[ \t]*[\"']?\./([^\s\"'#@]{0,300})", re.M)  # `./`: the repository's own action
 MAX_LOCAL_USES = 50  # local actions and reusable workflows kept per file
 
+# Events any GitHub user can cause (a comment, an issue, a discussion, a review), and
+# workflow_run, which runs with secrets after a workflow a fork's pull request started.
+OPEN_EVENTS = ("issue_comment", "issues", "discussion_comment", "discussion", "pull_request_review_comment",
+               "pull_request_review", "workflow_run")
+ON_KEY = re.compile(r"^[\"']?(?:on|true)[\"']?[ \t]*:[ \t]*(.*)$")  # YAML 1.1 reads a bare `on` as true
+EVENT_KEY = re.compile(r"^(?:-[ \t]*)?[\"']?([a-z_]{1,40})[\"']?[ \t]*(?::|$)")
+EVENT_WORD = re.compile(r"[a-z_]{1,40}")
+# An actor or permission check: author_association, a comparison or allowlist on the actor,
+# a collaborator-permission lookup, or (workflow_run) a check of where the triggering run came from.
+ACTOR_GATE = re.compile(r"author_association|github\.(?:triggering_)?actor[ \t]*[!=]=|"
+                        r"github\.event\.(?:comment|issue|review|discussion|sender)\.user\.login[ \t]*[!=]=|"
+                        r"github\.event\.sender\.login[ \t]*[!=]=|"
+                        r",[ \t]*github\.(?:triggering_)?actor[ \t]*\)|getCollaboratorPermissionLevel|"
+                        r"/collaborators/[^\n]{0,200}/permission|check-user-permission|"
+                        r"head_repository\.(?:full_name|fork)|workflow_run\.head_repository", re.I)
+# The vendor actions that check the triggering actor's write access themselves unless told not to.
+GATED_ACTION = re.compile(r"^[ \t]*(?:-[ \t]+)?uses[ \t]*:[ \t]*[\"']?(?:anthropics/claude-code-action|openai/codex-action)"
+                          r"(?:@|[\"' \t]|$)", re.I | re.M)
+OPENED_GATE = re.compile(r"(?:allowed_non_write_users|allow[-_]users)[ \t]*:[ \t]*[\"']?\*", re.I)
+
 
 def is_workflow(display: str) -> bool:
     """A GitHub Actions workflow file, at the scanned root or in a nested project."""
@@ -110,6 +130,42 @@ def trigger_line(text: str) -> int | None:
     return None
 
 
+def open_event(text: str) -> tuple[int | None, str]:
+    """The first line, and name, of an OPEN_EVENTS trigger in the workflow's `on:` block (or an
+    inline `on: issue_comment` / `on: [issues, push]`), or (None, "")."""
+    if not any(e in text for e in OPEN_EVENTS):
+        return None, ""
+    inside = False
+    for n, line in enumerate(text.split("\n"), 1):
+        line = line[:MAX_LINE]
+        body = uncommented(line.strip())
+        if not body:
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 0:
+            m = ON_KEY.match(body)
+            inside = bool(m)
+            if m:
+                for w in EVENT_WORD.findall(m.group(1)):
+                    if w in OPEN_EVENTS:
+                        return n, w
+            continue
+        if inside:
+            m = EVENT_KEY.match(body)
+            if m and m.group(1) in OPEN_EVENTS and (body.startswith("-") or body.rstrip().endswith(":")
+                                                     or ":" in body):
+                return n, m.group(1)
+    return None, ""
+
+
+def open_agent(text: str) -> bool:
+    """Whether an agent step runs without a vendor action's default write-access check: an agent
+    other than claude-code-action or codex-action, or one of them with that check opened to anyone."""
+    if OPENED_GATE.search(text):
+        return True
+    return agent_step(GATED_ACTION.sub("", text))
+
+
 class Workflow:
     name = "github-workflow"
 
@@ -119,4 +175,8 @@ class Workflow:
     def parse(self, src: SourceFile, doc: Document) -> None:
         trigger = trigger_line(src.text) if is_workflow(src.display) else None
         uses = tuple(m.group(1).rstrip("/") for m in LOCAL_USES.finditer(src.text))[:MAX_LOCAL_USES]
-        doc.workflow = WorkflowFacts(trigger, agent_step(src.text), uses)
+        event, name = open_event(src.text) if is_workflow(src.display) else (None, "")
+        agent = agent_step(src.text)
+        doc.workflow = WorkflowFacts(trigger, agent, uses, event, name,
+                                     bool(event and ACTOR_GATE.search(src.text)),
+                                     bool(event and agent and open_agent(src.text)))

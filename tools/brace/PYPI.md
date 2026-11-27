@@ -26,11 +26,15 @@ Each problem is reported with its file and line, why it matters and how to fix i
 | AP03 | critical | Agent workflow triggered by `pull_request_target` |
 | AP04 | high | MCP server installed from an unpinned package |
 | AP05 | high | Secret written directly in agent configuration |
-| AP06 | high | Agent allowed to run any shell command (Claude Code settings) |
+| AP06 | high | Agent allowed to run any shell command (Claude Code, Gemini CLI and Cursor CLI settings) |
 | AP07 | medium | Remote MCP server reached over plain HTTP |
 | AP08 | high | Agent tool container can take over the host |
 | AP09 | medium | Lethal combination: untrusted input, private data and a way out (inferred, marked *likely*) |
 | AP10 | low | Agent image not pinned to a digest |
+| AP20 | medium | Agent tools approved automatically, without review |
+| AP21 | high | Agent workflow anyone can trigger with a comment or issue |
+| AP22 | high | Hidden Unicode characters in agent instructions |
+| AP23 | high | Hook or skill runs code fetched from the internet |
 
 Details and fixes: https://braceframework.org/anti-patterns/
 
