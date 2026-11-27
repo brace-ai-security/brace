@@ -163,7 +163,7 @@ def test_project_checks_declare_their_facts():
 
 
 def test_every_config_format_is_listed_in_scan_md():
-    doc = (TOOL_DIR / "SCAN.md").read_text(encoding="utf-8")
+    doc = (TOOL_DIR / "SCAN-DETAILS.md").read_text(encoding="utf-8")
     for name in (".codex/config.toml", "opencode.json", "context_servers", "mcp.servers", "cline_mcp_settings.json",
                  ".gemini/settings.json"):
         assert name in doc, name

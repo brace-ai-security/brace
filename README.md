@@ -52,7 +52,7 @@ pre-commit hook, and in GitLab CI with GitLab SAST and JUnit reports.
 |---|---|---|
 | Building your first agent, or a small team | **[Anti-patterns](ANTI-PATTERNS.md)** and **[BRACE Starter](STARTER.md)**: ten checks before an agent touches anything real | ~1 hour |
 | Approving an agent for production | **[Sign-off checklist](CHECKLIST.md)**: 53 evidence-backed items with release gates | days |
-| Assessing a running deployment or a vendor | **[Self-assessment](SELF-ASSESSMENT.md)** and the [vendor matrix](VENDOR-MATRIX.md) | hours |
+| Assessing a running deployment or a vendor | **[Self-assessment](SELF-ASSESSMENT.md)**, including [assessing a vendor](SELF-ASSESSMENT.md#assessing-a-vendor) | hours |
 | Wiring BRACE into code review and CI | **[BRACE in your codebase](TOOLS.md)**: AI review skills, `.brace/` records and evidence checks | |
 
 Also: the [role map](ROLES.md) (who leads each item) and the [source review](SOURCE-REVIEW.md) (evidence and its limits).
@@ -127,7 +127,7 @@ Build the twelve elements (nine controls and three observability requirements) i
 - **Tier 2 — harden the substrate (the environment the agent runs on), and expose hidden failures.** Network and egress isolation (C1), a signed, minimal container (C3), input validation (C5), and context-size logging (Obs-T2).
 - **Tier 3 — active detection.** Security monitoring with baselines of normal action sequences (C7), memory scoping and source records (C6), and sub-agent and parent-prompt provenance (Obs-T3).
 
-The [checklist](CHECKLIST.md) turns these priorities into **Blocker/Required/Detection** gates on each item. A Blocker gap remains open and cannot be waived; Required gaps need written, approved risk acceptance. High-stakes or high-autonomy reviews report every Detection gap without closing it by exception. BRACE reports evidence, gaps and unknowns for high-risk deployments; it does not issue a GO/NO-GO deployment verdict. Accountable people own any gradual, closely monitored rollout, with bounded exposure, stop conditions, tested recovery and review before expansion. Lower-risk GO/NO-GO results describe checklist record conditions, not deployment authorization. Fallbacks may cost features or add manual work. They don't turn a gap into a pass on their own.
+The [checklist](CHECKLIST.md) turns these priorities into **Blocker/Required/Detection** gates on each item. A Blocker gap remains open and cannot be waived; Required gaps need written, approved risk acceptance. High-stakes or high-autonomy reviews report every Detection gap without closing it by exception. How results are worded for high-risk and lower-risk deployments is stated in [TOOLS.md](TOOLS.md#how-results-are-worded). Fallbacks may cost features or add manual work. They don't turn a gap into a pass on their own.
 
 Use the checklist for the requirements, the [verification guide](CHECKLIST-VERIFICATION.md) for tests and evidence, and the [self-assessment](SELF-ASSESSMENT.md) to score the same item IDs. The [website guides](https://braceframework.org/guides/) explain the principles and link to those items.
 
@@ -137,7 +137,7 @@ Use the checklist for the requirements, the [verification guide](CHECKLIST-VERIF
 
 BRACE organizes deployment checks to sit alongside existing security guidance. Its grouping and release gates are this project's design choices. They are not claims that other frameworks lack practical controls:
 
-- **[OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)** — a threat catalog of ten risks (ASI01–ASI10), published in December 2025. BRACE names the controls that reduce them; see the [Agentic Top 10 mapping](mappings/owasp-agentic-top-10.md). An older risk-to-control table is in the [OWASP proposal](outreach/owasp-agentic-controls-proposal.md). It is a historical draft, so check it against the current checklist.
+- **[OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)** — a threat catalog of ten risks (ASI01–ASI10), published in December 2025. BRACE names the controls that reduce them; see the [Agentic Top 10 mapping](mappings/owasp-agentic-top-10.md). An older risk-to-control table is in the [OWASP proposal](docs/outreach/owasp-agentic-controls-proposal.md). It is a historical draft, so check it against the current checklist.
 - **[OWASP Agent Control Standard (ACS)](https://genai.owasp.org/resource/agent-control-standard-acs/)** — policy hooks and enforcement while the agent runs. OWASP announced it as a donation to the GenAI Security Project on 1 September 2026. It complements BRACE's deployment review.
 - **[MITRE ATLAS](https://atlas.mitre.org/)** — a catalog of attacker techniques against AI systems. The [ATLAS mapping](mappings/mitre-atlas.md) shows which BRACE items address each of its 221 techniques and sub-techniques in release v2026.10.
 - **[OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/)** — a list of the main security risks for MCP. See the [MCP Top 10 mapping](mappings/owasp-mcp-top-10.md). The list is still in beta.
@@ -190,12 +190,11 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 | [TOOLS.md](TOOLS.md) | Use BRACE inside an agent's codebase: AI skills that review code and write tests, a `.brace/` record for outcomes, exceptions, and approvals, and a CI evidence check with findings-only output for high-risk deployments. |
 | [evals/README.md](evals/README.md) | Model-review evaluations, including failures, repeated-run variance, exact configurations, answer-key corrections, and saved evidence. |
 | [ROLES.md](ROLES.md) | Which role leads or shares each checklist item and sign-off duty, from the agent team to vendors and independent audit. |
-| [VENDOR-MATRIX.md](VENDOR-MATRIX.md) | Evidence to request when evaluating vendor and platform support for each control. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose changes, report a real-world incident, or map a vendor product. |
 | [GOVERNANCE.md](GOVERNANCE.md) | How the project is run, and how to become a co-maintainer. |
 | [ROADMAP.md](ROADMAP.md) | What's planned, and how priorities are set. |
 | [ADOPTERS.md](ADOPTERS.md) | Teams, assessors, and products using BRACE — and how to get listed. |
-| [outreach/](outreach/) | Proposals to OWASP, NIST CAISI, CoSAI, CSA, and the OpenTelemetry GenAI SIG, plus the launch write-up. Drafts marked historical are not current evidence. |
+| [docs/outreach/](docs/outreach/) | Proposals to OWASP, NIST CAISI, CoSAI, CSA, and the OpenTelemetry GenAI SIG, plus the launch write-up. Drafts marked historical are not current evidence. |
 | [CITATION.cff](CITATION.cff) | How to cite BRACE. |
 
 ## License

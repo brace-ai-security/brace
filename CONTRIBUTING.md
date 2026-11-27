@@ -39,7 +39,7 @@ Keep it factual and link a public source.
 
 ## Map a vendor product to controls
 
-The [vendor worksheet](VENDOR-MATRIX.md) lists the evidence needed to judge support for BRACE controls. To add or correct an entry, open a PR (or an issue, if you'd rather discuss first) with:
+The [vendor worksheet](SELF-ASSESSMENT.md#assessing-a-vendor) lists the evidence needed to judge support for BRACE controls. To add or correct an entry, open a PR (or an issue, if you'd rather discuss first) with:
 
 - The vendor and product name.
 - The control(s) (C1–C9) it addresses.

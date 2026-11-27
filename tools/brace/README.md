@@ -1,8 +1,6 @@
 # brace.py — the BRACE sign-off checker
 
-`brace.py` checks the supplied `.brace/` evidence record against the [BRACE checklist](../../CHECKLIST.md). High-stakes, high-autonomy or unrated deployments return **FINDINGS**, with evidence gaps and unknowns, never a BRACE GO/NO-GO deployment verdict. Lower-risk deployments retain GO/NO-GO record results. Neither a clean report nor exit code 0 authorizes deployment.
-
-Accountable people own any high-risk rollout: gradual stages, bounded exposure, close monitoring, explicit stop conditions, tested recovery and review before expansion.
+`brace.py` checks the supplied `.brace/` evidence record against the [BRACE checklist](../../CHECKLIST.md). High-stakes, high-autonomy or unrated deployments return **FINDINGS**; lower-risk deployments keep GO/NO-GO record results. How results are worded, and why exit code 0 never authorizes deployment, is stated once in [TOOLS.md](../../TOOLS.md#how-results-are-worded).
 
 It checks the record. It does not test your agent. The evidence links in the record
 point to the tests you ran (see the [verification guide](../../CHECKLIST-VERIFICATION.md)).

@@ -1,8 +1,8 @@
 # Request: clarify agent version and run identity guidance in GenAI semantic conventions
 
-> **Historical outreach draft — source review 2026-09-16, revised 2026-11-24:** Do not use its novelty, vendor-coverage, or incident-count claims as current evidence. See [SOURCE-REVIEW.md](../SOURCE-REVIEW.md), the [current checklist](../CHECKLIST.md), and the [current attribute guide](../otel-conventions.md) before adapting this draft.
+> **Historical outreach draft — source review 2026-09-16, revised 2026-11-24:** Do not use its novelty, vendor-coverage, or incident-count claims as current evidence. See [SOURCE-REVIEW.md](../../SOURCE-REVIEW.md), the [current checklist](../../CHECKLIST.md), and the [current attribute guide](../../otel-conventions.md) before adapting this draft.
 
-> **Note, 2026-11-26:** GenAI conventions v0.1.0 (2026-11-21) removed `gen_ai.agent.version` and `gen_ai.agent.id` from the internal `invoke_agent` span. BRACE now records the type hash for in-process agents in the `service.version` resource attribute, and keeps `gen_ai.agent.version` only on the client `invoke_agent` span. Point 1 below applies to that client span. If adapted, also ask whether `service.version` is the intended place for an in-process agent's version. See the [current attribute guide](../otel-conventions.md#where-the-type-hash-goes).
+> **Note, 2026-11-26:** GenAI conventions v0.1.0 (2026-11-21) removed `gen_ai.agent.version` and `gen_ai.agent.id` from the internal `invoke_agent` span. BRACE now records the type hash for in-process agents in the `service.version` resource attribute, and keeps `gen_ai.agent.version` only on the client `invoke_agent` span. Point 1 below applies to that client span. If adapted, also ask whether `service.version` is the intended place for an in-process agent's version. See the [current attribute guide](../../otel-conventions.md#where-the-type-hash-goes).
 
 **To:** OpenTelemetry GenAI semantic-conventions working group / SIG
 **From:** The BRACE Project

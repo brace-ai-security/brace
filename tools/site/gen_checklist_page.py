@@ -59,6 +59,8 @@ def rewrite_link(target: str) -> str | None:
                 "mappings/owasp-agentic-top-10": "/mappings/owasp-agentic-top-10/",
                 "mappings/owasp-mcp-top-10": "/mappings/owasp-mcp-top-10/"}[m.group(1)]
         frag = m.group(2) or ""
+        if m.group(1) == "VENDOR-MATRIX":  # folded into the self-assessment
+            return "/self-assessment/#assessing-a-vendor"
         if m.group(1) == "CHECKLIST":
             # Aspect anchors on the checklist page are "build-time", not "b--build-time".
             frag = re.sub(r"^[brace]--", "", frag)

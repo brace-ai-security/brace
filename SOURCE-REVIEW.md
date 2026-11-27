@@ -29,9 +29,9 @@ Follow-ups from the 2026-11-26 reference refresh. No checklist requirement chang
 
 ## Latest review: 2026-10-22
 
-The [full dated evidence review](RESEARCH-2026-10-22.md) rechecks all 53 items and recipes, with a row for every item, original advisory links, affected/fixed versions, configuration prerequisites and source limits. Newly published October 19–21 advisories are distinguished from older omissions found now. This is a source review, not a dependency audit, exploit reproduction, model requalification or deployment test.
+The [full dated evidence review](docs/RESEARCH-2026-10-22.md) rechecks all 53 items and recipes, with a row for every item, original advisory links, affected/fixed versions, configuration prerequisites and source limits. Newly published October 19–21 advisories are distinguished from older omissions found now. This is a source review, not a dependency audit, exploit reproduction, model requalification or deployment test.
 
-**Approved policy clarification:** high-stakes or high-autonomy deployments receive evidence, gaps and unknowns, without a BRACE GO/NO-GO deployment verdict. Unrated deployments also receive findings only. Accountable people own any deployment decision and a gradual, closely monitored rollout with bounded exposure, stop conditions, tested recovery and review before expansion. Lower-risk GO/NO-GO results describe checklist record conditions, not deployment authorization. This supersedes earlier release-approval wording below; government guidance recommends low-risk, non-sensitive uses and does not endorse a high-risk release after BRACE gates pass.
+**Approved policy clarification:** high-risk and unrated deployments receive findings, not a GO/NO-GO verdict (see [How results are worded](TOOLS.md#how-results-are-worded)). This supersedes earlier release-approval wording below; government guidance recommends low-risk, non-sensitive uses and does not endorse a high-risk release after BRACE gates pass.
 
 | Rechecked concern | Finding and discussion implication |
 |---|---|
@@ -114,7 +114,7 @@ The targeted source set is listed in the [MCP resource catalog](RESOURCES.md#mcp
 ### Evidence still unavailable
 
 - Public metadata for [ISO/IEC 42001](https://www.iso.org/standard/81230.html) and [ISO/IEC 23894](https://www.iso.org/standard/77304.html) was inspected, but the full paywalled standards were not. No clause-level completeness or compliance conclusion is claimed.
-- Vendor feature coverage, configuration defaults, deployment performance, and security effectiveness require version-specific evidence and testing. The [vendor worksheet](VENDOR-MATRIX.md) records what to request rather than assigning unsupported passes.
+- Vendor feature coverage, configuration defaults, deployment performance, and security effectiveness require version-specific evidence and testing. The [vendor worksheet](SELF-ASSESSMENT.md#assessing-a-vendor) records what to request rather than assigning unsupported passes.
 - Historical outreach drafts are marked as historical; their novelty statements are not current verified claims.
 
 ## Primary control references

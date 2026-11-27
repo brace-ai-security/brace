@@ -1,5 +1,8 @@
 """The pluggability contract: what a collector, parser, check and reporter provide. Provisional.
 
+Provisional and frozen: no changes to the plugin interfaces until there is a real plugin;
+breaking changes would be called out in release notes.
+
 The registry accepts any object with these members, and the built-ins follow the same
 contract, so a plugin can do what a built-in does and no more. What a scan's trustworthiness
 depends on stays in the engine, not here: redaction, inline marks and ignore entries,

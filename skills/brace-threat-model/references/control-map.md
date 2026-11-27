@@ -46,7 +46,7 @@ Sources checked 2026-10-23:
   2025-10-31: a design heuristic about combining untrusted inputs, sensitive access
   and external/state-changing actions. BRACE B05 defines its own approval/isolation
   requirement. Neither task intent nor a claimed second-model defense proves safety.
-- [BRACE dated evidence review](https://braceframework.org/RESEARCH-2026-10-22.md):
+- [BRACE dated evidence review](https://braceframework.org/docs/RESEARCH-2026-10-22.md):
   primary-source context and proposed refinements. Research results have specific
   attacker/model/harness assumptions; distinguish them from protocol requirements
   and the adopted project's actual policies.
