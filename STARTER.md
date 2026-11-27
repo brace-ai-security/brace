@@ -16,6 +16,10 @@ of the way to the full item.
 uvx open-agent-security .          # or: pipx run open-agent-security .
 ```
 
+`open-agent-security explain AP01` shows any rule's fix with a before/after example. To
+enforce checks 1, 2 and 7 on every developer machine, deploy the hardened policy templates in
+[templates/policy/](templates/policy/README.md) (Claude Code, Codex, Gemini CLI and Cursor).
+
 | # | Check | Done when | Full item | Scan |
 |---|---|---|---|---|
 | 1 | **List every tool and cut the rest.** Write down each tool, MCP server, API and file permission the agent can use, with a one-line reason. Remove anything without one. | A tool that isn't on the list can't be called. You tried, and it failed. | [B01](CHECKLIST.md) | AP06 |

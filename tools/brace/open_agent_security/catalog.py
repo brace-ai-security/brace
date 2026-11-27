@@ -13,13 +13,15 @@ added only where the weakness is the finding itself.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 DOCS = "https://braceframework.org/anti-patterns/"
 NOT_ALNUM = re.compile(r"[^A-Za-z0-9]+")
 NOT_ANCHOR = re.compile(r"[^\w\- ]")  # characters a Markdown heading anchor drops
 RULE_ID_PATTERN = r"[A-Z][A-Z0-9_\-]{1,31}"  # a rule ID, built-in (AP04) or from a plugin (ACME-01)
+EXAMPLES = Path(__file__).with_name("rule_examples.md")
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,9 @@ class RuleMeta:
     checklist: tuple[str, ...] = ()
     url: str = ""  # a plugin rule's own documentation; built-in rules link to ANTI-PATTERNS
     refs: tuple[str, ...] = ()  # taxonomy entries, "prefix:id" with a prefix from TAXONOMIES
+    template: str = ""      # a hardened policy file (repository path) that applies the fix, if one exists
+    example_bad: str = ""   # a few lines that trigger the rule (built-in rules: from rule_examples.md)
+    example_good: str = ""  # the same lines with the fix applied
 
     @property
     def name(self) -> str:
@@ -98,13 +103,14 @@ class RuleMeta:
         return self.url or f"{DOCS}#{self.anchor}"
 
 
-RULES: tuple[RuleMeta, ...] = (
+_RULES: tuple[RuleMeta, ...] = (
     RuleMeta("AP01", "Agent runs with all permission checks turned off", "high",
              "Every tool call, including shell commands and file deletes, runs without approval. One prompt "
              "injection in a file, issue or web page the agent reads can run any command as you.",
              "Remove the bypass. Allow specific tools instead, and run unattended agents in a throwaway "
              "sandbox with no secrets and no network beyond what the task needs.",
              ("B05", "B01", "B08"),
+             template="templates/policy/README.md",
              refs=("owasp-asi:ASI02", "atlas:AML.T0053", "atlas:AML.T0086", "atlas:AML.T0100", "atlas:AML.T0101")),
     RuleMeta("AP02", "Unattended agent in CI with permission checks turned off", "critical",
              "A CI agent with no approvals and the job's token can be steered by anyone who can write an issue, "
@@ -112,6 +118,7 @@ RULES: tuple[RuleMeta, ...] = (
              "Keep approvals on, give the job read-only permissions, and run untrusted-input jobs without "
              "repository secrets.",
              ("B05", "B02", "B03", "B09"),
+             template="templates/policy/README.md",
              refs=("owasp-mcp:MCP01", "owasp-mcp:MCP02", "atlas:AML.T0055", "atlas:AML.T0083", "atlas:AML.T0085.001",
                    "atlas:AML.T0086", "atlas:AML.T0100", "atlas:AML.T0101", "atlas:AML.T0125")),
     RuleMeta("AP03", "Agent workflow triggered by pull_request_target", "critical",
@@ -141,6 +148,7 @@ RULES: tuple[RuleMeta, ...] = (
              "Allow only the specific commands the task needs, such as Bash(npm test), and keep deny "
              "rules for network and destructive commands.",
              ("B01", "B05"),
+             template="templates/policy/claude-code/managed-settings.json",
              refs=("owasp-asi:ASI02", "atlas:AML.T0053", "atlas:AML.T0086", "atlas:AML.T0100", "atlas:AML.T0101")),
     RuleMeta("AP07", "Remote MCP server reached over plain HTTP", "medium",
              "Tool calls, results and credentials cross the network unencrypted and can be read or "
@@ -168,3 +176,40 @@ RULES: tuple[RuleMeta, ...] = (
              ("B10", "C01"),
              refs=("atlas:AML.T0010.004", "cwe:829")),
 )
+
+
+
+def load_examples(text: str) -> dict[str, tuple[str, str]]:
+    """{rule: (before, after)} from rule_examples.md: a `## APnn` heading, then a `Before:` and
+    an `After:` paragraph, each followed by a fenced block. The examples live in a Markdown file,
+    documentation the scanner reads as prose, so the bypass flags they show are not findings
+    in this repository."""
+    out: dict[str, dict[str, str]] = {}
+    rule = label = ""
+    block: list[str] | None = None
+    for line in text.splitlines():
+        if block is not None:
+            if line.startswith("```"):
+                out.setdefault(rule, {})[label] = "\n".join(block)
+                block = None
+            else:
+                block.append(line)
+        elif line.startswith("## "):
+            rule, label = line[3:].strip(), ""
+        elif line.strip() in ("Before:", "After:"):
+            label = line.strip()[:-1]
+        elif line.startswith("```") and rule and label:
+            block = []
+    return {r: (v.get("Before", ""), v.get("After", "")) for r, v in out.items()}
+
+
+def with_examples(rules: tuple[RuleMeta, ...]) -> tuple[RuleMeta, ...]:
+    try:
+        examples = load_examples(EXAMPLES.read_text(encoding="utf-8"))
+    except OSError:  # an incomplete install: rules work, without examples
+        examples = {}
+    return tuple(replace(r, example_bad=examples[r.id][0], example_good=examples[r.id][1])
+                 if r.id in examples else r for r in rules)
+
+
+RULES: tuple[RuleMeta, ...] = with_examples(_RULES)

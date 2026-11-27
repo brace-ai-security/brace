@@ -13,7 +13,7 @@ from ..agents import ACTIONS, AGENT_COMMAND, AGENT_MARKDOWN, AIDER_BYPASS, AIDER
     alternation, prose
 from ..jsonc import Lines
 from ..limits import MAX_OPEN_BRACKETS, MAX_PER_COMMAND, MAX_PER_LINE
-from ..model import CheckContext, Document, Finding
+from ..model import CheckContext, Document, Edit, Finding
 from ..parse.dockerfile import is_dockerfile
 from ..secrets import secret_kind
 from ..agents import command_position
@@ -76,6 +76,38 @@ NAME_USES = 50      # later uses of a pushed-to name looked at
 AGENT_ACTION = re.compile(rf"^[ \t]*(?:-[ \t]+)?uses[ \t]*:[ \t]*[\"']?(?:{alternation(ACTIONS)})", re.I)
 SPACES = re.compile(r"\s+")
 SHELL_ALLOW_ALL = {"Bash", "Bash(*)", "Bash(:*)", "Bash(**)", "Bash(*:*)", "*"}
+# Bypass flags whose removal from a command line is a fix that needs no judgement (see Edit).
+REMOVABLE_FLAGS = frozenset(("--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox"))
+BYPASS_MODE_VALUE = '"bypassPermissions"'
+
+
+def utf16(s: str) -> int:
+    """The length of s in UTF-16 code units, the unit of SARIF columns."""
+    return len(s.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def flag_removal(raw: str, lines: Lines, n: int, start: int, end: int) -> Edit | None:
+    """Removing a bypass flag and the blank before it from line n, when the match at start..end
+    of the file's own text is exactly such a flag standing alone after a space or tab."""
+    flag = raw[start:end]
+    lo, hi = lines.span(n)
+    if flag not in REMOVABLE_FLAGS or start - 1 < lo or end > hi or raw[start - 1] not in " \t":
+        return None
+    col = utf16(raw[lo:start - 1]) + 1
+    return Edit(n, col, col + 1 + len(flag), raw[start - 1:end], "", f"remove {flag}")
+
+
+def mode_change(raw: str, lines: Lines, n: int) -> Edit | None:
+    """"defaultMode": "bypassPermissions" changed to "default" on line n, when the line holds
+    the key and exactly one such value."""
+    lo, hi = lines.span(n)
+    line = raw[lo:hi]
+    at = line.find(BYPASS_MODE_VALUE)
+    if at < 0 or '"defaultMode"' not in line[:at] or line.find(BYPASS_MODE_VALUE, at + 1) >= 0:
+        return None
+    col = utf16(line[:at]) + 1
+    return Edit(n, col, col + len(BYPASS_MODE_VALUE), BYPASS_MODE_VALUE, '"default"',
+                'set "defaultMode" to "default"')
 
 
 def file_kind(display: str) -> str:
@@ -612,7 +644,8 @@ class PermissionFlags:
                     " ".join(m.group(0).replace('"', "").replace("'", "").split()) if rx is BYPASS_VALUE else \
                     " ".join(m.group(0).split())
                 reported.add(n)
-                yield Finding("AP02" if src.is_ci else "AP01", src.display, n, detail)
+                edit = flag_removal(src.text, lines, n, m.start(), m.end()) if rx is BYPASS else None
+                yield Finding("AP02" if src.is_ci else "AP01", src.display, n, detail, edit=edit)
 
     @staticmethod
     def comment_at(text: str, kind: str, markers, mentions: Mentions, n: int, start: int, end: int) -> int:
@@ -646,7 +679,9 @@ class ClaudeSettings:
             if SPACES.sub("", rule) in SHELL_ALLOW_ALL:
                 yield Finding("AP06", where, at(("permissions", "allow")), f'allow "{rule}"')
         if perms.default_mode == "bypassPermissions":
-            yield Finding("AP01", where, at(("permissions", "defaultMode")), "defaultMode: bypassPermissions")
+            n = at(("permissions", "defaultMode"))
+            yield Finding("AP01", where, n, "defaultMode: bypassPermissions",
+                          edit=mode_change(doc.source.text, Lines(doc.source.text), n))
         for k, v in (perms.env or {}).items():
             if isinstance(v, (str, int, float)) and ctx.secrets.secret_pair(k, v):
                 yield Finding("AP05", where, at(("env", str(k))), f"env.{k} = <redacted>{secret_kind(v)}")

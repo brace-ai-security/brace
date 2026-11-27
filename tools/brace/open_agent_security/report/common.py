@@ -37,3 +37,26 @@ def headline(report) -> str:
         return (f"Nothing dangerous found in the files read, but {plural(report.skipped, 'file')} could not be "
                 "read (see the notes).")
     return "No known-dangerous agent setups found."
+
+
+def fence(text: str, lang: str = "text") -> str:
+    """text as a Markdown fenced code block, with a fence longer than any run of backticks in it,
+    so the text cannot close the block early."""
+    longest = run = 0
+    for ch in text:
+        run = run + 1 if ch == "`" else 0
+        longest = max(longest, run)
+    ticks = "`" * max(3, longest + 1)
+    return f"{ticks}{lang}\n{text}\n{ticks}"
+
+
+def examples_markdown(r) -> str:
+    """A rule's before and after examples (and its template) as Markdown, or ''."""
+    parts = []
+    if r.example_bad:
+        parts.append(f"**Before:**\n\n{fence(r.example_bad)}")
+    if r.example_good:
+        parts.append(f"**After:**\n\n{fence(r.example_good)}")
+    if r.template:
+        parts.append(f"**Hardened template:** `{r.template.replace('`', '')}`")
+    return "\n\n".join(parts)

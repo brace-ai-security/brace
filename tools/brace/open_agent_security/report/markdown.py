@@ -4,7 +4,7 @@ from __future__ import annotations
 from ..limits import MAX_NOTES, MAX_ROWS
 from ..model import Report
 from ..output import md_escape
-from .common import INCOMPLETE, ReportOptions, headline, rules_by_id
+from .common import INCOMPLETE, ReportOptions, examples_markdown, headline, rules_by_id
 
 
 class Markdown:
@@ -33,8 +33,24 @@ class Markdown:
             if len(findings) > MAX_ROWS:
                 out.append(f"\nand {len(findings) - MAX_ROWS} more (see the SARIF or JSON output)")
             out.append("")
+            out += rule_sections(findings, meta)
         for n in report.notes[:MAX_NOTES]:
             out.append(f"- note: {md_escape(n, dots=True)}")
         if len(report.notes) > MAX_NOTES:
             out.append(f"- and {len(report.notes) - MAX_NOTES} more notes (see the JSON output)")
         return "\n".join(out) + "\n"
+
+
+def rule_sections(findings, meta) -> list[str]:
+    """One section per rule found, in order of first finding: why, the fix, a before and after
+    example and the hardened template, folded so the table stays the summary."""
+    out = []
+    for rule in dict.fromkeys(f.rule for f in findings):
+        m = meta[rule]
+        body = examples_markdown(m)
+        out += ["<details>", f"<summary>{md_escape(rule)}: {md_escape(m.title)}</summary>", "",
+                f"**Why:** {md_escape(m.why)}", "", f"**Fix:** {md_escape(m.fix)}", ""]
+        if body:
+            out += [body, ""]
+        out += ["</details>", ""]
+    return out

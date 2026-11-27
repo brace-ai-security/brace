@@ -91,12 +91,12 @@ def outputs(tmp_path: Path, files: dict, host: bool = False, monkeypatch=None) -
     got = {}
     files_out = ["--sarif", str(tmp_path / "o.sarif"), "--markdown", str(tmp_path / "o.md"),
                  "--github-output", str(tmp_path / "o.gh"), "--output", f"gitlab-sast={tmp_path / 'o.gitlab.json'}",
-                 "--output", f"junit={tmp_path / 'o.junit.xml'}"]
+                 "--output", f"junit={tmp_path / 'o.junit.xml'}", "--output", f"agent-prompt={tmp_path / 'o.prompt'}"]
     for fmt, args in (("txt", files_out), ("json", ["--json"])):
         # run from repo/, so paths get the "sub/" prefix
         code, out, _ = cli_run(root, "--fail-on", "high", *(["--host"] if host else []), *args, cwd=tmp_path / "repo")
         got[fmt] = f"exit {code}\n" + out
-    for ext in ("sarif", "md", "gh", "gitlab.json", "junit.xml"):
+    for ext in ("sarif", "md", "gh", "gitlab.json", "junit.xml", "prompt"):
         got[ext] = (tmp_path / f"o.{ext}").read_text(encoding="utf-8")
     version = open_agent_security.__version__
     return {k: TIMES.sub(r"\1TIME", v.replace(f'"{version}"', '"VERSION"')) for k, v in got.items()}

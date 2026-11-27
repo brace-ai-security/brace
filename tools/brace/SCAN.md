@@ -277,13 +277,14 @@ An agent config file that does not parse makes the scan incomplete.
 |---|---|
 | `--fail-on LEVEL` | Exit 1 when a finding is `critical`, `high` (default), `medium` or `low` or worse, or when the scan is incomplete. `none` exits 0 unless the scan could not run. |
 | `--json` | Print JSON instead of text (the same as `--output json=-`). |
-| `--output NAME=FILE` | Also write the `NAME` report to `FILE`: `text`, `json`, `sarif`, `markdown`, `gitlab-sast`, `junit`, or a loaded plugin's. Repeat it for more than one. `FILE` `-` replaces the report on standard output. Markdown appends to `FILE`; the others replace it. |
+| `--output NAME=FILE` | Also write the `NAME` report to `FILE`: `text`, `json`, `sarif`, `markdown`, `gitlab-sast`, `junit`, `agent-prompt`, or a loaded plugin's. Repeat it for more than one. `FILE` `-` replaces the report on standard output. Markdown appends to `FILE`; the others replace it. |
 | `--sarif FILE` | Also write SARIF 2.1.0 for GitHub code scanning (the same as `--output sarif=FILE`). |
 | `--markdown FILE` | Also append a Markdown summary, for example to `$GITHUB_STEP_SUMMARY` (the same as `--output markdown=FILE`). |
 | `--host` | Also read the agent settings on this machine. |
 | `--config FILE` | Read settings from FILE instead of `.open-agent-security.toml` in the scanned folder. |
 | `--no-config` | Ignore `.open-agent-security.toml`. |
 | `--list-rules` | List the rules with their severity after config and plugins, then exit. Add `--json` for JSON. |
+| `explain RULE`, `--explain RULE` | Print one rule in full, then exit: title, severity, why, fix, a before/after example, BRACE checklist items, taxonomy entries, the hardened policy template (if any) and the documentation link. Add `--json` for JSON. To scan a folder named `explain`, write `./explain`. See [Fixes and policy templates](#fixes-and-policy-templates). |
 | `--plugin NAME` | Load an installed plugin. Repeat it for more than one. See [Plugins](#plugins). |
 | `--version` | Print the version. |
 
@@ -301,7 +302,8 @@ that are not UTF-8 written as `\xNN` (as `%NN` in a SARIF URI); text and Markdow
 printable and cut to 300 characters. Reports the scanner wrote itself (JSON, SARIF, GitLab
 SAST or JUnit) found in the scanned folder are not scanned, and a note counts them.
 
-- **text** (the default): grouped by rule, with why and how to fix.
+- **text** (the default): grouped by rule, with why, how to fix and the hardened policy
+  template, when a rule has one.
 - **json**: every finding with its rule's title, why, fix and checklist items, plus
   `truncated`, `incomplete`, `notes`, `suppressed` and `config`. The shape is described by
   a JSON Schema shipped in the package, `open_agent_security/report/schema/report-1.schema.json`,
@@ -323,7 +325,17 @@ SAST or JUnit) found in the scanned folder are not scanned, and a note counts th
   Suppressed findings are results too, after the reported ones, each with a SARIF
   suppression (see [Silencing a reviewed finding](#silencing-a-reviewed-finding)).
   At most 5,000 results are listed, reported ones first, with a note when there are more.
-- **markdown**: a summary table for a pull request or job summary, at most 200 rows.
+  Rule help shows a before/after example and the policy template. A result carries a SARIF
+  `fix` only when the change follows from the finding alone (see
+  [Fixes and policy templates](#fixes-and-policy-templates)).
+- **markdown**: a summary table for a pull request or job summary, at most 200 rows, then a
+  folded section per rule found with why, the fix, a before/after example and the template.
+- **agent-prompt**: plain text a coding agent can act on: each finding with its file and
+  line, why it matters and the change to make (exact where the finding determines it, else
+  the rule's fix), then a before/after example per rule. Secrets are redacted and the text
+  is defused like the other outputs; it tells the agent that quoted file content is data.
+  Write it outside the scanned folder (`--output agent-prompt=/tmp/fixes.txt`): it quotes
+  the flags it reports, so a copy inside the folder is reported on the next scan.
 - **gitlab-sast**: a GitLab SAST report (schema 15.2.5) for merge request security widgets;
   GitLab does not read SARIF. Host findings are left out, as in SARIF. GitLab deduplicates
   findings by their location (file and lines) and identifiers. Findings of one rule on the
@@ -354,6 +366,33 @@ how many files could not be read instead of reporting the folder clean.
 
 JSON with comments, trailing commas or a byte-order mark (JSONC, as VS Code uses) is read
 normally, and so are UTF-16 files with a byte-order mark and any line-ending style.
+
+## Fixes and policy templates
+
+Every built-in rule has a short before/after example (kept in
+`open_agent_security/rule_examples.md`, shipped in the package). `open-agent-security explain
+AP06` prints it with the rule's why, fix, checklist items and taxonomy entries; the SARIF rule
+help, the Markdown report and the agent-prompt output show it too.
+
+Some findings have one safe, unambiguous fix, which the scanner gives exactly: as a SARIF
+`fixes` entry (a deleted region of the reported line, with the replacement, columns in UTF-16
+code units) and as an "Exact change" in the agent-prompt output. There are two:
+
+| Finding | Exact change |
+|---|---|
+| `--dangerously-skip-permissions` or `--dangerously-bypass-approvals-and-sandbox` after a space on a command line | delete the flag and the space before it |
+| `"defaultMode": "bypassPermissions"` in Claude Code settings (one such value on the line) | change the value to `"default"` |
+
+Everything else is left to a person or agent with the rule's fix: a version or digest to pin
+needs the network, which the scanner never uses; a quoted flag or a `--permission-mode` value
+needs a choice of what to use instead.
+
+Rules whose fix an administrator can enforce link a hardened policy template in the BRACE
+repository, [`templates/policy/`](../../templates/policy/README.md): Claude Code managed
+settings, Codex `requirements.toml` and managed config, Gemini CLI system settings and Cursor
+enterprise hooks. AP01 and AP02 link the index of all four; AP06 links the Claude Code managed
+settings. Each template names the vendor page it follows and the date it was checked, and
+passes this scanner with `--fail-on low`.
 
 ## Silencing a reviewed finding
 

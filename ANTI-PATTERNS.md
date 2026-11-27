@@ -50,6 +50,8 @@ found. It doesn't mean the agent is secure; for that, use the
 
 **Do instead:** Allow the specific tools the task needs. If the agent must run unattended, run it in a throwaway container or VM with no secrets, no home folder and an egress allowlist. The bypass flags exist for those sandboxes.
 
+**Before and after:** `open-agent-security explain AP01` prints a short example of the fix. Hardened policy an administrator can deploy: [templates/policy/README.md](templates/policy/README.md).
+
 **BRACE:** [B05](CHECKLIST.md), [B01](CHECKLIST.md), [B08](CHECKLIST.md)
 
 ### AP02: Unattended agent in CI with permission checks turned off
@@ -60,6 +62,8 @@ found. It doesn't mean the agent is secure; for that, use the
 
 **Do instead:** Keep approvals on, or restrict the agent to an allowlist of read-only tools. Give the job `permissions: contents: read`. Run any job that reads untrusted input without repository secrets, and have a person merge whatever it produces.
 
+**Before and after:** `open-agent-security explain AP02` prints a short example of the fix. Hardened policy an administrator can deploy: [templates/policy/README.md](templates/policy/README.md).
+
 **BRACE:** [B05](CHECKLIST.md), [B02](CHECKLIST.md), [B03](CHECKLIST.md), [B09](CHECKLIST.md)
 
 ### AP03: Agent workflow triggered by pull_request_target
@@ -69,6 +73,8 @@ found. It doesn't mean the agent is secure; for that, use the
 **Why it's dangerous:** `pull_request_target` runs on pull requests from forks, but with the *base* repository's secrets and a write token. The agent reads the attacker's PR title, description and code, so the attacker gets to give it instructions while it holds your secrets.
 
 **Do instead:** Use `pull_request` for agent jobs. If an agent must comment on fork PRs, split the work: an unprivileged job does the reading, and a separate job with no model posts the result.
+
+**Before and after:** `open-agent-security explain AP03` prints a short example of the fix.
 
 **BRACE:** [B02](CHECKLIST.md), [B05](CHECKLIST.md), [R02](CHECKLIST.md)
 
@@ -82,6 +88,8 @@ found. It doesn't mean the agent is secure; for that, use the
 
 **Do instead:** Pin an exact version (`some-mcp-server@1.4.2`, `tool==1.4.2`) or a container image by digest (`ghcr.io/org/mcp-server@sha256:...`), install from a reviewed lockfile, and re-check tool descriptions when you upgrade.
 
+**Before and after:** `open-agent-security explain AP04` prints a short example of the fix.
+
 **BRACE:** [E02](CHECKLIST.md), [E03](CHECKLIST.md), [C05](CHECKLIST.md)
 
 ### AP05: Secret written directly in agent configuration
@@ -94,6 +102,8 @@ found. It doesn't mean the agent is secure; for that, use the
 
 **Do instead:** Reference the secret from the environment or a secret manager. Use a short-lived token scoped to this agent. Rotate any token that was ever written in a file.
 
+**Before and after:** `open-agent-security explain AP05` prints a short example of the fix.
+
 **BRACE:** [B03](CHECKLIST.md), [R03](CHECKLIST.md)
 
 ### AP06: Agent allowed to run any shell command
@@ -103,6 +113,8 @@ found. It doesn't mean the agent is secure; for that, use the
 **Why it's dangerous:** A shell can do anything: `curl` your files to a server, `rm -rf`, `git push --force`, install a backdoor. An allowlist that contains "any command" isn't an allowlist.
 
 **Do instead:** Allow exact commands (`Bash(npm test)`, `Bash(git diff:*)`). Deny network tools and destructive commands. Better still, give the agent narrow tools in place of a shell.
+
+**Before and after:** `open-agent-security explain AP06` prints a short example of the fix. Hardened policy an administrator can deploy: [templates/policy/claude-code/managed-settings.json](templates/policy/claude-code/managed-settings.json).
 
 **BRACE:** [B01](CHECKLIST.md), [B05](CHECKLIST.md)
 
@@ -114,6 +126,8 @@ found. It doesn't mean the agent is secure; for that, use the
 
 **Do instead:** Use `https`, and authenticate both the server and the client.
 
+**Before and after:** `open-agent-security explain AP07` prints a short example of the fix.
+
 **BRACE:** [E05](CHECKLIST.md), [E06](CHECKLIST.md)
 
 ### AP08: Agent tool container can take over the host
@@ -123,6 +137,8 @@ found. It doesn't mean the agent is secure; for that, use the
 **Why it's dangerous:** Each of these removes the container boundary. A compromised or manipulated tool can then start new containers, read every file and reach every service on the host.
 
 **Do instead:** Drop these flags. Mount only the folders the tool needs, read-only where possible, and use a dedicated network with an egress allowlist.
+
+**Before and after:** `open-agent-security explain AP08` prints a short example of the fix.
 
 **BRACE:** [B08](CHECKLIST.md), [B11](CHECKLIST.md), [B09](CHECKLIST.md)
 
@@ -134,6 +150,8 @@ found. It doesn't mean the agent is secure; for that, use the
 
 **Do instead:** Break the combination. Remove one leg, split the work across agents that never hold all three, or require a person to approve every outbound or consequential action. `open-agent-security` infers capabilities from server and package names, so its result is marked *likely*. For a traced, evidence-based check, use the [topology tools](TOOLS.md).
 
+**Before and after:** `open-agent-security explain AP09` prints a short example of the fix.
+
 **BRACE:** [B05](CHECKLIST.md), [B01](CHECKLIST.md), [R02](CHECKLIST.md)
 
 ### AP10: Agent image not pinned to a digest
@@ -143,6 +161,8 @@ found. It doesn't mean the agent is secure; for that, use the
 **Why it's dangerous:** Tags can move, so what you tested may not be what runs, and you can't prove which build an incident came from.
 
 **Do instead:** Pin images by digest (`python@sha256:...`) and update them on purpose. The digest becomes part of the agent's identity.
+
+**Before and after:** `open-agent-security explain AP10` prints a short example of the fix.
 
 **BRACE:** [B10](CHECKLIST.md), [C01](CHECKLIST.md)
 

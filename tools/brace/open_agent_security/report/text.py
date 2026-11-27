@@ -43,6 +43,8 @@ class Text:
                 lines.append(f"    {g('dim')}… and {len(fs) - MAX_PLACES} more (use --json for all){g('end')}")
             lines.append(f"    Why:  {m.why}")
             lines.append(f"    Fix:  {m.fix}")
+            if m.template:
+                lines.append(f"    Template: {m.template}")
             checklist = f"BRACE checklist {', '.join(m.checklist)} · " if m.checklist else ""
             lines.append(f"    {g('dim')}{checklist}{m.help_uri}{g('end')}")
             lines.append("")
