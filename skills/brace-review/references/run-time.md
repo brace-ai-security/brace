@@ -156,7 +156,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Remove secrets and limit sensitive data before tool output, debug output, or responses reach the model, outside recipients, or normal logs. Some clients fetch URLs on their own when they display output, such as Markdown images and link previews. These can leak data without any tool call, so block them or allow only approved URLs. Check generated output before it goes into SQL, a shell, an HTML page, or anything else that runs it. Use parameterized queries and commands (for example, argument lists for shell calls), and the right escaping for each context. Test with fake secrets and injection payloads. Confirm that leaks and unintended execution are blocked, and that redacted audit evidence is kept.
+Remove secrets and limit sensitive data before tool output, debug output, or responses reach the model, outside recipients, or normal logs. Some clients fetch URLs on their own when they display output, such as Markdown images and link previews. These can leak data without any tool call, so block them or allow only approved URLs. Check generated output before it goes into SQL, a shell, an HTML page, or anything else that runs it. Use parameterized queries and commands (for example, argument lists for shell calls), and the right escaping for each context. Test with fake secrets and injection payloads. Confirm that leaks and unintended execution are blocked, and that redacted audit evidence is kept. Run the fake-secret test on stored agent traces and transcripts too, including any shared with vendors.
 
 ### Verification recipe
 

@@ -211,7 +211,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Compare running images, harness settings, prompts, MCP server lists, permissions, network policies, and self-hosted model weights against their approved baseline. Simulate a prompt edit, an added tool, and a looser egress rule. Check that each one raises an alert and gets the documented response — block, quarantine, or rollback — within a set time.
+Compare running images, harness settings, prompts, MCP server lists, permissions, network policies, and self-hosted model weights against their approved baseline. Simulate a prompt edit, an added tool, and a looser egress rule. Check that each one raises an alert and gets the documented response — block, quarantine, or rollback — within a set time. Include local agent CLI settings, such as sandbox mode and base URL, and hooks or instruction files supplied by a repository or folder.
 
 ### Verification recipe
 

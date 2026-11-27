@@ -66,7 +66,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Before approving a tool or server, review its source code or available provenance, publisher, permissions, update path, and known vulnerabilities. Include model files, adapters, and datasets. Pin versions or digests, and verify signatures where they exist. A registry's namespace check shows who controls a publisher account, not that the code is safe. Record the limits of remote services and unsigned artifacts, and the extra checks you use instead.
+Before approving a tool or server, review its source code or available provenance, publisher, permissions, update path, and known vulnerabilities. Include model files, adapters, and datasets. Pin versions or digests, and verify signatures where they exist. A registry's namespace check shows who controls a publisher account, not that the code is safe. Record the limits of remote services and unsigned artifacts, and the extra checks you use instead. Re-check extension and marketplace sources for tampering, not only the publisher's name.
 
 ### Verification recipe
 
@@ -130,7 +130,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Keep a tool publication lifecycle: discovery, review, approval, enablement, re-check, quarantine, and rollback. New servers and tools start disabled; their owner approves descriptions, schemas, permissions, and implementation references before use. Take a fingerprint of each approved tool's description and schema. Compare it whenever the tool loads, its cache refreshes, or its tool list changes. Block unexpected changes until reviewed, including when re-checking fails; don't serve a cached definition as a fallback. Record the policy/config version used at execution, bound propagation delay, and test rollback without restoring revoked access. A metadata hash cannot detect hidden changes to remote code. Pin or attest implementations where visible, record remote visibility limits and review dates, and track affected deployments when vulnerabilities are reported.
+Keep a tool publication lifecycle: discovery, review, approval, enablement, re-check, quarantine, and rollback. New servers and tools start disabled; their owner approves descriptions, schemas, permissions, and implementation references before use. Take a fingerprint of each approved tool's description and schema. Compare it whenever the tool loads, its cache refreshes, or its tool list changes. Block unexpected changes until reviewed, including when re-checking fails; don't serve a cached definition as a fallback. Record the policy/config version used at execution, bound propagation delay, and test rollback without restoring revoked access. A metadata hash cannot detect hidden changes to remote code. Pin or attest implementations where visible, record remote visibility limits and review dates, and track affected deployments when vulnerabilities are reported. Check OAuth metadata URLs from remote MCP servers before passing them to a launcher or browser.
 
 ### Verification recipe
 
@@ -661,7 +661,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Set rules for how long audit records are kept, who can see them, what is redacted, how their integrity is checked, and how they are exported and restored. Test pulling up a past run, and test that missing records or a broken pipeline get noticed. Keep records long enough for investigations and for the law. For example, the EU AI Act requires providers and deployers of high-risk systems to keep automatically generated logs for at least six months (Articles 19 and 26). High-impact actions must fail closed when required audit capture isn't working.
+Set rules for how long audit records are kept, who can see them, what is redacted, how their integrity is checked, and how they are exported and restored. Test pulling up a past run, and test that missing records or a broken pipeline get noticed. Keep records long enough for investigations and for the law. For example, the EU AI Act requires providers and deployers of high-risk systems to keep automatically generated logs for at least six months (Articles 19 and 26). High-impact actions must fail closed when required audit capture isn't working. Agent traces kept by or shared with vendors need a recorded retention limit and access scope.
 
   Why this is hard: Audit delivery can fail while the agent keeps working. Buffers can fill up, records can arrive late, and a vendor may keep records for less time than you need. Exported logs may also hold sensitive data.
 

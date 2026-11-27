@@ -143,7 +143,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Issue short-lived credentials from a trusted issuer or managed identity service. For API calls, use expiring access tokens with a specific destination audience, identifying the agent and any explicitly delegated user or system authority, rather than static API keys or personal access tokens. A secrets vault stores backing secrets; it does not itself make a static key into an expiring access token. Keep long-lived secrets out of prompts, images, and checked-in config. Where supported, bind tokens to their holder (mTLS, DPoP, or workload proof tokens). Don't use fixed API keys when short-lived or federated credentials are available. If only static keys are supported, isolate them at the enforcement layer, limit their permissions, and record the lifetime and revocation gap. Show expiry and rotation, including allowed overlap, and explain the chosen lifetime.
+Issue short-lived credentials from a trusted issuer or managed identity service. For API calls, use expiring access tokens with a specific destination audience, identifying the agent and any explicitly delegated user or system authority, rather than static API keys or personal access tokens. A secrets vault stores backing secrets; it does not itself make a static key into an expiring access token. Keep long-lived secrets out of prompts, images, and checked-in config. Where supported, bind tokens to their holder (mTLS, DPoP, or workload proof tokens). Don't use fixed API keys when short-lived or federated credentials are available. If only static keys are supported, isolate them at the enforcement layer, limit their permissions, and record the lifetime and revocation gap. Show expiry and rotation, including allowed overlap, and explain the chosen lifetime. Don't keep long-lived AI-provider or other third-party keys in platform config, bot settings, or environment variables when a short-lived or brokered credential is available. Where one must be stored, limit its scope and record where it is kept.
 
 ### Verification recipe
 
@@ -582,7 +582,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Pin the container by digest. Before it runs, check its digest and signature against an approved signing key, or an approved certificate identity and issuer. Keep its build provenance (the record of how it was built) and its list of dependencies. Check provenance fields such as the builder, source repository, build type, and the parameters set from outside the build (SLSA `externalParameters`) against what you expect. Keep the verifier patched. Cosign versions before 2.6.2 and 3.0.4 could accept a bundle whose transparency-log entry didn't match the artifact. Confirm that the admission check covers production namespaces and is set to enforce, not just audit. Show that an unapproved or changed image is rejected.
+Pin the container by digest. Before it runs, check its digest and signature against an approved signing key, or an approved certificate identity and issuer. Keep its build provenance (the record of how it was built) and its list of dependencies. Check provenance fields such as the builder, source repository, build type, and the parameters set from outside the build (SLSA `externalParameters`) against what you expect. Keep the verifier patched. Cosign versions before 2.6.2 and 3.0.4 could accept a bundle whose transparency-log entry didn't match the artifact. Confirm that the admission check covers production namespaces and is set to enforce, not just audit. Show that an unapproved or changed image is rejected. Treat release-pipeline credentials (admin keys, maintainer tokens, CI secrets) the same way: revoke them as soon as they're exposed, and keep the credential that can publish a release separate from the one that approves it.
 
 ### Verification recipe
 
@@ -710,7 +710,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Version and review the harness, system prompt, and rules files before release. Allow production changes only through a release process that records who made them. Protect source branches from history rewrites, so the reviewed diff stays available. Link the deployed versions to the approved review. Complete the full configuration checks in section C.
+Version and review the harness, system prompt, and rules files before release. Allow production changes only through a release process that records who made them. Protect source branches from history rewrites, so the reviewed diff stays available. Link the deployed versions to the approved review. Complete the full configuration checks in section C. This includes local agent CLI settings, such as sandbox mode and the model's base URL, and hooks or instruction files that a repository or folder supplies.
 
 ### Verification recipe
 
