@@ -12,7 +12,7 @@ import yaml
 
 TOOL_DIR = Path(__file__).resolve().parent.parent
 ROOT = TOOL_DIR.parent.parent
-ACTION = TOOL_DIR / "action" / "action.yml"
+ACTION = ROOT / "actions" / "plan" / "action.yml"
 EXAMPLE = TOOL_DIR / "examples" / "billing-agent"
 pytest.importorskip("jsonschema")
 
@@ -53,14 +53,16 @@ def run_action(workdir: Path, **overrides) -> tuple[list[tuple[str, int]], dict,
         if m and inputs[m.group(1)] != m.group(2):
             continue
         if step["name"] == "Install BRACE dependencies" and _deps_importable():
-            # The hosted runner has pip; a local uv venv may not. The deps the step installs
-            # are already importable here, so running pip would test the environment, not the action.
-            assert step["run"].split()[:4] == ["python", "-m", "pip", "install"], step["run"]
+            # The step builds a venv and pip-installs hash-pinned wheels from PyPI; here the same
+            # dependencies are already importable, so the test interpreter stands in for the venv.
+            assert "--require-hashes" in step["run"] and "requirements.txt" in step["run"], step["run"]
+            outputs["setup"] = {"python": sys.executable}
             results.append((step["name"], 0))
             continue
         out_file = workdir / f"out-{len(results)}.txt"
         out_file.write_text("")
         env = {**os.environ, "GITHUB_OUTPUT": str(out_file), "GITHUB_STEP_SUMMARY": str(summary),
+               "GITHUB_ACTION_PATH": str(ACTION.parent),
                "PATH": f"{Path(sys.executable).parent}:{os.environ['PATH']}"}
         env.update({k: sub(str(v), inputs, outputs) for k, v in (step.get("env") or {}).items()})
         proc = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=workdir, env=env,
@@ -111,3 +113,28 @@ def test_inputs_never_interpolated_into_shell():
     spec = yaml.safe_load(ACTION.read_text())
     for step in spec["runs"]["steps"]:
         assert "${{" not in step.get("run", ""), f"{step['name']} puts an expression straight into the script"
+
+
+def test_action_is_pinned_isolated_and_stops_workflow_commands():
+    spec = yaml.safe_load(ACTION.read_text())
+    steps = spec["runs"]["steps"]
+    for step in steps:
+        if "uses" in step:
+            assert re.fullmatch(r"[\w.\-]+/[\w.\-/]+@[0-9a-f]{40}", step["uses"]), step["uses"]
+    runs = [s.get("run", "") for s in steps]
+    for name in ("Build the map", "Write the action plan", "Compare the map with the record"):
+        run = next(s["run"] for s in steps if s.get("name") == name)
+        assert '-I "$GITHUB_ACTION_PATH/brace_run.py"' in run and "::stop-commands::" in run, name
+    assert not any("python -" in r or "<<" in r for r in runs), "no inline Python reading workspace files"
+    req = (ACTION.parent / "requirements.txt").read_text()
+    pins = [l for l in req.splitlines() if l and not l.startswith((" ", "#"))]
+    assert pins and all("==" in l for l in pins) and req.count("--hash=sha256:") >= len(pins)
+
+
+def test_launcher_ignores_a_planted_module(tmp_path):
+    (tmp_path / "json.py").write_text("raise SystemExit('PWNED')\n")
+    (tmp_path / "brace_tools").mkdir()
+    (tmp_path / "brace_tools" / "__init__.py").write_text("raise SystemExit('PWNED')\n")
+    p = subprocess.run([sys.executable, "-I", str(ACTION.parent / "brace_run.py"), "--version"], cwd=tmp_path,
+                       capture_output=True, text=True)
+    assert p.returncode == 0 and "PWNED" not in p.stdout + p.stderr

@@ -443,7 +443,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
     ap.add_argument("--fail-on", choices=list(FAIL_ON), default="none",
                     help="exit 3 if any action matches: blocker = a Blocker gap, gap = any gap, any = any action")
     ap.add_argument("--github-output", type=Path, metavar="FILE",
-                    help="append actions=, notes= and failing= (counts) to this file ($GITHUB_OUTPUT)")
+                    help="append actions=, gaps=, blocker_gaps=, notes= and failing= (counts) to this file ($GITHUB_OUTPUT)")
     a = ap.parse_args(argv)
     findings, bom = load(a.findings), load(a.topology)
     errors = topology.validate(bom)
@@ -469,7 +469,9 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
     hits = [x["id"] for x in data["actions"] if FAIL_ON[a.fail_on](x)]
     if a.github_output:
         with a.github_output.open("a", encoding="utf-8") as out:  # counts only: nothing from the inputs
-            out.write(f"actions={len(actions)}\nnotes={len(problems)}\nfailing={len(hits)}\n")
+            sm = data["summary"]
+            out.write(f"actions={int(sm['actions'])}\ngaps={int(sm['gaps'])}\nblocker_gaps={int(sm['blocker_gaps'])}\n"
+                      f"notes={len(problems)}\nfailing={len(hits)}\n")
     if a.strict and problems:
         return 1
     if hits:

@@ -37,7 +37,7 @@ def test_map_and_plan(tmp_path, capsys):
                      str(tmp_path / "p.md"), "--html", str(tmp_path / "p.html"), "--github-output", str(out)])
     assert code == 0 and (tmp_path / "p.html").exists()
     lines = dict(x.split("=") for x in out.read_text().splitlines())
-    assert set(lines) == {"actions", "notes", "failing"} and all(v.isdigit() for v in lines.values())
+    assert set(lines) == {"actions", "gaps", "blocker_gaps", "notes", "failing"} and all(v.isdigit() for v in lines.values())
 
 
 def test_missing_extra_names_it():
