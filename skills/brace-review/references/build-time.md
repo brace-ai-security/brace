@@ -78,11 +78,11 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Limit credentials to named operations and resources, including tenant boundaries. Identify the acting agent separately from the original user or system whose authority it uses. Explicitly authorized, narrowly scoped user delegation is valid; copying a login session or inheriting a person's full permissions is not. Test that an allowed read works and an out-of-scope write, an admin action, and another tenant's data all fail. Limit each access token to its intended audience, so other services reject it. Remove wildcard grants.
+Limit credentials to named operations and resources, including tenant boundaries. Identify the acting agent separately from the original user or system whose authority it uses. Explicitly authorized, narrowly scoped user delegation is valid; copying a login session or inheriting a person's full permissions is not. Test that an allowed read works and an out-of-scope write, an admin action, and another tenant's data all fail. Limit each access token to its intended audience, so other services reject it. Remove wildcard grants. On a developer workstation, give a coding agent its own narrow credentials. Don't let it use the developer's SSH keys, cloud profiles, or logged-in browser sessions by default.
 
 ### Verification recipe
 
-Use the real test access token and verify its acting-agent and delegated-subject bindings, if delegation applies. Try an allowed read, forbidden write/admin action, and tenant A accessing tenant B. Only the read succeeds. Present the token to another audience and confirm rejection. Exercise both machine and delegated-user flows where enabled; neither may inherit broader user permissions. Check destination state.
+Use the real test access token and verify its acting-agent and delegated-subject bindings, if delegation applies. Try an allowed read, forbidden write/admin action, and tenant A accessing tenant B. Only the read succeeds. Present the token to another audience and confirm rejection. Exercise both machine and delegated-user flows where enabled; neither may inherit broader user permissions. Check destination state. On a workstation, check from inside the agent's session that the developer's SSH agent, cloud profiles, and browser cookies are not reachable.
 
 **Evidence to keep:** Redacted identity/audience/scope metadata, authorization logs, tenant tests, resource-state checks; never token values.
 
@@ -267,11 +267,11 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-List the high-impact operations. These include deletes, destructive database updates, force-pushes, tearing down infrastructure, payment changes, and sending anything outside. Block them by default in the execution path. Allow one only when a reviewer or system with higher authority approves that specific action. When the action runs, authorize its operation, target, and arguments, and block it if they aren't allowed. A list of blocked words or command names is not enough. Test other tools and raw API or shell paths that could do the same thing. Treat deleting audit records, or changing how long they are kept, as high-impact too. That includes asking a more powerful tool or peer to do it. Some agents can do all three of these in one context: read untrusted input, reach sensitive data or systems, and change things or talk to the outside. For those agents, treat every consequential action as high-impact. The exception is a design that stops untrusted content from picking the tool, destination, or arguments. Examples are plan-then-execute, a two-model pattern, or capability tracking such as CaMeL. Record which of the three each agent type has.
+List the high-impact operations. These include deletes, destructive database updates, force-pushes, tearing down infrastructure, payment changes, and sending anything outside. Block them by default in the execution path. Allow one only when a reviewer or system with higher authority approves that specific action. When the action runs, authorize its operation, target, and arguments, and block it if they aren't allowed. A list of blocked words or command names is not enough. Test other tools and raw API or shell paths that could do the same thing. Treat deleting audit records, or changing how long they are kept, as high-impact too. That includes asking a more powerful tool or peer to do it. Some agents can do all three of these in one context: read untrusted input, reach sensitive data or systems, and change things or talk to the outside. For those agents, treat every consequential action as high-impact. The exception is a design that stops untrusted content from picking the tool, destination, or arguments. Examples are plan-then-execute, a two-model pattern, or capability tracking such as CaMeL. Record which of the three each agent type has. For browser and computer-use agents, also treat these as high-impact: submitting a form, buying, uploading a file, opening or running a download, sending a message, and accepting terms or cookies.
 
 ### Verification recipe
 
-Aim each forbidden operation at throwaway resources through every tool, API, and shell path. Confirm nothing happens without the required approval. Test by sending the call straight to enforcement, not by relying on the model to refuse. For agent types that combine untrusted input, sensitive access, and outside actions, plant an instruction in untrusted content that names a tool, destination, and argument. No consequential action using those values may run without approval.
+Aim each forbidden operation at throwaway resources through every tool, API, and shell path. Confirm nothing happens without the required approval. Test by sending the call straight to enforcement, not by relying on the model to refuse. For agent types that combine untrusted input, sensitive access, and outside actions, plant an instruction in untrusted content that names a tool, destination, and argument. No consequential action using those values may run without approval. For a browser agent, plant a page that asks it to submit a form, upload a file, run a download, or accept terms. Each must stop for approval.
 
 **Evidence to keep:** Operation-and-path matrix, capability-combination record, denial traces, resource state before and after.
 
@@ -459,11 +459,17 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Write down every system and data store the agent can reach. Test that it has no path to unapproved production resources, admin systems, host services, or other tenants. Enforce this in the infrastructure, not only in the prompt. For each allowed connection, also check input and response validation under R01–R02, including API responses and messages from connected services. Being allowed on the network does not make their content trusted.
+Write down every system and data store the agent can reach. Test that it has no path to unapproved production resources, admin systems, host services, or other tenants. Enforce this in the infrastructure, not only in the prompt. For each allowed connection, also check input and response validation under R01–R02, including API responses and messages from connected services. Being allowed on the network does not make their content trusted. Run browser and computer-use agents in a separate VM, container, or browser profile. That browser holds no personal logins, saved passwords, cookies, or extensions the task doesn't need. A coding agent on a laptop runs as the developer by default. It can then reach the home folder, SSH and cloud keys, browser cookies, and other projects. Run it in a sandbox, devcontainer, or VM, and don't mount host secrets into it.
+
+  Why this is hard: A browser profile or laptop holds many sessions at once. One injected page can use any of them. A devcontainer or sandbox doesn't protect what you put inside it, such as the agent's own login, mounted keys, or tokens in environment variables.
+
+  If you can't fully do it: Use a fresh browser profile per task, signed in only to a test account or a narrowly scoped account. Turn on the agent's own sandbox, block reads of key and credential folders, and use short-lived, repository-scoped tokens. Record what the agent can still reach. Remove high-impact powers from agents that must share a personal session.
+
+  Tradeoffs you can accept: Signing in again for each task, slower setup, and tasks that need a person to finish a login. An agent that shares a person's full logged-in browser or home folder with high-impact powers needs a written, approved risk acceptance.
 
 ### Verification recipe
 
-From inside the agent's runtime, try test endpoints that stand for forbidden networks, host and admin services, and tenant B. Check the actual routes and isolation policies, not just failed requests. An endpoint that happens to be down doesn't prove isolation.
+From inside the agent's runtime, try test endpoints that stand for forbidden networks, host and admin services, and tenant B. Check the actual routes and isolation policies, not just failed requests. An endpoint that happens to be down doesn't prove isolation. For a browser agent, list the profile's signed-in sessions, saved passwords, cookies, and extensions; expect only what the task needs. For a coding agent on a laptop, try to read `~/.ssh`, cloud credential files, browser profile folders, and another project from inside its sandbox; each read must fail.
 
 **Evidence to keep:** Policy and route exports, connection results, isolation-denial logs.
 
@@ -518,11 +524,11 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Allow only the outside destinations the task needs. Test a blocked destination and ways around the block, such as going straight past a proxy or gateway. Cover redirects, DNS changes and rebinding, IPv4 and IPv6, and cloud metadata or loopback addresses where they apply. An allowed domain can still host an attacker's account or receive leaked data. So also limit which resources and tenants the agent can reach, and what data it can send. Record each block and confirm the right operator hears about it.
+Allow only the outside destinations the task needs. Test a blocked destination and ways around the block, such as going straight past a proxy or gateway. Cover redirects, DNS changes and rebinding, IPv4 and IPv6, and cloud metadata or loopback addresses where they apply. An allowed domain can still host an attacker's account or receive leaked data. So also limit which resources and tenants the agent can reach, and what data it can send. Record each block and confirm the right operator hears about it. For browser agents, enforce a domain allowlist in the network or browser policy, not in the prompt. It must cover page navigation, redirects, embedded resources, and downloads.
 
 ### Verification recipe
 
-Call one allowed and one forbidden test destination. Include direct routes around the proxy or gateway, redirect chains, DNS changes, IPv6, and test metadata and loopback addresses. Also try a forbidden resource on an allowed service. The allowed request must work. Forbidden requests must fail, and the block must reach the named operator within the alert time limit.
+Call one allowed and one forbidden test destination. Include direct routes around the proxy or gateway, redirect chains, DNS changes, IPv6, and test metadata and loopback addresses. Also try a forbidden resource on an allowed service. The allowed request must work. Forbidden requests must fail, and the block must reach the named operator within the alert time limit. For a browser agent, navigate, redirect, embed a resource from, and download from a domain outside the allowlist; each must be blocked.
 
 **Evidence to keep:** Egress rules, gateway and network logs, alert receipt time.
 
@@ -710,11 +716,11 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Version and review the harness, system prompt, and rules files before release. Allow production changes only through a release process that records who made them. Protect source branches from history rewrites, so the reviewed diff stays available. Link the deployed versions to the approved review. Complete the full configuration checks in section C. This includes local agent CLI settings, such as sandbox mode and the model's base URL, and hooks or instruction files that a repository or folder supplies.
+Version and review the harness, system prompt, and rules files before release. Allow production changes only through a release process that records who made them. Protect source branches from history rewrites, so the reviewed diff stays available. Link the deployed versions to the approved review. Complete the full configuration checks in section C. This includes local agent CLI settings, such as sandbox mode and the model's base URL, and hooks or instruction files that a repository or folder supplies. On developer workstations, enforce these settings through managed settings or device management (MDM) that the agent, the repository, and the user's own files can't override. Don't auto-approve MCP servers, hooks, or plugins that a repository supplies. An example is Claude Code's `enableAllProjectMcpServers`. Treat skills, plugins, hooks, and editor extensions as code and review them under E02.
 
 ### Verification recipe
 
-Compare the digests of the running harness, prompt, and rules with the reviewed source files. Try a production-style edit with a low-privilege test role, and a force-push to the protected source branch. Both must fail. Check that an approved change leaves a review and release record.
+Compare the digests of the running harness, prompt, and rules with the reviewed source files. Try a production-style edit with a low-privilege test role, and a force-push to the protected source branch. Both must fail. Check that an approved change leaves a review and release record. On a workstation, check that managed settings are in force and that a repository's own settings can't approve its MCP servers, hooks, or plugins, or loosen the sandbox.
 
 **Evidence to keep:** Review link, artifact digests, access-control test.
 

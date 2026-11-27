@@ -20,7 +20,7 @@ Map the real calls and services from the configuration and a test trace. For eac
 
 ### Verification recipe
 
-For each approved dependency, including model files, adapters, and datasets, find the publisher, artifact and version, permissions, and update source. Verify signatures where they exist. Scan the pinned list for known vulnerabilities, and judge the findings under the team's release policy. Record missing provenance and how you reduce the risk.
+For each approved dependency, including model files, adapters, and datasets, find the publisher, artifact and version, permissions, and update source. Verify signatures where they exist. Scan the pinned list for known vulnerabilities, and judge the findings under the team's release policy. Record missing provenance and how you reduce the risk. For each skill, plugin, hook, and extension, read its hook commands, server commands, and bundled programs, and check it is pinned to a commit or digest. Check auto-update is off or gated by review, and that an unapproved marketplace source is refused.
 
 **Evidence to keep:** Dependency list, signature and scan results, review and exception records.
 
@@ -30,7 +30,7 @@ For each approved dependency, including model files, adapters, and datasets, fin
 
 ### Verification recipe
 
-Discover a new tool and confirm it is disabled until its owner approves it. Change an approved description, schema, permission, or visible implementation reference; refresh and exercise cached and dynamic reload paths. Unreviewed changes and failed re-checks block use. Measure config propagation and record the version used by each executor. Quarantine the tool, then roll back an approved config without restoring revoked permissions. A metadata hash must not claim to attest hidden remote code. Query affected deployments.
+Discover a new tool and confirm it is disabled until its owner approves it. Change an approved description, schema, permission, or visible implementation reference; refresh and exercise cached and dynamic reload paths. Unreviewed changes and failed re-checks block use. Measure config propagation and record the version used by each executor. Quarantine the tool, then roll back an approved config without restoring revoked permissions. A metadata hash must not claim to attest hidden remote code. Query affected deployments. Change a file of an installed skill or plugin and restart the agent; the change must be blocked or flagged before it loads.
 
 **Evidence to keep:** Owner approvals, old/new fingerprints, publication and rollback records, config versions, propagation times, denials and affected-deployment query.
 
@@ -70,7 +70,7 @@ List each enabled transport, protocol/extension version, and execution path. An 
 
 ### Verification recipe
 
-Send valid, broken, fake-sender, replayed, and cross-tenant peer requests. Reused action requests must not repeat side effects without approval. Authenticate the sender of every request, even validly signed ones, and check its scope. Deny requests that aren't allowed, and keep hostile content as untrusted data. Include a schema-valid injected instruction, a tampered signed agent card, and a callback URL that points at a private or metadata address.
+Send valid, broken, fake-sender, replayed, and cross-tenant peer requests. Reused action requests must not repeat side effects without approval. Authenticate the sender of every request, even validly signed ones, and check its scope. Deny requests that aren't allowed, and keep hostile content as untrusted data. Include a schema-valid injected instruction, a tampered signed agent card, and a callback URL that points at a private or metadata address. For A2A peers, send a call over plain HTTP, a card with a bad or missing signature, a changed card, a credential inside message content, and a webhook URL pointing to a private or loopback address. Each must be refused or flagged.
 
 **Evidence to keep:** Peer policy, message fixtures, authorization and validation logs.
 

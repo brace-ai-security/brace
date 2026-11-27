@@ -1,6 +1,19 @@
 # Source and practical-accuracy review
 
-**Review dates: 2026-09-16 (full review); 2026-09-30 (update against current guidance); 2026-10-16 (targeted MCP revision); 2026-10-22 (all 53 recommendations re-researched, BRACE 2.0.1); 2026-11-26 (external references refreshed: incidents, OWASP, MITRE ATLAS, NIST, MCP, OpenTelemetry; no checklist change).** Scope: the [53-item checklist](CHECKLIST.md), [verification recipes](CHECKLIST-VERIFICATION.md), assessment, guides, resource catalog, vendor worksheet, and telemetry proposal.
+**Review dates: 2026-09-16 (full review); 2026-09-30 (update against current guidance); 2026-10-16 (targeted MCP revision); 2026-10-22 (all 53 recommendations re-researched, BRACE 2.0.1); 2026-11-27 (content gaps: browser agents, A2A, workstations, plugins); 2026-11-26 (external references refreshed: incidents, OWASP, MITRE ATLAS, NIST, MCP, OpenTelemetry; no checklist change).** Scope: the [53-item checklist](CHECKLIST.md), [verification recipes](CHECKLIST-VERIFICATION.md), assessment, guides, resource catalog, vendor worksheet, and telemetry proposal.
+
+## Content-gap review: 2026-11-27
+
+Owner-approved additions for browser and computer-use agents, A2A peers, developer workstations, and skill and plugin supply chain. Existing items were extended; no item was added and no ID or gate changed.
+
+| Gap | Result |
+|---|---|
+| Browser and computer-use agents | R01 lists screen, DOM, and download inputs (S68, S69). B05 names form submission, purchases, uploads, downloads, and accepting terms (S68, S69). B08 adds a separate browser VM or profile without personal logins; B09 adds a browser domain allowlist; R13 adds step logs and screenshots. |
+| A2A peers | E07 gains protocol specifics verified against A2A 1.0.0 (S70): TLS (§7.1), JWS-signed Agent Cards over JCS (§8.4), out-of-band credentials in headers (§7.3, §7.6.3), `TASK_STATE_AUTH_REQUIRED` is not authorization (§7.6.4), webhook SSRF checks and notification authentication (§4.3.3, §13.2). E08 counts remote A2A tasks as delegation. |
+| Developer workstations | B02, B08, and B12 cover personal credentials, sandboxes or devcontainers, managed settings, and auto-approved project MCP servers (S71, S72). S72 warns that a devcontainer does not protect credentials stored inside it. |
+| Skill and plugin supply chain | E02 and E03 treat skills, plugins, hooks, and extensions as code: review, pinning, auto-update, and marketplace allowlists (S73, with incident evidence S62 and S64). |
+
+The vendor documents describe one product each. BRACE generalizes their precautions; it doesn't claim every product offers the same controls.
 
 ## Follow-up review: 2026-11-26
 
@@ -179,6 +192,12 @@ Incident evidence added 2026-11-26 (brace-dgo.2). Each is vendor- or researcher-
 - **S65:** [Symantec, unauthorized relays for Codex and Claude Code](https://www.security.com/threat-intelligence/openai-claude-unauthorized-relays) (2026-10-29). A setup script rewrites the CLIs' config files: Codex sandbox set to full access, base URLs and keys pointed at a relay. Not a product vulnerability; abuse not observed.
 - **S66:** [Pillar Security, opencode RCE via MCP OAuth](https://www.pillar.security/blog/open-and-shut-remote-code-execution-in-opencode-via-mcp-oauth) (byline 2026-10-19). A remote MCP server's `authorization_endpoint` reached an unescaped launcher on Windows and WSL. Fixed in opencode 1.18.33; no CVE published.
 - **S67:** [Straiker, session inception](https://straiker.ai/blog/session-inception-spawning-a-child-claude-session-to-bypass-parent-guardrails) (2026-10-08). A child CLI session started in an untrusted repository ran the repository's hook without the parent's confirmation. The vendor closed the report as Informative.
+- **S68:** [Anthropic, computer use tool: security considerations](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool) (checked 2026-11-27). Recommends a dedicated VM or container with minimal privileges, no account logins, a domain allowlist, and human confirmation for consequential actions. Warns that instructions on web pages or in images can override the user's.
+- **S69:** [OpenAI, computer use guide](https://developers.openai.com/api/docs/guides/tools-computer-use) (checked 2026-11-27). "Treat screen content as untrusted"; use an isolated browser or VM, a fresh profile, network rules, and confirmation for purchases, data transmission, and destructive changes.
+- **S70:** [A2A Protocol Specification 1.0.0](https://a2a-protocol.org/latest/specification/) (checked 2026-11-27). TLS required in production, TLS 1.3 recommended (§7.1); optional JWS Agent Card signatures over JCS, which clients SHOULD verify (§8.4); out-of-band credentials (§7.3); auth-required state is not authorization (§7.6.4); webhook SSRF checks and authentication (§13.2). Signing is optional, so many cards will be unsigned.
+- **S71:** [Claude Code settings](https://code.claude.com/docs/en/settings) and [settings reference](https://code.claude.com/docs/en/settings-reference.md) (checked 2026-11-27). Managed settings (file, MDM, or server-managed) override user and project files. `enableAllProjectMcpServers` approves every server in a project `.mcp.json` without a prompt; `allowManagedHooksOnly`, `allowManagedMcpServersOnly`, and `strictKnownMarketplaces` are managed-only controls.
+- **S72:** [Claude Code development containers](https://code.claude.com/docs/en/devcontainer) (checked 2026-11-27). With permission checks skipped, a devcontainer does not stop a malicious project from exfiltrating anything inside it, including Claude Code's credentials; avoid mounting `~/.ssh` or cloud credential files. Policy in a repository Dockerfile can be changed by anyone with write access.
+- **S73:** [Claude Code plugin security and trust](https://code.claude.com/docs/en/plugins/security.md) (checked 2026-11-27). Plugins can run arbitrary code with user privileges; hooks, monitors, and MCP servers run outside the sandbox; auto-update can change reviewed files; commit-SHA and `sha256` pins and managed marketplace allowlists are available.
 
 ## Review coverage: all 53 items
 
@@ -186,21 +205,21 @@ Each row records the practical issue checked or clarified. An unchanged item mea
 
 | Item | Related guidance | Practical review conclusion |
 |---|---|---|
-| B05 | S1 S6 S34 S21 S22 | Authorize operation, target, and arguments at execution; command-name filtering is insufficient. |
-| B02 | S1 S3 S27 S41 S42 | Check destination permissions and tenant isolation with actual issued credentials. |
+| B05 | S1 S6 S34 S21 S22 S68 S69 | Authorize operation, target, and arguments at execution; command-name filtering is insufficient. |
+| B02 | S1 S3 S27 S41 S42 S71 S72 | Check destination permissions and tenant isolation with actual issued credentials. |
 | B01 | S1 S19 S65 S67 | Inventory every callable path; a model refusing a tool is not enforcement. |
 | B03 | S3 S5 S25 S28 S41 S42 S60 S61 S62 | Measure expiry and rotation overlap; do not demand invalidation before an explicitly permitted overlap ends. |
 | B04 | S5 S26 | Measure the revocation budget, including cached tokens and existing sessions; refresh-token revocation alone is insufficient. |
 | B06 | S6 S27 | Bind approval to the action, check current state, and exercise concurrent replay. |
 | B07 | S1 S24 | Include children and in-flight overshoot in a declared budget; no universal safe numerical limit. |
-| B08 | S1 S10 | Inspect effective isolation policy as well as probe results; an unavailable endpoint proves little. |
-| B09 | S7 | Cover redirects, DNS, IPv6, and unauthorized resources on otherwise allowed services. |
+| B08 | S1 S10 S68 S69 S72 | Inspect effective isolation policy as well as probe results; an unavailable endpoint proves little. |
+| B09 | S7 S68 S69 | Cover redirects, DNS, IPv6, and unauthorized resources on otherwise allowed services. |
 | B10 | S8 S9 S29 S63 | Verify an approved signer and digest; a valid signature is not evidence the artifact is safe. |
 | B11 | S10 S30 S61 S65 | Choose isolation for the threat model; ordinary containers and a few access probes do not establish escape resistance. |
-| B12 | S1 S9 S31 S64 S67 | Version and review harness/instruction artifacts alongside code and runtime permissions. |
+| B12 | S1 S9 S31 S64 S67 S71 | Version and review harness/instruction artifacts alongside code and runtime permissions. |
 | R11 | S1 S34 | Measure stop time with work in flight; committed external effects require reconciliation. |
-| R13 | S11 S13 S34 | Compare audit reconstruction to independent destination state; make unknown outcomes explicit. |
-| R01 | S1 S2 | Exercise malformed, oversized, streamed, error, and callback responses at each integration. |
+| R13 | S11 S13 S34 S68 | Compare audit reconstruction to independent destination state; make unknown outcomes explicit. |
+| R01 | S1 S2 S68 S69 | Exercise malformed, oversized, streamed, error, and callback responses at each integration. |
 | R02 | S2 S23 | Schema-valid text can still inject instructions; enforce prohibited actions outside the model. |
 | R03 | S1 S11 S24 S62 | Test secrets through all output paths and generated content through its downstream interpreter. |
 | R04 | S1 S2 | Test ingestion rights, tenant filtering, revocation, derived chunks, and cache propagation. |
@@ -228,14 +247,14 @@ Each row records the practical issue checked or clarified. An unchanged item mea
 | C07 | S1 S9 S12 S33 | Test restart and rollback with state compatibility; a code rollback cannot undo committed external effects. |
 | C08 | S11 S14 | Verify retained trace-to-release and prompt references; the exact BRACE join is custom instrumentation. |
 | E06 | S3 S4 S16 S19 S20 S43 S44 S47 S48 | Apply HTTP authorization or equivalent local stdio enforcement as appropriate; cover bypass and response paths. |
-| E08 | S1 S3 S27 | Exercise privilege escalation through a peer; delegation must not bypass the caller’s authorization. |
+| E08 | S1 S3 S27 S70 | Exercise privilege escalation through a peer; delegation must not bypass the caller’s authorization. |
 | E09 | S1 | Prove the stop reaches remote descendants, queues, credentials, and retries within the chosen budget. |
 | E01 | S1 S15 | Assign platform and team responsibilities; an upstream product claim is not implementation evidence. |
-| E02 | S1 S8 S9 S20 S31 S63 S64 S66 | Pin observable artifacts, assess maintenance, and record remote implementation limitations. |
-| E03 | S4 S16 S19 S20 S46 S66 | Metadata fingerprints detect metadata changes; they cannot attest hidden remote code. |
+| E02 | S1 S8 S9 S20 S31 S63 S64 S66 S73 | Pin observable artifacts, assess maintenance, and record remote implementation limitations. |
+| E03 | S4 S16 S19 S20 S46 S66 S73 | Metadata fingerprints detect metadata changes; they cannot attest hidden remote code. |
 | E04 | S2 S4 S19 S20 S49 S53 | Scan metadata with a failure policy; scanners have false positives and evasion limits. |
 | E05 | S3 S4 S19 | Bind server identity plus tool name; names alone do not establish provenance. |
-| E07 | S1 S6 S20 | Authenticate, authorize, validate, and prevent replay of action-bearing peer messages. |
+| E07 | S1 S6 S20 S70 | Authenticate, authorize, validate, and prevent replay of action-bearing peer messages. |
 | E10 | S11 S13 S14 S34 | Verify cross-service propagation and protected evidence; standards do not guarantee instrumentation completeness. |
 | E11 | S11 S1 S35 S62 | Test retention, access, export, loss detection, and safe behavior when audit capture fails. |
 | E12 | S1 S15 S34 S36 S37 | Run a shared-dependency incident drill with affected-instance discovery and accountable responders. |
