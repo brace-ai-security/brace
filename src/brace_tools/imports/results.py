@@ -588,12 +588,12 @@ class ItemResult:
 def apply_to_record(record_path: Path, items: list[str], entry: dict, digest: str, failed: int,
                     dry_run: bool = False, validate=None) -> tuple[list[ItemResult], list[str]]:
     """Add the evidence entry to each item. Returns per-item results and warnings."""
-    import yaml  # brace.py already requires PyYAML
+    import yaml  # the record commands already require PyYAML ([record] extra)
 
     text = record_path.read_text(encoding="utf-8")
     data = yaml.safe_load(text)
     if not isinstance(data, dict) or not isinstance(data.get("items"), dict):
-        raise ImportProblem(f"{record_path} has no 'items' map. Run brace.py init first.")
+        raise ImportProblem(f"{record_path} has no 'items' map. Run brace init first.")
     results: list[ItemResult] = []
     warnings: list[str] = []
     new_text = text

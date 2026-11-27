@@ -1,4 +1,4 @@
-"""`brace.py export`: the .brace/ evidence record as one row per checklist item, for auditors,
+"""`brace export`: the .brace/ evidence record as one row per checklist item, for auditors,
 security questionnaires and GRC tools.
 
 Each row: ID, title, gate, outcome, the check's status and problems, lead, evidence (link, date,

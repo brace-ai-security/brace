@@ -4,12 +4,12 @@
 Reads the `.brace/` record folder against the BRACE checklist. High-risk
 deployments receive FINDINGS, never a GO/NO-GO deployment verdict.
 
-  brace.py init  [--dir .]
-  brace.py items [--json]
-  brace.py hash  [--dir .] [--manifest .brace/manifest.yaml]
-  brace.py check [--dir .] [--approvals github|git|off] [--strict] [--json out.json]
-  brace.py export --format html|csv|json [--dir .] [--output FILE] [--approvals off|git|github]
-  brace.py import-results garak|pyrit|promptfoo|inspect FILE [--item R02 ...] [--dir .]
+  brace init  [--dir .]
+  brace items [--json]
+  brace hash  [--dir .] [--manifest .brace/manifest.yaml]
+  brace check [--dir .] [--approvals github|git|off] [--strict] [--json out.json]
+  brace export --format html|csv|json [--dir .] [--output FILE] [--approvals off|git|github]
+  brace import-results garak|pyrit|promptfoo|inspect FILE [--item R02 ...] [--dir .]
 
 Exit codes: 0 record conditions met, 1 unresolved findings, 2 invalid input/usage.
 These codes do not authorize deployment.
@@ -551,7 +551,7 @@ def verify_github(gh: GitHub, top: Path, rel: str, approvers: list[str], current
 # --------------------------------------------------------------------------
 
 def _scan_cli():
-    """The scanner's own command line (open_agent_security/cli.py), so `brace.py scan` matches it."""
+    """The scanner's own command line (open_agent_security/cli.py), so `brace scan` matches it."""
     from open_agent_security import cli
     return cli
 
@@ -569,10 +569,10 @@ def cmd_init(args) -> int:
     print(f"Created {target}/ with deployment.yaml, record.yaml, manifest.yaml, exceptions/, na/.")
     print("Next steps:")
     print("  1. Fill in deployment.yaml (task, stakes and autonomy rating, roles, approvers).")
-    print("  2. Edit manifest.yaml, then run: brace.py hash  and copy the id into deployment.yaml.")
+    print("  2. Edit manifest.yaml, then run: brace hash  and copy the id into deployment.yaml.")
     print("  3. Review each item in record.yaml and record its outcome and evidence.")
     print(f"  4. Copy {TEMPLATES_URL}CODEOWNERS.example and {TEMPLATES_URL}brace-check.yml into your repo.")
-    print("  5. Run: brace.py check")
+    print("  5. Run: brace check")
     return EXIT_GO
 
 
@@ -622,7 +622,7 @@ class Checker:
         rec_path = self.brace / "record.yaml"
         for p in (dep_path, rec_path):
             if not p.is_file():
-                errors.append(f"{p} is missing. Run `brace.py init` to create the record folder.")
+                errors.append(f"{p} is missing. Run `brace init` to create the record folder.")
         if errors:
             raise InputError(errors)
 
@@ -1021,13 +1021,13 @@ def cmd_import_results(args) -> int:
         items += [i for i in suggested if i not in items]
     bad = [i for i in items if i not in known]
     if bad:
-        raise InputError(f"Not BRACE item IDs: {', '.join(ri.clean(b, 10) for b in bad)}. Run brace.py items to see the list.")
+        raise InputError(f"Not BRACE item IDs: {', '.join(ri.clean(b, 10) for b in bad)}. Run brace items to see the list.")
     if not items:
         print("Nothing written. Choose the items this run is evidence for with --item (for example "
               f"--item {suggested[0] if suggested else 'R02'}), or use --suggested to take the suggestions.")
         return EXIT_GO
     if not record_path.is_file():
-        raise InputError(f"{record_path} not found. Run brace.py init first.")
+        raise InputError(f"{record_path} not found. Run brace init first.")
 
     link = args.link
     if not link:
@@ -1074,7 +1074,7 @@ class _Parser(argparse.ArgumentParser):
         raise InputError(f"{self.prog}: {message}")
 
 
-def build_parser(prog: str = "brace.py") -> argparse.ArgumentParser:
+def build_parser(prog: str = "brace") -> argparse.ArgumentParser:
     p = _Parser(prog=prog, description="Check BRACE evidence records; high-risk reviews report FINDINGS without a release verdict.")
     sub = p.add_subparsers(dest="command", required=True, parser_class=_Parser)
 
@@ -1136,7 +1136,7 @@ def _date_arg(v: str) -> str:
         raise argparse.ArgumentTypeError("use the form YYYY-MM-DD")
 
 
-def main(argv: list[str] | None = None, prog: str = "brace.py") -> int:
+def main(argv: list[str] | None = None, prog: str = "brace") -> int:
     try:
         args = build_parser(prog).parse_args(argv)
         return args.func(args)
