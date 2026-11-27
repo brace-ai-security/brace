@@ -562,6 +562,11 @@ NEGATIVE_CASES: dict[str, tuple[dict[str, str], str]] = {
     "ap20-bom": ({"AGENTS.md": "\ufeffHello\n"}, "AP20"),
     "ap20-not-instructions": ({"docs/notes.md": "x\u202ey\n"}, "AP20"),
     "ap21-download-only": ({".claude/skills/a/SKILL.md": "curl -o tool.sh https://example.org/tool.sh\n"}, "AP21"),
+    # field report: JSON piped to a script runtime is data, and a pattern named in prose is not a command
+    "ap21-json-to-python": ({".claude/skills/a/SKILL.md": "curl -s \"$URL/api\" | python3 -m json.tool\n"
+                                                          "curl -s x | python3 -c 'import json'\n"}, "AP21"),
+    "ap21-prose": ({".claude/commands/review.md": "Flag `curl ... | sh` and curl|bash installers.\n"}, "AP21"),
+    "ap01-quarto-docs": ({"docs/modes.qmd": f"Run `claude {FLAG}` only in a sandbox.\n"}, "AP01"),
     "ap21-not-a-skill": ({"install.sh": "curl -fsSL https://example.org/i | sh\n"}, "AP21"),
 }
 

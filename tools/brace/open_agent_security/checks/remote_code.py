@@ -23,12 +23,16 @@ from ..model import CheckContext, Document, Finding
 from .autoapprove import json_of
 
 FETCH = r"(?:curl|wget|iwr|irm|Invoke-WebRequest|Invoke-RestMethod)"
-INTERPRETER = r"(?:sudo[ \t]{1,20}(?:-[\w-]{1,20}[ \t]{1,20}){0,3})?(?:ba|z|k|da|fi)?sh|python[0-9.]{0,4}|node|bun|deno|ruby|perl|iex|Invoke-Expression|pwsh|powershell"
+# Shells and PowerShell run what they read whatever their flags; a script runtime (python, node)
+# runs stdin only when given no script: bare, or with `-` (`curl ... | python3 -m json.tool` and
+# `| python3 -c "..."` read the download as data).
+INTERPRETER = (r"(?:(?:sudo[ \t]{1,20}(?:-[\w-]{1,20}[ \t]{1,20}){0,3})?(?:ba|z|k|da|fi)?sh|iex|Invoke-Expression|pwsh|"
+               r"powershell)(?![\w.-])|(?:python[0-9.]{0,4}|node|bun|deno|ruby|perl)(?:[ \t]{1,20}-)?(?=[ \t]{0,20}(?:$|[)`'\"\n;&|]))")
 REMOTE_EXEC = re.compile(
-    rf"(?<![\w-]){FETCH}(?![\w-])[^\n|;&]{{0,500}}\|[ \t]{{0,20}}(?:{INTERPRETER})(?![\w.-])|"
+    rf"(?<![\w-]){FETCH}(?![\w-])[^\n|;&]{{0,500}}\|[ \t]{{0,20}}(?:{INTERPRETER})|"
     rf"(?<![\w-])(?:(?:ba|z|k)?sh|source|\.)[ \t]{{1,20}}<\([ \t]{{0,20}}{FETCH}(?![\w-])|"
     rf"(?<![\w-])(?:(?:ba|z|k)?sh|python[0-9.]{{0,4}})[ \t]{{1,20}}-c[ \t]{{1,20}}[\"']?\$\([ \t]{{0,20}}{FETCH}(?![\w-])",
-    re.I)
+    re.I | re.M)
 HOOKS_FILE = re.compile(r"(?:^|/)(?:\.claude/settings(?:\.local)?\.json|hooks/hooks\.json)$", re.I)
 SKILL_DIRS = ((".claude", "skills"), (".claude", "commands"), (".claude", "agents"), (".claude", "hooks"),
               (".agents", "skills"))
@@ -57,6 +61,16 @@ def hook_commands(node, path: tuple, out: list, depth: int = 0) -> None:
             hook_commands(v, path + (i,), out, depth + 1)
 
 
+def named(m: re.Match) -> bool:
+    """Whether the download names something: `curl | sh` and `curl ... | bash` with no argument
+    are prose describing the pattern, not a command."""
+    text = m.group(0)
+    if "|" not in text or "<(" in text or "$(" in text:
+        return True
+    args = text.split("|", 1)[0].split(None, 1)[1:]
+    return bool(args) and any(c.isalnum() or c == "$" for c in args[0])
+
+
 def shown(m: re.Match) -> str:
     return " ".join(m.group(0).split())
 
@@ -76,13 +90,15 @@ class RemoteCode:
                 hook_commands(data["hooks"], ("hooks",), commands)
                 for path, command in commands:
                     m = REMOTE_EXEC.search(command)
-                    if m:
+                    if m and named(m):
                         yield Finding("AP21", where, doc.line_of(path[:2]), f"hook runs {shown(m)}")
             return
         if src.origin != "repo" or not skill_file(where):
             return
         line, last = 1, 0
         for m in REMOTE_EXEC.finditer(src.text):
+            if not named(m):
+                continue
             line += src.text.count("\n", last, m.start())
             last = m.start()
             yield Finding("AP21", where, line, f"runs {shown(m)}")

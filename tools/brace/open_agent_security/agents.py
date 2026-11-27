@@ -160,7 +160,7 @@ def config_dir(rel: str) -> bool:
 # read because a byte search found one). Markdown, reStructuredText, AsciiDoc, Org, plain text
 # and TeX, extensionless documents such as README or CHANGELOG, and the search indexes docs
 # sites generate.
-PROSE_EXT = frozenset((".md", ".mdc", ".mdx", ".markdown", ".mkd", ".rst", ".adoc", ".asciidoc", ".org", ".txt", ".tex"))
+PROSE_EXT = frozenset((".md", ".mdc", ".mdx", ".qmd", ".rmd", ".markdown", ".mkd", ".rst", ".adoc", ".asciidoc", ".org", ".txt", ".tex"))
 PROSE_NAME = re.compile(r"^(?:readme|changelog|changes|contributing|security|history|news|authors|contributors|"
                         r"license|licence|copying|notice|code_of_conduct|maintainers|todo|\.cursorrules|\.windsurfrules|"
                         r"\.clinerules|\.roorules)(?:[.-][\w.-]*)?$", re.I)

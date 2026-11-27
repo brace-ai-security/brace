@@ -96,7 +96,7 @@ innermost open `(` or `[`) names an agent CLI or agent package:
   and Scala triple-quoted strings, Go and Rust raw strings); a block comment never hides a
   line whose command is an agent CLI;
 - in documentation, which is prose and not read for these rules: Markdown (`.md`, `.mdx`,
-  `.markdown`, `.mkd`), `.rst`, `.adoc`, `.asciidoc`, `.org`, `.txt` and `.tex` files;
+  `.markdown`, `.mkd`, Cursor `.mdc`), Quarto and R Markdown (`.qmd`, `.rmd`), `.rst`, `.adoc`, `.asciidoc`, `.org`, `.txt` and `.tex` files;
   extensionless README, CHANGELOG, CHANGES, CONTRIBUTING, SECURITY, HISTORY, NEWS, AUTHORS,
   CONTRIBUTORS, LICENSE, COPYING, NOTICE, CODE_OF_CONDUCT, MAINTAINERS and TODO files (also
   with a suffix such as `LICENSE-MIT` or `README.txt`); HTML (`.html`, `.htm`) outside
