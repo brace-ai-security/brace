@@ -36,7 +36,7 @@ from .secrets import CHARSETS, TOKEN_PREFIX, TokenSpec
 
 CONFIG_FILE = ".open-agent-security.toml"
 FAIL_ON = ("critical", "high", "medium", "low", "none")
-KEYS = {"version", "fail-on", "rules", "ignore", "include", "agent-config", "tokens", "limits", "plugins"}
+KEYS = {"version", "fail-on", "rules", "ignore", "include", "agent-config", "tokens", "limits", "plugins", "sarif-suppressed"}
 
 
 class ConfigError(Exception):
@@ -48,6 +48,7 @@ class Config:
     root: Path | None = None                # the scanned folder
     host: bool = False                      # also scan this machine's agent settings
     fail_on: str | None = None              # None: not set here, so the default (high) applies
+    sarif_suppressed: bool | None = None    # list suppressed findings in SARIF; None: not set (off)
     rules: Mapping[str, str] = field(default_factory=dict)  # rule ID -> "off" or a severity
     ignore: tuple[PathGlob, ...] = ()
     include: tuple[PathGlob, ...] = ()   # extra files to read as text
@@ -95,13 +96,16 @@ def parse(data: dict, base: Config, shown: str, known_rules: set[str]) -> Config
     fail_on = data.get("fail-on")
     if fail_on is not None and (not isinstance(fail_on, str) or fail_on not in FAIL_ON):
         raise ConfigError(f"{shown}: fail-on must be one of {', '.join(FAIL_ON)}")
+    sarif_suppressed = data.get("sarif-suppressed")
+    if sarif_suppressed is not None and type(sarif_suppressed) is not bool:
+        raise ConfigError(f"{shown}: sarif-suppressed must be true or false")
     notes = []
     if "plugins" in data:
         notes.append(f"config {shown}: 'plugins' is ignored; plugins load only with --plugin or "
                      "OPEN_AGENT_SECURITY_PLUGINS")
     limits, capped = parse_limits(data.get("limits", {}), base.limits, shown)
     notes += capped
-    return Config(root=base.root, fail_on=fail_on, rules=parse_rules(data.get("rules", {}), known_rules, shown),
+    return Config(root=base.root, fail_on=fail_on, sarif_suppressed=sarif_suppressed, rules=parse_rules(data.get("rules", {}), known_rules, shown),
                   ignore=parse_ignore(data.get("ignore", []), known_rules, shown),
                   include=tuple(globs(data.get("include", []), "include", shown)),
                   agent_config=tuple(agent_config_globs(data.get("agent-config", []), shown)),

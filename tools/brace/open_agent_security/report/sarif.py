@@ -5,11 +5,13 @@ result has a line-independent fingerprint, so a consumer can track a finding as 
 rules link to OWASP, MITRE ATLAS and CWE entries through run.taxonomies. The invocation always
 says whether the scan was complete and how many findings were suppressed.
 
-Suppressed findings (inline marks, ignore entries, rules turned off) are listed too, after the
-reported ones, each with a SARIF suppression (SARIF 2.1.0 §3.27.23, §3.35): kind "inSource" or
-"external", status "accepted" and a justification. Consumers such as GitHub code scanning then
-show them as dismissed, not open, and an audit can see every suppression and why it was made.
-They keep the ruleId, level, message, location and fingerprint they would have unsuppressed.
+Suppressed findings (inline marks, ignore entries, rules turned off) are left out by default,
+with a notification counting them: GitHub code scanning does not document SARIF suppressions,
+so an uploaded suppressed result may show as an open alert. With --sarif-suppressed (config
+`sarif-suppressed = true`) they are listed after the reported ones, each with a SARIF
+suppression (SARIF 2.1.0 §3.27.23, §3.35): kind "inSource" or "external", status "accepted"
+and a justification, for consumers that honour suppressions. They keep the ruleId, level,
+message, location and fingerprint they would have unsuppressed. The JSON output always lists them.
 """
 from __future__ import annotations
 
@@ -17,7 +19,7 @@ import json
 
 from .. import __version__
 from ..catalog import DOCS, TAXA, TAXONOMIES, RuleMeta
-from ..limits import MAX_RESULTS
+from ..limits import MAX_RESULTS, MAX_SUPPRESSED
 from ..model import Finding, Report
 from ..output import path_uri
 from .common import ReportOptions, examples_markdown, rules_by_id
@@ -34,7 +36,8 @@ NOTIFICATIONS = {
     "skipped": ("warning", "Files could not be read."),
     "suppressed": ("note", "Ignore entries, inline marks, rules turned off or lowered limits hid findings or files."),
     "host-findings": ("note", "Findings in agent settings on this machine are in the text and JSON output only."),
-    "results-capped": ("warning", "More results than one SARIF file lists; the JSON output has all of them."),
+    "suppressed-results": ("note", "Suppressed findings are not listed in SARIF; the JSON output lists them."),
+    "results-capped": ("warning", "More results than one SARIF file lists."),
 }
 
 
@@ -94,6 +97,19 @@ def result(f: Finding, meta: dict) -> dict:
     return out
 
 
+def capped_text(shown: int, hidden: int) -> str:
+    """How many reported and suppressed results the cap left out, and where to find them."""
+    left_shown = max(0, shown - MAX_RESULTS)
+    left_hidden = hidden - max(0, MAX_RESULTS - shown)
+    parts = []
+    if left_shown:
+        parts.append(f"{left_shown} reported result(s) are not listed; the JSON output lists every reported finding")
+    if left_hidden:
+        parts.append(f"{left_hidden} suppressed result(s) are not listed; the JSON output lists at most "
+                     f"{MAX_SUPPRESSED} suppressed findings")
+    return f"SARIF lists at most {MAX_RESULTS} results: " + "; ".join(parts)
+
+
 def fix(f: Finding) -> dict:
     """The finding's deterministic edit as a SARIF fix (§3.55): one replacement of an exact region."""
     e = f.edit
@@ -118,6 +134,8 @@ class Sarif:
         meta = {**{r.id: r for r in report.rules_off}, **rules_by_id(report)}
         shown = [f for f in report.findings if not f.host]
         hidden = [f for f in report.suppressed if not f.host]
+        omitted = [] if opts.sarif_suppressed else hidden
+        hidden = hidden if opts.sarif_suppressed else []
         # Reported results come first, so the cap never pushes one out for a suppressed one.
         listed = (shown + hidden)[:MAX_RESULTS]
         results = [result(f, meta) for f in listed]
@@ -126,9 +144,11 @@ class Sarif:
         if host:
             notes.append(notification("host-findings", f"{host} finding(s) in agent settings on this machine are "
                                                        "not in SARIF; see the text or JSON output"))
+        if omitted:
+            notes.append(notification("suppressed-results", f"{len(omitted)} suppressed findings are not listed; "
+                                                            "see the JSON output or use --sarif-suppressed"))
         if len(shown) + len(hidden) > MAX_RESULTS:
-            notes.append(notification("results-capped", f"{len(shown) + len(hidden) - MAX_RESULTS} more results "
-                                                        "are not listed; see the JSON output"))
+            notes.append(notification("results-capped", capped_text(len(shown), len(hidden))))
         driver = {"name": "open-agent-security", "version": __version__, "informationUri": DOCS,
                   "rules": [rule_entry(r) for r in report.rules] +
                            [rule_entry(r) for r in report.rules_off if r.id in {f.rule for f in listed}],

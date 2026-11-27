@@ -9,6 +9,7 @@ from ..output import plural
 @dataclass(frozen=True)
 class ReportOptions:
     color: bool = False
+    sarif_suppressed: bool = False   # list suppressed findings in SARIF (--sarif-suppressed)
 
 
 def shared_lines(findings) -> set[tuple]:

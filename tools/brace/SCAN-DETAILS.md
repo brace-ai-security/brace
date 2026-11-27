@@ -242,8 +242,9 @@ An agent config file that does not parse makes the scan incomplete.
 
 ## Suppressed findings in SARIF and JSON
 
-A suppressed finding is not dropped: SARIF and JSON list it, so every suppression can be
-audited. It never counts towards the verdict, the exit code, the headline or the findings
+A suppressed finding is not dropped: JSON always lists it, and SARIF lists it with
+`--sarif-suppressed` (or `sarif-suppressed = true` in the config file), so every
+suppression can be audited. It never counts towards the verdict, the exit code, the headline or the findings
 count. Each one says how it was suppressed:
 
 | Suppressed by | Kind | Justification | Location |
@@ -259,10 +260,13 @@ file or folder unread, so nothing in it was found and nothing is listed; such fi
 folders are counted in the note, as before. Suppressed findings are redacted and cut
 exactly like reported ones (justifications too, since they quote the scanned folder's
 files), and keep the `id` (SARIF fingerprint) they would have unsuppressed, so removing a
-suppression does not open a "new" alert. At most 5,000 are listed; past that they are only
-counted, with a note.
+suppression does not open a "new" alert in a consumer that uses that fingerprint. At most
+5,000 are listed; past that they are only counted, with a note.
 
-In SARIF, a suppressed finding is a normal result (same `ruleId`, `level`, message, location
+By default SARIF leaves suppressed findings out and adds a notification such as `3
+suppressed findings are not listed; see the JSON output or use --sarif-suppressed`; the
+invocation's `suppressed` property counts them either way. With `--sarif-suppressed`, a
+suppressed finding is a normal result (same `ruleId`, `level`, message, location
 and fingerprint) with `suppressions` (SARIF 2.1.0 §3.27.23, §3.35):
 
 ```json
@@ -279,12 +283,19 @@ In JSON, it is in `suppressed_findings` with the keys of a finding plus `suppres
 
 What consumers do with them:
 
-- **GitHub code scanning** reads `suppressions`: a result whose suppression has status
-  `accepted` is shown as a closed alert, not an open one, so it does not count against
-  the pull request, and it remains visible in the closed alerts with the rule and location.
+- **GitHub code scanning**: GitHub's SARIF support and alert documentation does not
+  mention `result.suppressions`, so we can't say how an uploaded suppressed result is shown;
+  it may appear as an open alert, an error-level one may fail the code scanning check, and
+  a rule turned off would still alert once per finding. GitHub's documentation also says
+  code scanning computes its own `primaryLocationLineHash` fingerprint rather than using
+  this scanner's, and keeps only the top 5,000 results per run, by severity. Leave
+  suppressed findings out of uploads to GitHub (the default; the Action passes
+  `--no-sarif-suppressed`).
 - **GitLab** does not read SARIF, and its SAST report has no suppression field, so the
   gitlab-sast output leaves suppressed findings out (the JSON output still lists them).
-- **Other SARIF tools** differ: tools that implement SARIF suppressions (such as the
-  Microsoft SARIF viewers) show these results as suppressed; a tool that ignores the
-  `suppressions` property shows them as ordinary results. If yours does, filter on it, or
-  check the tool's SARIF import options (DefectDojo, Azure DevOps) before relying on it.
+- **Other SARIF tools**: whether a tool honours SARIF suppressions is up to the tool, and
+  we have not confirmed the behaviour of specific ones (Microsoft SARIF viewers,
+  DefectDojo, Azure DevOps and others are unknown). A tool that ignores the
+  `suppressions` property shows these results as ordinary ones. Check your tool's SARIF
+  import documentation, and try it on a test upload, before turning on
+  `--sarif-suppressed`.

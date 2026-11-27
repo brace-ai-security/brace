@@ -24,9 +24,9 @@ def main(*argv):
     return code, out.getvalue(), err.getvalue()
 
 
-def sarif(root, tmp_path):
+def sarif(root, tmp_path, *args):
     out = tmp_path / "o.sarif"
-    cli_run(root, "--fail-on", "none", "--sarif", str(out))
+    cli_run(root, "--fail-on", "none", "--sarif", str(out), *args)
     data = json.loads(out.read_text(encoding="utf-8"))
     schema = json.loads(SARIF_SCHEMA.read_text(encoding="utf-8"))
     jsonschema.Draft4Validator(schema).validate(data)
@@ -150,7 +150,7 @@ def test_no_fix_where_the_change_is_not_determined(tmp_path, rel, text):
 
 def test_a_suppressed_finding_carries_no_fix(tmp_path):
     write(tmp_path, "repo/run.sh", f"claude -p hi {FLAG}  # open-agent-security: ignore\n")
-    run = sarif(tmp_path / "repo", tmp_path)
+    run = sarif(tmp_path / "repo", tmp_path, "--sarif-suppressed")
     assert run["results"] and all("suppressions" in r and "fixes" not in r for r in run["results"])
 
 

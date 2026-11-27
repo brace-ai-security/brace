@@ -37,6 +37,9 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
                         "junit, cyclonedx (an inventory of agent config and MCP servers), or a plugin's; FILE - replaces the report on stdout")
     p.add_argument("--sarif", metavar="FILE",
                    help="also write SARIF (GitHub code scanning) to FILE (--output sarif=FILE)")
+    p.add_argument("--sarif-suppressed", action=argparse.BooleanOptionalAction, default=None,
+                   help="list suppressed findings in SARIF, with SARIF suppressions, for consumers that honour "
+                        "them (default: off; GitHub code scanning does not document them)")
     p.add_argument("--markdown", metavar="FILE",
                    help="also append a Markdown summary to FILE (--output markdown=FILE)")
     p.add_argument("--github-output", metavar="FILE", help=argparse.SUPPRESS)
@@ -132,7 +135,7 @@ def run(a: argparse.Namespace) -> int:
         return 2
     report = run_scan(config, registry)
     try:
-        write_outputs(report, registry, stdout, files)
+        write_outputs(report, registry, stdout, files, config.sarif_suppressed)
     except OSError as e:
         error(f"could not write output: {clean(e, NOTE_CHARS)}")
         return 2
@@ -147,7 +150,9 @@ def resolve_config(a: argparse.Namespace, root: Path, registry: Registry) -> Con
     if not a.fail_on and config.fail_on:
         notes += (f"config {config.path}: fail-on {config.fail_on} (the exit code follows the config file, "
                   "not the default high)",)
+    sarif_suppressed = config.sarif_suppressed if a.sarif_suppressed is None else a.sarif_suppressed
     return replace(config, host=a.host, fail_on=a.fail_on or config.fail_on or "high", notes=notes,
+                   sarif_suppressed=bool(sarif_suppressed),
                    display_prefix=display_prefix(root))
 
 
@@ -176,17 +181,18 @@ def outputs(a: argparse.Namespace, registry: Registry) -> tuple[str, list[tuple[
     return stdout, [(name, target) for name, target in files if target != "-"]
 
 
-def write_outputs(report: Report, registry: Registry, stdout: str, files: list[tuple[str, str]]) -> None:
+def write_outputs(report: Report, registry: Registry, stdout: str, files: list[tuple[str, str]],
+                  sarif_suppressed: bool = False) -> None:
     """The stdout report, made inert for a GitHub Actions log, then each output file."""
     out = sys.stdout
     reporter = registry.reporters[stdout]
     color = hasattr(out, "isatty") and out.isatty() and not os.environ.get("NO_COLOR")
-    rendered = reporter.render(report, ReportOptions(color=bool(color)))
+    rendered = reporter.render(report, ReportOptions(color=bool(color), sarif_suppressed=sarif_suppressed))
     # A plugin reporter that declares no media is treated as text, so it is defused too.
     out.write(inert(rendered, getattr(reporter, "media", "text")) if actions_log() else rendered)
     for name, target in files:
         reporter = registry.reporters[name]
-        write_new(target, reporter.render(report, ReportOptions()), append=getattr(reporter, "appends", False))
+        write_new(target, reporter.render(report, ReportOptions(sarif_suppressed=sarif_suppressed)), append=getattr(reporter, "appends", False))
 
 
 def exit_code(report: Report, fail_on: str) -> int:

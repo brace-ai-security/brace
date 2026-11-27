@@ -71,8 +71,8 @@ def test_the_corpus_reports_carry_the_same_findings():
     assert [v["id"].replace("-", "") for v in gitlab] == ids
     assert len(set(ids)) == len(ids)
     hidden = json.loads((GOLDEN / "corpus.json").read_text().split("\n", 1)[1])["suppressed_findings"]
-    assert [r["partialFingerprints"]["openAgentSecurity/v1"] for r in sarif if "suppressions" in r] == \
-        [f["id"] for f in hidden] and len(hidden) == 2
+    # SARIF leaves suppressed findings out by default (--sarif-suppressed lists them); JSON keeps them.
+    assert not any("suppressions" in r for r in sarif) and len(hidden) == 2
 
 
 def test_fingerprints_do_not_change_when_lines_move(tmp_path):
@@ -201,6 +201,9 @@ def test_suppressed_results_match_the_sarif_and_report_schemas(tmp_path):
           'rules = {AP10 = "off"}\n[[ignore]]\npath = ".mcp.json"\nrules = ["AP04"]\nreason = "pinned upstream"\n')
     sarif = tmp_path.parent / f"{tmp_path.name}.sarif"
     cli_run(tmp_path, "--fail-on", "none", "--sarif", str(sarif))
+    validator(SCHEMAS / "sarif-schema-2.1.0.json", jsonschema.Draft4Validator).validate(
+        json.loads(sarif.read_text(encoding="utf-8")))
+    cli_run(tmp_path, "--fail-on", "none", "--sarif", str(sarif), "--sarif-suppressed")
     data = json.loads(sarif.read_text(encoding="utf-8"))
     validator(SCHEMAS / "sarif-schema-2.1.0.json", jsonschema.Draft4Validator).validate(data)
     kinds = sorted(r["suppressions"][0]["kind"] for r in data["runs"][0]["results"] if "suppressions" in r)

@@ -73,6 +73,7 @@ conditions is in [SCAN-DETAILS.md](SCAN-DETAILS.md#what-the-scanner-reads-and-sk
 | `--json` | Print JSON instead of text (the same as `--output json=-`). |
 | `--output NAME=FILE` | Also write the `NAME` report to `FILE`: `text`, `json`, `sarif`, `markdown`, `gitlab-sast`, `junit`, `cyclonedx`, `agent-prompt`, or a loaded plugin's. Repeat it for more than one. `FILE` `-` replaces the report on standard output. Markdown appends to `FILE`; the others replace it. |
 | `--sarif FILE` | Also write SARIF 2.1.0 for GitHub code scanning (the same as `--output sarif=FILE`). |
+| `--sarif-suppressed` | List suppressed findings in SARIF too, each with a SARIF suppression, for consumers that honour suppressions. Off by default; `--no-sarif-suppressed` turns it off when the config file turns it on. See [Suppressed findings in SARIF and JSON](#suppressed-findings-in-sarif-and-json). |
 | `--markdown FILE` | Also append a Markdown summary, for example to `$GITHUB_STEP_SUMMARY` (the same as `--output markdown=FILE`). |
 | `--host` | Also read the agent settings on this machine. |
 | `--config FILE` | Read settings from FILE instead of `.open-agent-security.toml` in the scanned folder. |
@@ -116,9 +117,11 @@ SAST or JUnit) found in the scanned folder are not scanned, and a note counts th
   [ATLAS](https://braceframework.org/mappings/mitre-atlas/)). The invocation always says
   whether the scan was complete and how many findings were suppressed, lists the notes
   (gaps as warnings), and counts findings on this machine (`--host`), which SARIF leaves out.
-  Suppressed findings are results too, after the reported ones, each with a SARIF
-  suppression (see [Silencing a reviewed finding](#silencing-a-reviewed-finding)).
-  At most 5,000 results are listed, reported ones first, with a note when there are more.
+  Suppressed findings are left out, with a note counting them; `--sarif-suppressed` lists
+  them after the reported ones, each with a SARIF suppression (see
+  [Silencing a reviewed finding](#silencing-a-reviewed-finding)).
+  At most 5,000 results are listed, reported ones first, with a note saying how many
+  reported and suppressed results were left out.
   Rule help shows a before/after example and the policy template. A result carries a SARIF
   `fix` only when the change follows from the finding alone (see
   [Fixes and policy templates](#fixes-and-policy-templates)).
@@ -251,11 +254,14 @@ scanned because of ignore entries`.
 
 ### Suppressed findings in SARIF and JSON
 
-A suppressed finding is not dropped: SARIF and JSON list it, with how it was suppressed
+A suppressed finding is not dropped: JSON lists it, with how it was suppressed
 (`inSource` or `external`), a justification and a location, so every suppression can be
-audited. It never counts towards the verdict, the exit code or the findings count. GitHub
-code scanning shows an accepted suppression as a closed alert; GitLab SAST and JUnit leave
-suppressed findings out. The table, examples and consumer notes are in
+audited. It never counts towards the verdict, the exit code or the findings count. SARIF
+leaves suppressed findings out by default, with a note counting them, because GitHub's
+code scanning documentation does not mention SARIF suppressions: an uploaded suppressed
+result may appear as an open alert. `--sarif-suppressed` (or `sarif-suppressed = true` in
+the config file) lists them in SARIF with a SARIF suppression, for consumers that honour
+it. GitLab SAST and JUnit leave suppressed findings out. The table, examples and consumer notes are in
 [SCAN-DETAILS.md](SCAN-DETAILS.md#suppressed-findings-in-sarif-and-json).
 
 ## Configuration file
@@ -266,6 +272,7 @@ only from that folder (never from a parent or your home folder). Every key is op
 ```toml
 version = 1
 fail-on = "high"                         # the command line's --fail-on wins
+sarif-suppressed = false                 # true lists suppressed findings in SARIF; the command line wins
 include = ["deploy/*.tpl"]               # more files to read as text
 agent-config = ["config/mcp.*.json"]     # more files to treat as agent config
 
@@ -358,7 +365,8 @@ workflow commands (`::error::`, `::add-mask::`) while the scanner prints, with a
 token, and under `GITHUB_ACTIONS` the text output and error messages also break up any
 `::` at the start of a line and any `##[`, and JSON output writes `#` as `\u0023`. The
 Action clears `OPEN_AGENT_SECURITY_PLUGINS`, so it runs built-in rules only. The job summary lists at most 200 findings and SARIF at most
-5,000 (with a note when there are more); the JSON output has all of them.
+5,000 (with a note when there are more). The Action passes `--no-sarif-suppressed`, so
+suppressed findings are never uploaded to code scanning, whatever the config file says.
 
 ## pre-commit
 
@@ -391,6 +399,11 @@ open-agent-security:
 ```
 
 ## Limits
+
+Changes to note when upgrading from 3.2.0: a finding's fingerprint (`id`) now counts its
+occurrence among reported and suppressed findings together, so one alert may be closed and
+reopened once, with a new fingerprint, after the upgrade. SARIF now leaves suppressed findings
+out unless `--sarif-suppressed` is given.
 
 A clean scan means none of these patterns was found. It is not a security review and not
 BRACE compliance. For that, use [BRACE Starter](https://braceframework.org/starter/) or the

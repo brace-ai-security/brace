@@ -59,8 +59,8 @@ def test_inline_marks_are_reported(tmp_path):
 RUN_SH = "claude --dangerously-skip-permissions\n"
 
 
-def sarif_of(root):
-    code, _, _ = cli_run(root, "--fail-on", "none", "--sarif", str(root.parent / "out.sarif"))
+def sarif_of(root, *args):
+    code, _, _ = cli_run(root, "--fail-on", "none", "--sarif", str(root.parent / "out.sarif"), *args)
     return json.loads((root.parent / "out.sarif").read_text(encoding="utf-8"))["runs"][0]
 
 
@@ -82,7 +82,7 @@ def test_each_suppression_is_a_sarif_and_json_suppressed_result(tmp_path, how, k
         config(root, {"ignore": [{"path": "run.sh", "rules": ["AP01"]}]})
     if how == "rule-off":
         config(root, {"rules": {"AP01": "off"}})
-    run = sarif_of(root)
+    run = sarif_of(root, "--sarif-suppressed")
     [res] = [r for r in run["results"] if r["ruleId"] == "AP01"]
     [sup] = res["suppressions"]
     assert (sup["kind"], sup["status"], sup["justification"]) == (kind, "accepted", justification)
@@ -138,7 +138,7 @@ def test_secrets_in_suppressed_findings_and_justifications_are_redacted(tmp_path
     write(root, IGNORE_FILE, f"AP05 .mcp.json # {TOKEN}\n")
     config(root, {"ignore": [{"path": ".mcp.json", "rules": ["AP04"], "reason": f"token {TOKEN} is a fixture"}]})
     sarif, md, gitlab, junit = (tmp_path / n for n in ("o.sarif", "o.md", "o.json", "o.xml"))
-    code, out, err = cli_run(root, "--fail-on", "none", "--sarif", str(sarif), "--markdown", str(md),
+    code, out, err = cli_run(root, "--fail-on", "none", "--sarif", str(sarif), "--sarif-suppressed", "--markdown", str(md),
                              "--output", f"gitlab-sast={gitlab}", "--output", f"junit={junit}")
     data = report(root)
     assert len(data["suppressed_findings"]) == 2
@@ -161,7 +161,7 @@ def test_suppressed_ids_equal_unsuppressed_ids(tmp_path):
     data = report(hidden)
     assert len(data["suppressed_findings"]) == 7 and len(data["findings"]) == 1
     assert {f["id"] for f in data["findings"] + data["suppressed_findings"]} == set(ids)
-    sarif = {r["partialFingerprints"]["openAgentSecurity/v1"] for r in sarif_of(hidden)["results"]}
+    sarif = {r["partialFingerprints"]["openAgentSecurity/v1"] for r in sarif_of(hidden, "--sarif-suppressed")["results"]}
     assert sarif == set(ids)
 
 
@@ -181,7 +181,89 @@ def test_sarif_cap_lists_reported_results_before_suppressed_ones(tmp_path, monke
     write(tmp_path, "run.sh", "".join(f"claude {i} --dangerously-skip-permissions\n" for i in range(4)))
     write(tmp_path, "b.sh", "".join(f"claude {i} --dangerously-skip-permissions  # open-agent-security: ignore\n"
                                     for i in range(4)))
-    run = sarif_of(tmp_path)
+    run = sarif_of(tmp_path, "--sarif-suppressed")
     assert [("suppressions" in r) for r in run["results"]] == [False, False, False]
     capped = [n for n in run["invocations"][0]["toolExecutionNotifications"] if n["descriptor"]["id"] == "results-capped"]
-    assert capped and capped[0]["message"]["text"].startswith("5 more results")
+    assert capped and capped[0]["message"]["text"] == (
+        "SARIF lists at most 3 results: 1 reported result(s) are not listed; the JSON output lists every reported "
+        "finding; 4 suppressed result(s) are not listed; the JSON output lists at most 5000 suppressed findings")
+
+
+def test_sarif_cap_note_counts_only_suppressed_results_when_reported_ones_fit(tmp_path, monkeypatch):
+    monkeypatch.setattr(sarif_module, "MAX_RESULTS", 3)
+    write(tmp_path, "run.sh", "claude --dangerously-skip-permissions\n")
+    write(tmp_path, "b.sh", "".join(f"claude {i} --dangerously-skip-permissions  # open-agent-security: ignore\n"
+                                    for i in range(4)))
+    run = sarif_of(tmp_path, "--sarif-suppressed")
+    assert [("suppressions" in r) for r in run["results"]] == [False, True, True]
+    [note] = [n for n in run["invocations"][0]["toolExecutionNotifications"] if n["descriptor"]["id"] == "results-capped"]
+    assert note["message"]["text"] == ("SARIF lists at most 3 results: 2 suppressed result(s) are not listed; "
+                                       "the JSON output lists at most 5000 suppressed findings")
+    assert "reported" not in note["message"]["text"]
+
+
+def notes_of(run, kind):
+    return [n["message"]["text"] for n in run["invocations"][0]["toolExecutionNotifications"]
+            if n["descriptor"]["id"] == kind]
+
+
+def two_hidden_one_shown(root):
+    write(root, "run.sh", "claude --dangerously-skip-permissions\n"
+                          "claude -p x --dangerously-skip-permissions  # open-agent-security: ignore\n")
+    write(root, IGNORE_FILE, "AP10 Dockerfile\n")
+    write(root, ".mcp.json", json.dumps({"mcpServers": {"t": {"command": "npx", "args": ["tool-mcp@1.0.0"]}}}))
+    write(root, "Dockerfile", "FROM ubuntu:latest\n")
+
+
+def test_sarif_leaves_suppressed_results_out_by_default_with_a_note(tmp_path):
+    root = tmp_path / "r"
+    two_hidden_one_shown(root)
+    run = sarif_of(root)
+    data = report(root)
+    hidden = len(data["suppressed_findings"])
+    assert hidden >= 2 and not any("suppressions" in r for r in run["results"])
+    assert [r["partialFingerprints"]["openAgentSecurity/v1"] for r in run["results"]] == \
+        [f["id"] for f in data["findings"]]
+    assert notes_of(run, "suppressed-results") == [
+        f"{hidden} suppressed findings are not listed; see the JSON output or use --sarif-suppressed"]
+    assert run["invocations"][0]["properties"]["suppressed"] == data["suppressed"]
+
+
+@pytest.mark.parametrize("how", ["flag", "config", "config-and-flag"])
+def test_sarif_suppressed_lists_them_with_suppressions(tmp_path, how):
+    root = tmp_path / "r"
+    two_hidden_one_shown(root)
+    default = sarif_of(root)
+    if how != "flag":
+        config(root, {"sarif-suppressed": True})
+    run = sarif_of(root, *(["--sarif-suppressed"] if how != "config" else []))
+    data = report(root)
+    shown = [r for r in run["results"] if "suppressions" not in r]
+    hidden = [r for r in run["results"] if "suppressions" in r]
+    assert [r["partialFingerprints"]["openAgentSecurity/v1"] for r in hidden] == \
+        [f["id"] for f in data["suppressed_findings"]]
+    assert all(r["suppressions"][0]["status"] == "accepted" for r in hidden)
+    # Reported results and their fingerprints do not change with the option.
+    assert shown == default["results"]
+    assert notes_of(run, "suppressed-results") == []
+    assert run["invocations"][0]["properties"]["suppressed"] == default["invocations"][0]["properties"]["suppressed"]
+
+
+def test_command_line_overrides_the_sarif_suppressed_config_key(tmp_path):
+    root = tmp_path / "r"
+    two_hidden_one_shown(root)
+    config(root, {"sarif-suppressed": True})
+    assert any("suppressions" in r for r in sarif_of(root)["results"])
+    run = sarif_of(root, "--no-sarif-suppressed")
+    assert not any("suppressions" in r for r in run["results"]) and notes_of(run, "suppressed-results")
+
+
+def test_json_lists_suppressed_findings_whatever_the_sarif_option(tmp_path):
+    root = tmp_path / "r"
+    two_hidden_one_shown(root)
+    without = report(root)
+    config(root, {"sarif-suppressed": True})
+    with_key = report(root)
+    for key in ("findings", "suppressed_findings", "suppressed"):
+        assert with_key[key] == without[key]
+    assert len(without["suppressed_findings"]) >= 2

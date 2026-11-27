@@ -253,3 +253,11 @@ def test_an_agent_config_glob_naming_yaml_or_toml_is_refused(tmp_path, pattern):
 def test_an_agent_config_glob_for_codex_toml_is_allowed(tmp_path):
     config(tmp_path, {"agent-config": ["sub/.codex/config.toml"]})
     assert cli_run(tmp_path)[0] == 0
+
+
+@pytest.mark.parametrize("value", ["yes", 1, [], {}])
+def test_sarif_suppressed_must_be_a_boolean(tmp_path, value):
+    write(tmp_path, ".mcp.json", AGENT_AP04)
+    config(tmp_path, {"sarif-suppressed": value})
+    code, _, err = cli_run(tmp_path)
+    assert code == 2 and "sarif-suppressed must be true or false" in err
