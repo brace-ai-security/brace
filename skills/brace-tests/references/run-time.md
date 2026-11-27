@@ -10,7 +10,7 @@ Use this file to write tests and drills for each item. Each recipe gives the pro
 
 ### Verification recipe
 
-Have a mock integration return wrong types, oversized bodies, hostile text, error responses, and streamed chunks. Where signatures apply, send a callback with a bad signature. Bad payloads must be rejected or held aside before the model sees them or anything runs them. Turn off a required check and confirm the system fails closed.
+Have a mock integration return wrong types, oversized bodies, hostile text, error responses, and streamed chunks. Where signatures apply, send a callback with a bad signature. Bad payloads must be rejected or held aside before the model sees them or anything runs them. Turn off a required check and confirm the system fails closed. For a browser or computer-use agent, put hostile instructions in visible page text, hidden DOM text, an image, and a downloaded file. Check they cause no forbidden action.
 
 **Evidence to keep:** Fixtures for each integration, validation decisions, checks of what was passed on.
 
@@ -130,7 +130,7 @@ Stop runs before a write, during a transaction, and after a finished outside tes
 
 ### Verification recipe
 
-Run a known sequence with an allowed call, a denial, an approval, a tool error, and a retry. Confirm each decision record names the policy version, and each approved action names its approval ID. Rebuild the graph using only stored audit records. Compare it with the test runner's and the destination's logs. Every expected action must be accounted for. Unresolved results at the destination must be marked clearly, with dependent work paused until they are reconciled.
+Run a known sequence with an allowed call, a denial, an approval, a tool error, and a retry. Confirm each decision record names the policy version, and each approved action names its approval ID. Rebuild the graph using only stored audit records. Compare it with the test runner's and the destination's logs. Every expected action must be accounted for. Unresolved results at the destination must be marked clearly, with dependent work paused until they are reconciled. For a browser agent, rebuild one run from its step log and screenshots, and check that typed secrets are removed.
 
 **Evidence to keep:** Expected event list, rebuilt graph, query for missing events.
 

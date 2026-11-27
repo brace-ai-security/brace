@@ -39,6 +39,9 @@ found. It doesn't mean the agent is secure; for that, use the
 | AP15 | [No tested way to stop it](#ap15-no-tested-way-to-stop-it) | High | review |
 | AP16 | [A model checks the model](#ap16-a-model-checks-the-model) | Medium | review |
 | AP17 | [Logs that only keep the final answer](#ap17-logs-that-only-keep-the-final-answer) | Medium | review |
+| AP18 | [Agent browses with the user's logged-in browser](#ap18-agent-browses-with-the-users-logged-in-browser) | High | review |
+| AP19 | [Skill or plugin installed without review](#ap19-skill-or-plugin-installed-without-review) | High | review |
+| AP20 | [Project MCP servers approved automatically on a laptop](#ap20-project-mcp-servers-approved-automatically-on-a-laptop) | High | review |
 
 ---
 
@@ -215,3 +218,33 @@ found. It doesn't mean the agent is secure; for that, use the
 **Do instead:** Record every action, decision and result with the agent's identity fields, in a store the agent can't change. See the [OpenTelemetry conventions](otel-conventions.md).
 
 **BRACE:** [R13](CHECKLIST.md), [A02](CHECKLIST.md), [C08](CHECKLIST.md)
+
+### AP18: Agent browses with the user's logged-in browser
+
+**Looks like:** a browser or computer-use agent driving the user's everyday browser profile, with email, banking, admin consoles and work apps already signed in.
+
+**Why it's dangerous:** Any page the agent reads can carry instructions. One injected page can then act in every signed-in session: read mail, change settings, send money or download files. Cookies and saved passwords in that profile are within reach too.
+
+**Do instead:** Run the agent's browser in a separate VM, container or fresh profile, signed in only to the accounts the task needs. Limit it to an allowlist of domains. Require approval for form submissions, purchases, uploads and downloads, and keep screenshots or step logs of what it did.
+
+**BRACE:** [B08](CHECKLIST.md), [B09](CHECKLIST.md), [B05](CHECKLIST.md), [R01](CHECKLIST.md), [R13](CHECKLIST.md)
+
+### AP19: Skill or plugin installed without review
+
+**Looks like:** installing a skill, plugin, hook pack or editor extension straight from a marketplace or a shared folder, unpinned and set to auto-update.
+
+**Why it's dangerous:** A plugin can run hooks, start MCP servers and add programs with your own privileges, outside the agent's sandbox. Its skills enter the model's context as instructions. Auto-update can swap the files you trusted, and marketplace entries have been tampered with.
+
+**Do instead:** Read each hook command, server command and bundled program before you install. Pin to a commit or digest, turn off auto-update or re-review each update, and allow only approved marketplace sources through managed settings.
+
+**BRACE:** [E02](CHECKLIST.md), [E03](CHECKLIST.md), [B12](CHECKLIST.md)
+
+### AP20: Project MCP servers approved automatically on a laptop
+
+**Looks like:** a coding agent on a developer's laptop set to approve every MCP server, hook or plugin that a repository declares, such as Claude Code's `enableAllProjectMcpServers: true`.
+
+**Why it's dangerous:** Cloning a repository is then enough to start its servers and hooks as you. They can read your home folder, SSH and cloud keys and browser cookies, and send them out.
+
+**Do instead:** Approve project servers one by one after review. Enforce this with managed settings or MDM that the repository can't override. Run the agent in a sandbox or devcontainer, and give it its own narrow credentials.
+
+**BRACE:** [B12](CHECKLIST.md), [B08](CHECKLIST.md), [B02](CHECKLIST.md), [E03](CHECKLIST.md)

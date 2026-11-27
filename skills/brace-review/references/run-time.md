@@ -10,7 +10,7 @@ Use this file to rate each item from the code and configuration. The requirement
 
 ### Requirement
 
-List every input the agent receives. That includes API responses (errors and streamed content too), tool and connector output, incoming webhooks and callbacks, messages from other agents, user input, fetched pages, files, and retrieved chunks. Authenticate each sender (prove who sent it), and verify signatures where they exist. Treat content as untrusted even when it comes from an authenticated service or an internal one. Before content reaches the model or runs anywhere, check its type, schema, and size. Also check its content for attack payloads and hidden prompt-injection instructions. Reject or hold aside bad payloads. If a required check fails to run, don't let unchecked content through. Test broken, oversized, faked, and hostile responses from each integration.
+List every input the agent receives. That includes API responses (errors and streamed content too), tool and connector output, incoming webhooks and callbacks, messages from other agents, user input, fetched pages, files, and retrieved chunks. For browser and computer-use agents, it includes screenshots, page text, the DOM and accessibility tree, pop-ups, and downloaded files. Text on a page cannot grant permission or change the user's instructions. Authenticate each sender (prove who sent it), and verify signatures where they exist. Treat content as untrusted even when it comes from an authenticated service or an internal one. Before content reaches the model or runs anywhere, check its type, schema, and size. Also check its content for attack payloads and hidden prompt-injection instructions. Reject or hold aside bad payloads. If a required check fails to run, don't let unchecked content through. Test broken, oversized, faked, and hostile responses from each integration.
 
   Why this is hard: An API response can be well-formed, correctly signed, and still carry harmful instructions. Free text and streamed responses are hard to inspect fully. Passing a schema check proves the structure, not that the content is safe.
 
@@ -20,7 +20,7 @@ List every input the agent receives. That includes API responses (errors and str
 
 ### Verification recipe
 
-Have a mock integration return wrong types, oversized bodies, hostile text, error responses, and streamed chunks. Where signatures apply, send a callback with a bad signature. Bad payloads must be rejected or held aside before the model sees them or anything runs them. Turn off a required check and confirm the system fails closed.
+Have a mock integration return wrong types, oversized bodies, hostile text, error responses, and streamed chunks. Where signatures apply, send a callback with a bad signature. Bad payloads must be rejected or held aside before the model sees them or anything runs them. Turn off a required check and confirm the system fails closed. For a browser or computer-use agent, put hostile instructions in visible page text, hidden DOM text, an image, and a downloaded file. Check they cause no forbidden action.
 
 **Evidence to keep:** Fixtures for each integration, validation decisions, checks of what was passed on.
 
@@ -790,7 +790,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Record each run as an execution graph: a linked record of every step. It must include proposed actions, tool calls and key arguments, and authorization decisions with the policy version used. It must also include denials, approvals with their IDs, results, errors, and timestamps. Rebuild a typical run from this record, including failed actions. Don't rely on the run's final answer.
+Record each run as an execution graph: a linked record of every step. It must include proposed actions, tool calls and key arguments, and authorization decisions with the policy version used. It must also include denials, approvals with their IDs, results, errors, and timestamps. Rebuild a typical run from this record, including failed actions. Don't rely on the run's final answer. For browser and computer-use agents, also keep each step's URL, the element acted on, typed values with secrets removed, and a screenshot or page snapshot where the risk calls for one.
 
   Why this is hard: Agent logs usually show what the agent tried. The destination system knows whether it actually happened. A timeout can mean the call failed, or it worked and the reply was lost. So a local trace can look complete and still have an unknown result.
 
@@ -800,7 +800,7 @@ Record each run as an execution graph: a linked record of every step. It must in
 
 ### Verification recipe
 
-Run a known sequence with an allowed call, a denial, an approval, a tool error, and a retry. Confirm each decision record names the policy version, and each approved action names its approval ID. Rebuild the graph using only stored audit records. Compare it with the test runner's and the destination's logs. Every expected action must be accounted for. Unresolved results at the destination must be marked clearly, with dependent work paused until they are reconciled.
+Run a known sequence with an allowed call, a denial, an approval, a tool error, and a retry. Confirm each decision record names the policy version, and each approved action names its approval ID. Rebuild the graph using only stored audit records. Compare it with the test runner's and the destination's logs. Every expected action must be accounted for. Unresolved results at the destination must be marked clearly, with dependent work paused until they are reconciled. For a browser agent, rebuild one run from its step log and screenshots, and check that typed secrets are removed.
 
 **Evidence to keep:** Expected event list, rebuilt graph, query for missing events.
 

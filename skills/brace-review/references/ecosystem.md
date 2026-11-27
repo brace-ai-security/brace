@@ -66,11 +66,17 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Before approving a tool or server, review its source code or available provenance, publisher, permissions, update path, and known vulnerabilities. Include model files, adapters, and datasets. Pin versions or digests, and verify signatures where they exist. A registry's namespace check shows who controls a publisher account, not that the code is safe. Record the limits of remote services and unsigned artifacts, and the extra checks you use instead. Re-check extension and marketplace sources for tampering, not only the publisher's name.
+Before approving a tool or server, review its source code or available provenance, publisher, permissions, update path, and known vulnerabilities. Include model files, adapters, and datasets. Pin versions or digests, and verify signatures where they exist. A registry's namespace check shows who controls a publisher account, not that the code is safe. Record the limits of remote services and unsigned artifacts, and the extra checks you use instead. Re-check extension and marketplace sources for tampering, not only the publisher's name. Treat skills, plugins, hooks, editor extensions, and agent-loaded rules packages as executable code. A plugin can run hooks, start MCP servers, and add programs with the user's own privileges, outside the agent's sandbox. Before install, read each hook command, server command or URL, and bundled program. Pin each one to a commit or digest. Turn off auto-update, or re-review each update before it loads. On workstations, allow only approved marketplace sources through managed policy.
+
+  Why this is hard: Skills and plugins look like documents, so they skip code review. A marketplace name or listing doesn't show what an update will contain. Auto-update can replace the files you reviewed without a prompt.
+
+  If you can't fully do it: Keep a short list of approved skills and plugins, copied into a repository or source you control. Block other marketplaces in managed settings. Re-review on each version change. Record any remote or auto-updating component that you can't pin, and limit what it can reach.
+
+  Tradeoffs you can accept: Fewer plugins, slower updates, and a review step before each new version. Unpinned or auto-updating components can get a written, approved risk acceptance when their powers are limited separately.
 
 ### Verification recipe
 
-For each approved dependency, including model files, adapters, and datasets, find the publisher, artifact and version, permissions, and update source. Verify signatures where they exist. Scan the pinned list for known vulnerabilities, and judge the findings under the team's release policy. Record missing provenance and how you reduce the risk.
+For each approved dependency, including model files, adapters, and datasets, find the publisher, artifact and version, permissions, and update source. Verify signatures where they exist. Scan the pinned list for known vulnerabilities, and judge the findings under the team's release policy. Record missing provenance and how you reduce the risk. For each skill, plugin, hook, and extension, read its hook commands, server commands, and bundled programs, and check it is pinned to a commit or digest. Check auto-update is off or gated by review, and that an unapproved marketplace source is refused.
 
 **Evidence to keep:** Dependency list, signature and scan results, review and exception records.
 
@@ -130,11 +136,11 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Keep a tool publication lifecycle: discovery, review, approval, enablement, re-check, quarantine, and rollback. New servers and tools start disabled; their owner approves descriptions, schemas, permissions, and implementation references before use. Take a fingerprint of each approved tool's description and schema. Compare it whenever the tool loads, its cache refreshes, or its tool list changes. Block unexpected changes until reviewed, including when re-checking fails; don't serve a cached definition as a fallback. Record the policy/config version used at execution, bound propagation delay, and test rollback without restoring revoked access. A metadata hash cannot detect hidden changes to remote code. Pin or attest implementations where visible, record remote visibility limits and review dates, and track affected deployments when vulnerabilities are reported. Check OAuth metadata URLs from remote MCP servers before passing them to a launcher or browser.
+Keep a tool publication lifecycle: discovery, review, approval, enablement, re-check, quarantine, and rollback. New servers and tools start disabled; their owner approves descriptions, schemas, permissions, and implementation references before use. Take a fingerprint of each approved tool's description and schema. Compare it whenever the tool loads, its cache refreshes, or its tool list changes. Block unexpected changes until reviewed, including when re-checking fails; don't serve a cached definition as a fallback. Record the policy/config version used at execution, bound propagation delay, and test rollback without restoring revoked access. A metadata hash cannot detect hidden changes to remote code. Pin or attest implementations where visible, record remote visibility limits and review dates, and track affected deployments when vulnerabilities are reported. Check OAuth metadata URLs from remote MCP servers before passing them to a launcher or browser. Apply the same load-time check to installed skills, plugins, and hooks: compare the files on disk with the reviewed version before they load.
 
 ### Verification recipe
 
-Discover a new tool and confirm it is disabled until its owner approves it. Change an approved description, schema, permission, or visible implementation reference; refresh and exercise cached and dynamic reload paths. Unreviewed changes and failed re-checks block use. Measure config propagation and record the version used by each executor. Quarantine the tool, then roll back an approved config without restoring revoked permissions. A metadata hash must not claim to attest hidden remote code. Query affected deployments.
+Discover a new tool and confirm it is disabled until its owner approves it. Change an approved description, schema, permission, or visible implementation reference; refresh and exercise cached and dynamic reload paths. Unreviewed changes and failed re-checks block use. Measure config propagation and record the version used by each executor. Quarantine the tool, then roll back an approved config without restoring revoked permissions. A metadata hash must not claim to attest hidden remote code. Query affected deployments. Change a file of an installed skill or plugin and restart the agent; the change must be blocked or flagged before it loads.
 
 **Evidence to keep:** Owner approvals, old/new fingerprints, publication and rollback records, config versions, propagation times, denials and affected-deployment query.
 
@@ -391,9 +397,17 @@ File these problems under their owning item, not this one, unless this item's ow
 
 Authenticate the sending agent (prove its identity) on every message, even validly signed ones. Validate message types and schemas, and check what that peer is allowed to ask for. Where a replay could repeat an action, check freshness and track nonces or request IDs. Checking the sender alone doesn't stop replays. Test faked identity, replayed requests, requests across tenants, and instructions passed along by a compromised peer. Verify signed agent cards where they exist. A card says who an agent is, not what it may do. Check callback and webhook URLs against SSRF. A valid sender doesn't make a message's content trusted.
 
+  For A2A (Agent2Agent) peers: Use HTTPS or TLS on every call, check the peer's certificate, and prefer TLS 1.3. Where an Agent Card is signed, verify the JWS signature before trusting the card. Pin the expected card, signing key, or endpoint, and re-review when it changes, including when an authenticated extended card replaces the public one. Get credentials out of band and send them in protocol headers, never inside message content. A task asking for more authorization (`TASK_STATE_AUTH_REQUIRED`) does not itself authorize anything. Validate push-notification webhook URLs and reject private, loopback, and link-local addresses. Authenticate each notification, check it names a task you expect, and handle repeats without repeating side effects.
+
+  Why this is hard: An Agent Card is self-description. A signature proves who published it, not that its skills are safe or that the peer may act. Cards and keys change, and many peers don't sign cards at all.
+
+  If you can't fully do it: Allow only listed peers by verified endpoint and credential. Keep a reviewed copy of each peer's card and block unexpected changes. Treat every peer reply as untrusted data under R01–R02. Record peers whose cards are unsigned or unpinned.
+
+  Tradeoffs you can accept: A fixed list of peers, manual review when a card changes, and fewer dynamic discovery features. Unsigned cards can get a written, approved risk acceptance when peer identity and authorization are checked separately.
+
 ### Verification recipe
 
-Send valid, broken, fake-sender, replayed, and cross-tenant peer requests. Reused action requests must not repeat side effects without approval. Authenticate the sender of every request, even validly signed ones, and check its scope. Deny requests that aren't allowed, and keep hostile content as untrusted data. Include a schema-valid injected instruction, a tampered signed agent card, and a callback URL that points at a private or metadata address.
+Send valid, broken, fake-sender, replayed, and cross-tenant peer requests. Reused action requests must not repeat side effects without approval. Authenticate the sender of every request, even validly signed ones, and check its scope. Deny requests that aren't allowed, and keep hostile content as untrusted data. Include a schema-valid injected instruction, a tampered signed agent card, and a callback URL that points at a private or metadata address. For A2A peers, send a call over plain HTTP, a card with a bad or missing signature, a changed card, a credential inside message content, and a webhook URL pointing to a private or loopback address. Each must be refused or flagged.
 
 **Evidence to keep:** Peer policy, message fixtures, authorization and validation logs.
 
@@ -456,7 +470,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 ### Requirement
 
-Give sub-agents only the powers approved for their task. Preserve the verified original subject and current actor through each handoff and enforce their task, tenant, resource, and audience limits where the action runs. Use supported token exchange or narrow task credentials rather than copying a parent's full credential. A parent must not gain a denied power by asking a more powerful peer to act without separate valid approval. For RFC 8693 tokens, earlier nested actors are provenance only and never add access. An actor chain or signed identity does not prove that a requested action was approved. Test legitimate delegation and that escalation attempt.
+Give sub-agents only the powers approved for their task. Preserve the verified original subject and current actor through each handoff and enforce their task, tenant, resource, and audience limits where the action runs. Use supported token exchange or narrow task credentials rather than copying a parent's full credential. A parent must not gain a denied power by asking a more powerful peer to act without separate valid approval. For RFC 8693 tokens, earlier nested actors are provenance only and never add access. An actor chain or signed identity does not prove that a requested action was approved. Test legitimate delegation and that escalation attempt. A task sent to a remote agent, for example over A2A, is delegation too.
 
   Why this is hard: A powerful peer may treat a low-privilege agent's request as a normal task. Knowing who sent the last message doesn't prove what the original requester was allowed to do. Delegation limits can also get lost across several hops.
 

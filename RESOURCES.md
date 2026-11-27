@@ -130,6 +130,19 @@ Checked and unchanged on 2026-11-26: the OWASP Agentic Top 10 IDs and names (ASI
 | [OpenTelemetry GenAI conventions v0.1.0](https://github.com/open-telemetry/semantic-conventions-genai/releases/tag/v0.1.0) | 2026-11-21 | First standalone release; its notes list breaking changes. Internal agent spans lose gen_ai.agent.id and gen_ai.agent.version, the token-usage metric is split into input and output histograms, and cache-write attributes are renamed gen_ai.usage.cache_write.input_tokens. Attributes are still Development. BRACE now records the in-process type hash in `service.version`. See [OTel conventions](otel-conventions.md). |
 | [NIST SP 800-53 Control Overlays for Super Intelligence Systems (COSIS), formerly COSAiS](https://csrc.nist.gov/projects/cosis) | Page updated 2026-10-20 | NIST's project page now names the project "Control Overlays for Super Intelligence Systems (COSIS)", citing a 2026-09-29 executive order, and says earlier documents were not changed. Single-agent and multi-agent overlays are listed as proposed use cases with no draft; the only dated draft is a January 2026 outline for predictive AI. No new CAISI agent-security publication was found. The rename was confirmed on 2026-11-26: NIST's [CSRC notice](https://csrc.nist.gov/si-note) cites the [executive order](https://www.whitehouse.gov/presidential-actions/2026/09/inaugurating-the-era-of-super-intelligence/) (EO 14434, 2026-09-29), which tells agencies to use "Super Intelligence" in place of "Artificial Intelligence". The scope (AI systems) is unchanged. No NIST news release was found. |
 
+## Browser agents, A2A, workstations and plugins: 2026-11-27
+
+Primary sources for the 2026-11-27 content additions. See [source review S68–S73](SOURCE-REVIEW.md#content-gap-review-2026-11-27).
+
+| Primary reference | Date | Relevance and limits |
+|---|---|---|
+| [Anthropic: computer use tool, security considerations](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool) | Checked 2026-11-27 | Dedicated VM or container, no account logins, domain allowlist, confirmation for consequential actions. Vendor guidance for one product. |
+| [OpenAI: computer use guide](https://developers.openai.com/api/docs/guides/tools-computer-use) | Checked 2026-11-27 | Treat screen content as untrusted; isolated browser or VM, fresh profile, confirm consequential actions. Vendor guidance for one product. |
+| [A2A Protocol Specification 1.0.0](https://a2a-protocol.org/latest/specification/) | Checked 2026-11-27 | TLS, optional JWS-signed Agent Cards, out-of-band credentials, webhook SSRF checks. Card signing is optional. |
+| [Claude Code: settings and managed settings](https://code.claude.com/docs/en/settings) | Checked 2026-11-27 | Managed settings precedence; `enableAllProjectMcpServers`, managed-only hook, MCP and marketplace controls. One product. |
+| [Claude Code: development containers](https://code.claude.com/docs/en/devcontainer) | Checked 2026-11-27 | Devcontainer isolation and its limit: credentials inside the container remain exposed. |
+| [Claude Code: plugin security and trust](https://code.claude.com/docs/en/plugins/security.md) | Checked 2026-11-27 | Plugins run code with user privileges outside the sandbox; review steps, pinning, auto-update, marketplace allowlists. |
+
 ## MCP security: specifications, deployment practice, and research
 
 MCP sources checked 2026-10-16; the current specification version (2026-07-28), the official SDK advisory lists and the MCP Top 10 were rechecked 2026-11-26, with no newer specification or SDK advisory found. Protocol requirements, optional extensions, industry profiles, deployment reports and experimental defenses have different authority. No resource listing certifies a gateway or deployment. Benchmark results depend on their models, versions and attacker assumptions; no combined production attack rate is claimed.

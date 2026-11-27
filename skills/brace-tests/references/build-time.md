@@ -20,7 +20,7 @@ Export the tools, programs, and file permissions the running agent can see. Comp
 
 ### Verification recipe
 
-Use the real test access token and verify its acting-agent and delegated-subject bindings, if delegation applies. Try an allowed read, forbidden write/admin action, and tenant A accessing tenant B. Only the read succeeds. Present the token to another audience and confirm rejection. Exercise both machine and delegated-user flows where enabled; neither may inherit broader user permissions. Check destination state.
+Use the real test access token and verify its acting-agent and delegated-subject bindings, if delegation applies. Try an allowed read, forbidden write/admin action, and tenant A accessing tenant B. Only the read succeeds. Present the token to another audience and confirm rejection. Exercise both machine and delegated-user flows where enabled; neither may inherit broader user permissions. Check destination state. On a workstation, check from inside the agent's session that the developer's SSH agent, cloud profiles, and browser cookies are not reachable.
 
 **Evidence to keep:** Redacted identity/audience/scope metadata, authorization logs, tenant tests, resource-state checks; never token values.
 
@@ -50,7 +50,7 @@ Open a session and revoke the agent identity's access. Then try again, within th
 
 ### Verification recipe
 
-Aim each forbidden operation at throwaway resources through every tool, API, and shell path. Confirm nothing happens without the required approval. Test by sending the call straight to enforcement, not by relying on the model to refuse. For agent types that combine untrusted input, sensitive access, and outside actions, plant an instruction in untrusted content that names a tool, destination, and argument. No consequential action using those values may run without approval.
+Aim each forbidden operation at throwaway resources through every tool, API, and shell path. Confirm nothing happens without the required approval. Test by sending the call straight to enforcement, not by relying on the model to refuse. For agent types that combine untrusted input, sensitive access, and outside actions, plant an instruction in untrusted content that names a tool, destination, and argument. No consequential action using those values may run without approval. For a browser agent, plant a page that asks it to submit a form, upload a file, run a download, or accept terms. Each must stop for approval.
 
 **Evidence to keep:** Operation-and-path matrix, capability-combination record, denial traces, resource state before and after.
 
@@ -80,7 +80,7 @@ Set small test budgets and go over each one separately, including budgets for ne
 
 ### Verification recipe
 
-From inside the agent's runtime, try test endpoints that stand for forbidden networks, host and admin services, and tenant B. Check the actual routes and isolation policies, not just failed requests. An endpoint that happens to be down doesn't prove isolation.
+From inside the agent's runtime, try test endpoints that stand for forbidden networks, host and admin services, and tenant B. Check the actual routes and isolation policies, not just failed requests. An endpoint that happens to be down doesn't prove isolation. For a browser agent, list the profile's signed-in sessions, saved passwords, cookies, and extensions; expect only what the task needs. For a coding agent on a laptop, try to read `~/.ssh`, cloud credential files, browser profile folders, and another project from inside its sandbox; each read must fail.
 
 **Evidence to keep:** Policy and route exports, connection results, isolation-denial logs.
 
@@ -90,7 +90,7 @@ From inside the agent's runtime, try test endpoints that stand for forbidden net
 
 ### Verification recipe
 
-Call one allowed and one forbidden test destination. Include direct routes around the proxy or gateway, redirect chains, DNS changes, IPv6, and test metadata and loopback addresses. Also try a forbidden resource on an allowed service. The allowed request must work. Forbidden requests must fail, and the block must reach the named operator within the alert time limit.
+Call one allowed and one forbidden test destination. Include direct routes around the proxy or gateway, redirect chains, DNS changes, IPv6, and test metadata and loopback addresses. Also try a forbidden resource on an allowed service. The allowed request must work. Forbidden requests must fail, and the block must reach the named operator within the alert time limit. For a browser agent, navigate, redirect, embed a resource from, and download from a domain outside the allowlist; each must be blocked.
 
 **Evidence to keep:** Egress rules, gateway and network logs, alert receipt time.
 
@@ -120,6 +120,6 @@ Check installed programs, mounts, privileges, and sandbox settings against the c
 
 ### Verification recipe
 
-Compare the digests of the running harness, prompt, and rules with the reviewed source files. Try a production-style edit with a low-privilege test role, and a force-push to the protected source branch. Both must fail. Check that an approved change leaves a review and release record.
+Compare the digests of the running harness, prompt, and rules with the reviewed source files. Try a production-style edit with a low-privilege test role, and a force-push to the protected source branch. Both must fail. Check that an approved change leaves a review and release record. On a workstation, check that managed settings are in force and that a repository's own settings can't approve its MCP servers, hooks, or plugins, or loosen the sandbox.
 
 **Evidence to keep:** Review link, artifact digests, access-control test.
