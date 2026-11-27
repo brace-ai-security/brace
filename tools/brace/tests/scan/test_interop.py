@@ -122,7 +122,8 @@ def test_taxonomy_refs_agree_with_the_mappings():
                 assert TAXA[ref] == tables[prefix][0][entry][0], ref
     cwe = {r.id: sorted(x for x in r.refs if x.startswith("cwe:")) for r in RULES}
     assert cwe == {"AP01": [], "AP02": [], "AP03": [], "AP04": ["cwe:829"], "AP05": ["cwe:798"], "AP06": [],
-                   "AP07": ["cwe:319"], "AP08": ["cwe:250"], "AP09": [], "AP10": ["cwe:829"]}
+                   "AP07": ["cwe:319"], "AP08": ["cwe:250"], "AP09": [], "AP10": ["cwe:829"],
+                   "AP18": [], "AP19": [], "AP20": [], "AP21": ["cwe:494"]}
 
 
 def test_taxonomy_editions_match_the_mappings():

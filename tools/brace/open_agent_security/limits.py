@@ -32,6 +32,12 @@ MAX_VALUE = 4096                     # characters of one string matched against 
 TOML_KEY_PARTS = 64                  # dotted parts in one TOML key: tomllib (3.11-3.13) is quadratic in them
 TOML_LINE = 64 * KB                  # characters in one TOML line
 TOML_NESTING = 100                   # inline tables and arrays nested in one TOML file
+BASELINE_BYTES = 8 * MB              # a baseline file (--baseline): about 100 bytes per finding
+BASELINE_IDS = 50_000                # findings listed in one baseline
+MERGE_FILE_BYTES = 32 * MB           # one JSON report read by `merge`
+MERGE_FILES = 1000                   # reports one `merge` combines
+MERGE_FINDINGS = 200_000             # findings of all reports one `merge` keeps
+EXPIRY_WARNING_DAYS = 30             # an ignore entry or exception expiring this soon gets a note
 
 # Findings
 MAX_PER_FILE = 100                   # findings per file and check (and images kept per file); more is incomplete

@@ -39,7 +39,7 @@ def test_rule_off_and_severity_override_are_visible(tmp_path):
     assert "AP01" not in out and "LOW      MCP server installed" in out
     assert f"note: config {CONFIG}: 1 rule off, 1 severity override; 1 finding suppressed" in out
     report = json.loads(cli_run(tmp_path, "--json")[1])
-    assert report["suppressed"] == 1 and report["config"] == CONFIG and report["rules"] == 9
+    assert report["suppressed"] == 1 and report["config"] == CONFIG and report["rules"] == 13
 
 
 def test_config_ignore_entries_are_counted_and_combined_with_the_ignore_file(tmp_path):

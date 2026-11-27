@@ -17,11 +17,17 @@ It reports each problem with its file and line, why it matters and how to fix it
 | AP03 | critical | Agent workflow triggered by `pull_request_target` |
 | AP04 | high | MCP server installed from an unpinned package |
 | AP05 | high | Secret written directly in agent configuration |
-| AP06 | high | Agent allowed to run any shell command (Claude Code settings) |
+| AP06 | high | Agent allowed to run any shell command (Claude Code, Gemini CLI and Cursor CLI settings) |
 | AP07 | medium | Remote MCP server reached over plain HTTP |
 | AP08 | high | Agent tool container can take over the host |
 | AP09 | medium | Lethal combination: untrusted input, private data and a way out (inferred from server and package names, marked *likely*) |
 | AP10 | low | Agent image not pinned to a digest (Dockerfiles, in repositories that contain an agent) |
+| AP18 | medium | Agent tools approved automatically, without review |
+| AP19 | high | Agent workflow anyone can trigger with a comment or issue |
+| AP20 | high | Hidden Unicode characters in agent instructions |
+| AP21 | high | Hook or skill runs code fetched from the internet |
+
+(AP11 to AP17 in ANTI-PATTERNS.md are review-only; they need a person to judge them.)
 
 Details and fixes: https://braceframework.org/anti-patterns/
 
@@ -185,6 +191,49 @@ MCP servers are read from these formats:
 
 An agent config file that does not parse makes the scan incomplete.
 
+### AP18 to AP21 and AP06 beyond Claude Code
+
+These rules read only setting names each product documents; nothing else counts.
+
+| Rule | What counts | Where |
+|---|---|---|
+| AP18 | `enableAllProjectMcpServers: true` | Claude Code settings (`.claude/settings.json`, `.claude/settings.local.json`, `managed-settings.json`) |
+| AP18 | a non-empty `alwaysAllow` or `autoApprove` list, or either set to `true` | any MCP server entry (Cline, Roo Code, Kiro, Amazon Q and others) |
+| AP18 | `trust: true` | a Gemini CLI or Qwen Code MCP server entry |
+| AP18 | `chat.tools.autoApprove: true`, `chat.tools.global.autoApprove: true` | VS Code `settings.json` |
+| AP06 | `run_shell_command` (or `ShellTool`) with no command in parentheses, in `tools.allowed` or the older `allowedTools` | `.gemini/settings.json`, `.qwen/settings.json` |
+| AP06 | `Shell(*)` in `permissions.allow` | the Cursor CLI's `.cursor/cli.json` |
+| AP19 | a workflow triggered by `issue_comment`, `issues`, `discussion`, `discussion_comment`, `pull_request_review`, `pull_request_review_comment` or `workflow_run` (in its `on:` block, or inline) that runs an agent step (as AP03 finds them), when nothing in the file checks the actor | `.github/workflows/` |
+| AP20 | U+202A to U+202E, U+2066 to U+2069, U+200B to U+200D, U+2060, U+FEFF (not as the first character) and U+E0000 to U+E007F; in agent config also their JSON escapes (`\u200b`) | instruction files (below) and agent config files |
+| AP21 | a download piped into an interpreter (`curl`/`wget`/`iwr`/`irm` ... `\| sh`, `bash`, `python`, `node`, `iex`, ...), `bash <(curl ...)`, `sh -c "$(curl ...)"` | hook `command` strings in Claude Code settings and a plugin's `hooks/hooks.json`; any file under `.claude/skills`, `.claude/commands`, `.claude/agents`, `.claude/hooks`, `.agents/skills` or a `.claude-plugin` folder, and any `SKILL.md` |
+
+AP19 counts as an actor check: `author_association` anywhere in the file, `github.actor`
+(or `github.triggering_actor`, `github.event.sender.login`, the comment's or issue's
+`user.login`) compared with `==` or `!=` or passed to `contains(...)`, a collaborator
+permission lookup (`getCollaboratorPermissionLevel`, `/collaborators/.../permission`,
+`check-user-permission`), and for `workflow_run` a check of `head_repository`. The check is
+looked for in the whole file, not per job. `anthropics/claude-code-action` and
+`openai/codex-action` check the triggering actor's write access by default, so a workflow
+whose only agent steps are those actions is not reported unless `allowed_non_write_users` or
+`allow-users` is set to `*`. Agent steps in local actions are not followed for AP19.
+
+AP20 reads these instruction files: `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENT.md`,
+`GEMINI.md`, `QWEN.md`, `CONVENTIONS.md`, `SKILL.md`, `.cursorrules`, `.windsurfrules`,
+`.clinerules` (a file or folder), `.roorules*` and `.roo/rules*/`, anything under
+`.cursor/rules/` or `.windsurf/rules/` (`.mdc` included), `.github/copilot-instructions.md`,
+`.github/instructions/*.md`, `*.prompt.md`, `*.instructions.md`, `*.chatmode.md`, and the
+Markdown folders of agent frontmatter listed above. Not reported, because visible text uses
+them: a zero-width joiner or non-joiner with no ASCII character beside it (emoji sequences,
+Persian and Indic scripts) and a flag emoji's tag characters (up to 8 after U+1F3F4). The
+finding gives the count, the first line and up to four code points with their names; the
+hidden text itself is never printed. `.cursorrules`, `.windsurfrules`, `.clinerules` and
+`.roorules` are prose for AP01 and AP02, like Markdown.
+
+Not covered, because the products' settings are not documented precisely enough to match
+without guessing: Codex allow-lists (its full-access sandbox is AP01), Cursor and Windsurf
+per-server auto-approval in `mcp.json`, Claude Code `enabledMcpjsonServers` and plugin
+marketplace pinning.
+
 ## Safe to run
 
 - Standard library only, Python 3.11 or newer.
@@ -285,6 +334,9 @@ An agent config file that does not parse makes the scan incomplete.
 | `--no-config` | Ignore `.open-agent-security.toml`. |
 | `--list-rules` | List the rules with their severity after config and plugins, then exit. Add `--json` for JSON. |
 | `--plugin NAME` | Load an installed plugin. Repeat it for more than one. See [Plugins](#plugins). |
+| `--write-baseline FILE` | Also write the reported findings' fingerprints to FILE (see [Baselines](#baselines)). |
+| `--baseline FILE` | Report only findings whose fingerprint is not in FILE; the rest are listed as suppressed. Overrides the config's `baseline`. |
+| `--today YYYY-MM-DD` | Judge expiry dates against this day instead of today (UTC), for reproducible runs. |
 | `--version` | Print the version. |
 
 Exit codes: 0 means nothing at or above the threshold, 1 means findings or an incomplete
@@ -379,6 +431,11 @@ path (`LICENSE files/x.sh`). An `APnn` ID that no loaded rule has matches nothin
 named in a note. An ignore file that is a symlink, larger than the file size limit or
 unreadable is not applied, and a note says so.
 
+An entry can expire: end the line with `# expires: YYYY-MM-DD` (`fixtures/  # expires:
+2027-01-31`). From that day (UTC) the entry suppresses nothing and hides no file, so what it
+covered is reported again, and a note names the expired entry; an entry expiring within 30
+days gets a note too. A date that is not a real `YYYY-MM-DD` counts as expired, with a note.
+
 Whatever hides findings or files is always shown, in every output format: when the ignore
 file or the config file has entries, rules are off or re-rated, inline marks suppressed a
 finding, or limits were lowered, the scan adds a note such as `.open-agent-security-ignore:
@@ -456,6 +513,7 @@ path = "fixtures/"
 path = ".vscode/mcp.json"
 rules = ["AP04"]
 reason = "reviewed"
+expires = "2027-01-31"                   # optional; reported again from this day (UTC)
 
 [[tokens]]
 name = "acme"
@@ -495,6 +553,66 @@ max-files = 200000
   justification of the findings it suppresses in SARIF and JSON (see
   [Suppressed findings in SARIF and JSON](#suppressed-findings-in-sarif-and-json)).
 - The file cannot load plugins. A `plugins` key is ignored with a note.
+- `expires` on an `[[ignore]]` entry is a date (`"2027-01-31"` or TOML's bare
+  `2027-01-31`); it works as in the ignore file. Any other value is an error.
+- `baseline = ".open-agent-security-baseline.json"` (a top-level key, before any table) names
+  a baseline file (see [Baselines](#baselines)); `--baseline` wins. It is a path inside the scanned folder, with the same rules as the globs (no
+  absolute paths, `..` or wildcards); a symlink is not followed.
+
+## Baselines
+
+A baseline lets a team adopt the scanner on a repository with known findings and still fail
+CI on new ones.
+
+```bash
+open-agent-security . --fail-on none --write-baseline .open-agent-security-baseline.json
+git add .open-agent-security-baseline.json     # review it like code
+open-agent-security . --baseline .open-agent-security-baseline.json --fail-on high
+```
+
+- The baseline holds each finding's fingerprint: the JSON `id`, the same value as SARIF's
+  `partialFingerprints["openAgentSecurity/v1"]`. It hashes the rule, the path within the
+  scanned folder and the redacted detail, not the line, so moving code does not make a
+  finding new; editing the reported text does.
+- With `--baseline`, a finding in the baseline is listed as suppressed (kind `external`,
+  justification `in baseline FILE`) in SARIF and JSON, counted in the suppression note
+  (`baseline FILE: 12 findings`), and never affects the verdict or exit code. An incomplete
+  scan stays incomplete.
+- `--write-baseline` together with `--baseline` writes the new findings and the baselined
+  ones still found, so rewriting drops fixed findings and keeps the rest.
+- The baseline file is untrusted (a pull request can change it): at most 8 MB and 50,000
+  findings, strict JSON of exactly `{"format": "open-agent-security-baseline", "version": 1,
+  "findings": [{"id": "<32 hex>", "rule": "...", "file": "..."}]}`. Anything else stops the
+  scan with exit code 2. Since a pull request can add its own findings to the baseline, have
+  CI read the baseline from the base branch (`git show origin/main:.open-agent-security-baseline.json
+  > /tmp/base.json`, then `--baseline /tmp/base.json`), or protect the file with CODEOWNERS.
+
+## Roll-up across repositories
+
+`open-agent-security merge` combines JSON reports from several repositories into one:
+
+```bash
+open-agent-security merge --output all.json --csv all.csv --markdown all.md \
+    --label api --label web api.json web.json
+```
+
+The merged JSON lists, per repository, its verdict (`clean`, `findings` or `incomplete`),
+counts by severity and rule, every finding with a `repo` label, and totals (including how
+many repositories have each rule). `--label` names each report in order; otherwise the file
+name without `.json` is used. Each input is checked against the report shape (at most 32 MB
+each, 1,000 reports); one that fails stops the merge with exit code 2. CSV cells that a
+spreadsheet would run as a formula are prefixed with `'`. To scan a folder named `merge`,
+write `./merge`.
+
+For a dashboard, use the tools you have instead:
+
+- **GitHub code scanning**: upload each repository's SARIF with
+  `github/codeql-action/upload-sarif` (the GitHub Action does this). The organization's
+  Security tab then shows alerts across repositories, filterable by tool
+  `open-agent-security` and rule, and fingerprints keep alerts stable between runs.
+- **DefectDojo**: import the SARIF file with the "SARIF" parser (`scan_type=SARIF` in the
+  import-scan API), one engagement per repository; DefectDojo deduplicates on the SARIF
+  fingerprints and tracks status and risk acceptance with expiry.
 
 ## Plugins
 

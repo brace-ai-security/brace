@@ -27,7 +27,7 @@ found. It doesn't mean the agent is secure; for that, use the
 | AP03 | [Agent workflow triggered by pull_request_target](#ap03-agent-workflow-triggered-by-pull_request_target) | Critical | scan |
 | AP04 | [MCP server installed from an unpinned package](#ap04-mcp-server-installed-from-an-unpinned-package) | High | scan |
 | AP05 | [Secret written directly in agent configuration](#ap05-secret-written-directly-in-agent-configuration) | High | scan |
-| AP06 | [Agent allowed to run any shell command](#ap06-agent-allowed-to-run-any-shell-command) | High | scan (Claude Code settings) |
+| AP06 | [Agent allowed to run any shell command](#ap06-agent-allowed-to-run-any-shell-command) | High | scan (Claude Code, Gemini CLI and Cursor CLI settings) |
 | AP07 | [Remote MCP server reached over plain HTTP](#ap07-remote-mcp-server-reached-over-plain-http) | Medium | scan |
 | AP08 | [Agent tool container can take over the host](#ap08-agent-tool-container-can-take-over-the-host) | High | scan |
 | AP09 | [Lethal combination: untrusted input, private data and a way out](#ap09-lethal-combination-untrusted-input-private-data-and-a-way-out) | Medium | scan (likely) |
@@ -39,6 +39,10 @@ found. It doesn't mean the agent is secure; for that, use the
 | AP15 | [No tested way to stop it](#ap15-no-tested-way-to-stop-it) | High | review |
 | AP16 | [A model checks the model](#ap16-a-model-checks-the-model) | Medium | review |
 | AP17 | [Logs that only keep the final answer](#ap17-logs-that-only-keep-the-final-answer) | Medium | review |
+| AP18 | [Agent tools approved automatically, without review](#ap18-agent-tools-approved-automatically-without-review) | Medium | scan |
+| AP19 | [Agent workflow anyone can trigger with a comment or issue](#ap19-agent-workflow-anyone-can-trigger-with-a-comment-or-issue) | High | scan |
+| AP20 | [Hidden Unicode characters in agent instructions](#ap20-hidden-unicode-characters-in-agent-instructions) | High | scan |
+| AP21 | [Hook or skill runs code fetched from the internet](#ap21-hook-or-skill-runs-code-fetched-from-the-internet) | High | scan |
 
 ---
 
@@ -98,7 +102,7 @@ found. It doesn't mean the agent is secure; for that, use the
 
 ### AP06: Agent allowed to run any shell command
 
-**Looks like:** `"allow": ["Bash"]` or `"Bash(*)"` in Claude Code settings, or `allowed-tools: Bash(*)` in a command's or skill's frontmatter (detected), or a `run_shell` tool with no command filter in your own harness (review by hand).
+**Looks like:** `"allow": ["Bash"]` or `"Bash(*)"` in Claude Code settings, `allowed-tools: Bash(*)` in a command's or skill's frontmatter, `run_shell_command` with no command restriction in Gemini CLI's `tools.allowed` or `allowedTools`, or `Shell(*)` in the Cursor CLI's `permissions.allow` (detected), or a `run_shell` tool with no command filter in your own harness (review by hand).
 
 **Why it's dangerous:** A shell can do anything: `curl` your files to a server, `rm -rf`, `git push --force`, install a backdoor. An allowlist that contains "any command" isn't an allowlist.
 
@@ -215,3 +219,43 @@ found. It doesn't mean the agent is secure; for that, use the
 **Do instead:** Record every action, decision and result with the agent's identity fields, in a store the agent can't change. See the [OpenTelemetry conventions](otel-conventions.md).
 
 **BRACE:** [R13](CHECKLIST.md), [A02](CHECKLIST.md), [C08](CHECKLIST.md)
+
+### AP18: Agent tools approved automatically, without review
+
+**Looks like:** `"enableAllProjectMcpServers": true` in Claude Code settings, a non-empty `alwaysAllow` or `autoApprove` list (or `true`) on an MCP server in Cline, Roo Code, Kiro or similar configs, `"trust": true` on a Gemini CLI or Qwen Code MCP server, or `"chat.tools.autoApprove": true` (`chat.tools.global.autoApprove`) in VS Code settings.
+
+**Why it's dangerous:** The approval prompt is the last point where a person sees what the agent is about to do. Auto-approval removes it: a tool call steered by injected text runs at once, and a project-level setting starts whatever servers a cloned repository defines. Several 2025 advisories for agent IDEs were exactly this: committed settings that switched approvals off for the next person who opened the project.
+
+**Do instead:** Approve servers one at a time, keep tool calls on ask, and auto-approve only read-only tools you've reviewed, in your own user settings rather than in files committed to a shared repository.
+
+**BRACE:** [B06](CHECKLIST.md), [B05](CHECKLIST.md)
+
+### AP19: Agent workflow anyone can trigger with a comment or issue
+
+**Looks like:** a workflow triggered by `issue_comment`, `issues`, `discussion`, `discussion_comment`, `pull_request_review`, `pull_request_review_comment` or `workflow_run` that runs an agent, with no check of who triggered it: no `if:` on `author_association`, no comparison against `github.actor`, no permission lookup. `claude-code-action` and `codex-action` check the actor's write access themselves, so they count as gated unless that check is opened to everyone (`allowed_non_write_users: "*"`, `allow-users: "*"`).
+
+**Why it's dangerous:** These events fire for any GitHub user, but the job runs with the repository's secrets and token. Whoever writes the comment or issue writes the agent's instructions.
+
+**Do instead:** Gate the job on the actor (`if: contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)`), keep the vendor actions' write-access check on, give the job read-only permissions and no secrets it doesn't need.
+
+**BRACE:** [B02](CHECKLIST.md), [B05](CHECKLIST.md), [R02](CHECKLIST.md)
+
+### AP20: Hidden Unicode characters in agent instructions
+
+**Looks like:** bidirectional controls (U+202A to U+202E, U+2066 to U+2069), zero-width characters (U+200B to U+200D, U+2060, a U+FEFF that isn't the first character) or Unicode tag characters (U+E0000 to U+E007F) in `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`, Cursor or Windsurf rules, Copilot instructions and prompt files, `.clinerules`, `SKILL.md`, Claude Code commands and subagents, or in MCP tool descriptions in agent config.
+
+**Why it's dangerous:** The characters are invisible in editors and in code review, but the model reads them. A rules file or tool description can carry instructions nobody approved, the "rules file backdoor".
+
+**Do instead:** Remove them (the finding names each code point, never the hidden text) and block them in CI for agent instruction files and tool descriptions.
+
+**BRACE:** [B12](CHECKLIST.md), [E04](CHECKLIST.md), [R02](CHECKLIST.md)
+
+### AP21: Hook or skill runs code fetched from the internet
+
+**Looks like:** a Claude Code hook command (`hooks` in `.claude/settings.json` or a plugin's `hooks/hooks.json`) or a skill, command, subagent or plugin file that pipes a download into an interpreter: `curl -fsSL https://... | bash`, `wget -qO- ... | sh`, `iwr ... | iex`, `bash <(curl ...)`, `sh -c "$(curl ...)"`.
+
+**Why it's dangerous:** Hooks run automatically on agent events, and a skill's instructions are commands the agent will follow. Either way the code that runs is whatever the URL serves that day, on every machine that uses the setting.
+
+**Do instead:** Keep the script in the repository, or download a pinned version and check its hash before running it.
+
+**BRACE:** [E02](CHECKLIST.md), [B12](CHECKLIST.md), [C05](CHECKLIST.md)

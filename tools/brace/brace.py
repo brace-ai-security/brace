@@ -604,7 +604,8 @@ def _blank(v) -> bool:
 
 
 class Checker:
-    def __init__(self, base: Path, approvals: str | None, strict: bool):
+    def __init__(self, base: Path, approvals: str | None, strict: bool, today: str | None = None):
+        self.today = today or _dt.datetime.now(_dt.timezone.utc).date().isoformat()  # expiry is judged in UTC
         self.base = base
         self.brace = base / ".brace"
         self.approvals_arg = approvals
@@ -861,6 +862,15 @@ class Checker:
             self._block(item_id, f"{item_id}'s risk acceptance .brace/exceptions/{stem}.yaml is missing: "
                                  f"{', '.join(missing)}. A blank exception counts as an open gap.")
             return
+        due = str(data.get("expires") or data.get("review_by") or "")
+        if due and due <= self.today:
+            self._block(item_id, f"{item_id}'s risk acceptance .brace/exceptions/{stem}.yaml expired on {due}. "
+                                 "Renew it with a new review, or fix the gap.")
+            return
+        if due:
+            soon = (_dt.date.fromisoformat(self.today) + _dt.timedelta(days=30)).isoformat()
+            if due <= soon:
+                self.warnings.append(f".brace/exceptions/{stem}.yaml expires on {due}, within 30 days.")
         self.check_approval(item_id, "risk acceptance", path)
 
     def rule_exception_files(self, records):
@@ -947,7 +957,7 @@ def render_summary(res: dict) -> str:
 
 
 def cmd_check(args) -> int:
-    checker = Checker(Path(args.dir), args.approvals, args.strict)
+    checker = Checker(Path(args.dir), args.approvals, args.strict, getattr(args, "today", None))
     res = checker.run()
     print(render_summary(res))
     if args.json:
@@ -1081,6 +1091,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="how to verify exception and N/A approvals (default: github when configured and "
                         "GITHUB_TOKEN/GITHUB_REPOSITORY are set, else git inside a repository, else off)")
     s.add_argument("--strict", action="store_true", help="treat unverified approvals as blocking")
+    s.add_argument("--today", type=_date_arg, help="judge exception expiry against this day YYYY-MM-DD (default: today, UTC)")
     s.add_argument("--json", metavar="FILE", help="also write the result as JSON to FILE ('-' for stdout)")
     s.set_defaults(func=cmd_check)
 

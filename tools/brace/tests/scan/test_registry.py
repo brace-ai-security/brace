@@ -146,7 +146,7 @@ def test_list_rules(tmp_path, plugins):
     config(tmp_path, {"rules": {"AP10": "off", "AP07": "high"}})
     code, out, _ = cli_run(tmp_path, "--list-rules", "--plugin", "acme")
     lines = out.splitlines()
-    assert code == 0 and len(lines) == 11
+    assert code == 0 and len(lines) == 15
     assert lines[0] == f"AP01   high      {RULES[0].title}"
     assert "AP07   high " in out and "AP10   off " in out and lines[-1].startswith("ACME01 medium")
     data = json.loads(cli_run(tmp_path, "--list-rules", "--json")[1])["rules"]

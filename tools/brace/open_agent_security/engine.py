@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from .agents import AGENT_SIGNAL, SHARED_SETTINGS
 from .catalog import SEVERITY_ORDER, RuleMeta
 from .config import Config
 from .ignore import IGNORE_FILE, IGNORE_MARK, Ignores, load_ignores, marked_lines
-from .limits import MAX_PER_FILE, MAX_SUPPRESSED, NOTE_CHARS, NOTE_PATH_CHARS
+from .limits import EXPIRY_WARNING_DAYS, LISTED_FILES, MAX_PER_FILE, MAX_SUPPRESSED, NOTE_CHARS, NOTE_PATH_CHARS
 from .model import (CheckContext, Document, Finding, ParseError, Project, Report, Skipped, SourceFile, Suppression,
                     Tally)
 from .output import clean, path_bytes, plural
@@ -61,7 +61,8 @@ def run_scan(config: Config, registry: Registry) -> Report:
     if unknown:
         report.note(f"ignore file: unknown rule {', '.join(unknown[:5])}; those entries match nothing")
     tally.ignore_file_entries = len(from_file)
-    ctx = ScanContext(config, registry, report, Ignores(list(config.ignore) + from_file), CheckContext(secrets),
+    entries = live_entries(report, list(config.ignore) + from_file, config.today or now().date())
+    ctx = ScanContext(config, registry, report, Ignores(entries), CheckContext(secrets),
                       {m.id for m in rules}, {m.id: m for m in rules})
     for collector in registry.collectors:
         skipped: list[Skipped] = []
@@ -83,15 +84,55 @@ def run_scan(config: Config, registry: Registry) -> Report:
     # the finding would have unsuppressed: removing a suppression does not make a "new" finding.
     every = [prefixed(f, "" if f.host else config.display_prefix)
              for f in assign_ids(dedupe(report.findings + report.suppressed))]
+    every = baselined(ctx, every)
     report.findings = [f for f in every if f.suppression is None]
-    report.suppressed = [f for f in every if f.suppression is not None]
+    report.suppressed = [f for f in every if f.suppression is not None][:MAX_SUPPRESSED]
     if tally.own_reports:
         report.note(f"skipped {plural(tally.own_reports, 'open-agent-security report file')}")
-    note = suppression_note(tally, config.path)
+    note = suppression_note(tally, config.path, config.baseline_shown)
     if note:
         report.note(note, "suppressed")
     report.finished = now()
     return report
+
+
+def live_entries(report: Report, entries: list, today: date) -> list:
+    """The ignore entries still in force. An expired entry (its expires date is today or earlier,
+    in UTC) suppresses nothing and hides no file, so what it covered is reported again; a note
+    names it, and another names entries expiring within EXPIRY_WARNING_DAYS."""
+    expired, soon, live = [], [], []
+    for e in entries:
+        if e.expires and e.expires <= today.isoformat():
+            expired.append(e)
+            continue
+        if e.expires and e.expires <= (today + timedelta(days=EXPIRY_WARNING_DAYS)).isoformat():
+            soon.append(e)
+        live.append(e)
+    for group, what in ((expired, "expired and no longer suppress"),
+                        (soon, f"expire within {EXPIRY_WARNING_DAYS} days")):
+        names = list(dict.fromkeys(f"'{e.text}' ({e.source}, {e.expires if e.expires[0] != '0' else 'bad date'})"
+                                   for e in group))
+        if names:
+            more = f" and {len(names) - LISTED_FILES} more" if len(names) > LISTED_FILES else ""
+            report.note(f"{plural(len(names), 'ignore entry', 'ignore entries')} {what}: "
+                        f"{', '.join(names[:LISTED_FILES])}{more}", "suppressed" if group is soon else "info")
+    return live
+
+
+def baselined(ctx: ScanContext, findings: list[Finding]) -> list[Finding]:
+    """Findings whose id is in the baseline become suppressed ("external"); they never count
+    towards the verdict. Ids are computed before this, so a baselined finding keeps its id."""
+    ids, shown = ctx.config.baseline_ids, ctx.config.baseline_shown
+    if not shown:
+        return findings
+    out = []
+    for f in findings:
+        if f.suppression is None and f.id in ids:
+            f = replace(f, suppression=Suppression("external", clean(f"in baseline {shown}", NOTE_CHARS)))
+            ctx.report.tally.baselined += 1
+            ctx.report.tally.suppressed += 1
+        out.append(f)
+    return out
 
 
 def prefixed(f: Finding, prefix: str) -> Finding:

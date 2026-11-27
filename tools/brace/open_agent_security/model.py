@@ -70,6 +70,10 @@ class WorkflowFacts:
     trigger_line: int | None     # first line that triggers on pull_request_target
     agent_step: bool             # a step runs an agent
     local_uses: tuple[str, ...] = ()  # local actions and reusable workflows it uses (`./.github/actions/x`)
+    event_line: int | None = None  # first line of an event anyone can cause (issue_comment, issues, ...)
+    event: str = ""                # that event's name
+    gated: bool = False            # an actor or permission check appears in the workflow
+    open_agent: bool = False       # an agent step without a vendor action's default write-access check
 
 
 class ParseError(Exception):
@@ -168,6 +172,7 @@ class Tally:
     ignore_file_entries: int = 0
     lowered: tuple[str, ...] = ()      # limits set below the defaults, as shown
     by_mark: int = 0                   # findings dropped by an inline ignore mark
+    baselined: int = 0                 # findings dropped because their id is in the baseline
     suppressed: int = 0                # findings dropped by ignore entries, inline marks or rules turned off
     files: int = 0                     # files not read because an ignore entry matched them
     own_reports: int = 0               # this scanner's own report files, not scanned
