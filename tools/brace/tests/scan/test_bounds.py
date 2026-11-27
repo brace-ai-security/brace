@@ -303,7 +303,9 @@ def test_many_large_mcp_configs_stay_within_memory(tmp_path, monkeypatch, contro
     if control:
         retain_parsed_files(monkeypatch)
     few, many, growth = peak_growth(tmp_path, "mcp.json", MCP_BODY, 1, 4)
-    assert (growth < 3 * len(MCP_BODY) // 2) is not control, growth
+    # Measured: the scanner grows about 0.6x one file (up to ~1.5x with garbage-collection timing
+    # on Python 3.14); the control grows about 24x. A 6x bound keeps a 4x margin on both sides.
+    assert (growth < 6 * len(MCP_BODY)) is not control, growth
     assert few["incomplete"] is False and many["incomplete"] is False
 
 
