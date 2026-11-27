@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: brace-ai-security/open-agent-security@v3.1.1   # or pin a commit SHA
+      - uses: brace-ai-security/open-agent-security@v3.2.0   # or pin a commit SHA
         with:
           fail-on: high
 ```

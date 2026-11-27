@@ -462,7 +462,7 @@ in a minor release. A plugin reporter is chosen with `--output NAME=FILE`; it de
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: brace-ai-security/open-agent-security@v3.1.1   # or pin a commit SHA
+- uses: brace-ai-security/open-agent-security@v3.2.0   # or pin a commit SHA
   with:
     fail-on: high          # critical | high | medium | low | none
     upload-sarif: "false"  # "true" needs permissions: security-events: write
@@ -484,7 +484,7 @@ Action clears `OPEN_AGENT_SECURITY_PLUGINS`, so it runs built-in rules only. The
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/brace-ai-security/open-agent-security
-    rev: v3.1.1   # or a commit SHA
+    rev: v3.2.0   # or a commit SHA
     hooks:
       - id: open-agent-security
 ```

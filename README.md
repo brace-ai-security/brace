@@ -1,6 +1,6 @@
 # BRACE — practical security for AI agents
 
-**Version: 3.1.0** (see [VERSION](VERSION)) · **Website:** https://braceframework.org
+**Version: 3.2.0** (see [VERSION](VERSION)) · **Website:** https://braceframework.org
 
 AI agents read untrusted text and then act: they run commands, call APIs, change data and
 start other agents. A language model can't reliably tell your instructions apart from
