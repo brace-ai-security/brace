@@ -84,7 +84,7 @@ From inside the agent's runtime, try test endpoints that stand for forbidden net
 
 **Evidence to keep:** Policy and route exports, connection results, isolation-denial logs.
 
-## B09 · Required · C1 — Egress allowlist
+## B09 · Blocker · C1 — Egress allowlist
 
 **Lead:** Infrastructure. **Shares:** Security, Operations.
 

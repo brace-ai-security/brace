@@ -78,7 +78,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## R02 · Required · C5 — Separate data from instructions and test injection containment
+## R02 · Blocker · C5 — Separate data from instructions and test injection containment
 
 **Lead:** Security. **Shares:** Agent team.
 

@@ -518,7 +518,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **N/A when:** never
 
-## B09 · Required · C1 — Egress allowlist
+## B09 · Blocker · C1 — Egress allowlist
 
 **Lead:** Infrastructure. **Shares:** Security, Operations.
 

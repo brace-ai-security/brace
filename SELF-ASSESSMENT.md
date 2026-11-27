@@ -51,7 +51,7 @@ For each row, ask: **Does this deployment meet the full checklist requirement, a
 | B06 | Blocker | C4 | Approval integrity | | |
 | B07 | Required | C4 | Hard execution budgets | | |
 | B08 | Required | C1 | Environment isolation | | |
-| B09 | Required | C1 | Egress allowlist | | |
+| B09 | Blocker | C1 | Egress allowlist | | |
 | B10 | Required | C3 | Pinned, verified image | | |
 | B11 | Required | C3 | Minimal, isolated runtime | | |
 | B12 | Blocker | C4 | Reviewed harness and instructions | | |
@@ -65,7 +65,7 @@ For each row, ask: **Does this deployment meet the full checklist requirement, a
 | Item | Gate | BRACE reference | Requirement | Score | Evidence / gap reference |
 |---|---|---|---|---|---|
 | R01 | Required | C5 | Validate every input boundary, including API responses | | |
-| R02 | Required | C5 | Separate data from instructions and test injection containment | | |
+| R02 | Blocker | C5 | Separate data from instructions and test injection containment | | |
 | R03 | Required | C5/C9 | Prevent output and log leakage | | |
 | R04 | Required | C5/C6 | Retrieval-corpus integrity | | |
 | R05 | Detection | C6 | Memory isolation and write validation | | |

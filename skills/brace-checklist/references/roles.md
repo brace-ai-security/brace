@@ -59,7 +59,7 @@ Governance and the Business owner lead few items but own most sign-off decisions
 | B06 | Blocker | Approval integrity | **Agent team** | Business owner, Security, Infrastructure |
 | B07 | Required | Hard execution budgets | **Agent team** | Business owner, Infrastructure, Operations |
 | B08 | Required | Environment isolation | **Infrastructure** | Security |
-| B09 | Required | Egress allowlist | **Infrastructure** | Security, Operations |
+| B09 | Blocker | Egress allowlist | **Infrastructure** | Security, Operations |
 | B10 | Required | Pinned, verified image | **Infrastructure** | Security, Agent team |
 | B11 | Required | Minimal, isolated runtime | **Infrastructure** | Security, Agent team, Vendors |
 | B12 | Blocker | Reviewed harness and instructions | **Agent team** | Security, Governance |
@@ -71,7 +71,7 @@ Governance and the Business owner lead few items but own most sign-off decisions
 | R11 | Blocker | Tested kill switch | **Operations** | Infrastructure, Agent team |
 | R13 | Blocker | Full execution audit | **Agent team** | Infrastructure, Operations |
 | R01 | Required | Validate every input boundary, including API responses | **Agent team** | Security |
-| R02 | Required | Separate data from instructions and test injection containment | **Security** | Agent team |
+| R02 | Blocker | Separate data from instructions and test injection containment | **Security** | Agent team |
 | R03 | Required | Prevent output and log leakage | **Agent team** | Security, Data and privacy, Infrastructure |
 | R04 | Required | Retrieval-corpus integrity | **Agent team** | Data and privacy, Infrastructure, Security |
 | R05 | Detection | Memory isolation and write validation | **Agent team** | Data and privacy, Security |

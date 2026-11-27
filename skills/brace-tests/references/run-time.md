@@ -14,7 +14,7 @@ Have a mock integration return wrong types, oversized bodies, hostile text, erro
 
 **Evidence to keep:** Fixtures for each integration, validation decisions, checks of what was passed on.
 
-## R02 · Required · C5 — Separate data from instructions and test injection containment
+## R02 · Blocker · C5 — Separate data from instructions and test injection containment
 
 **Lead:** Security. **Shares:** Agent team.
 
