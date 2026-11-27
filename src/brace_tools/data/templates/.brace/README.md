@@ -1,13 +1,13 @@
 # .brace — BRACE sign-off record
 
 This folder holds the security sign-off record for this agent, checked by
-`brace.py check` (from the BRACE project, usually vendored at `tools/brace/`).
+`brace check` (`pip install "open-agent-security[record]"`).
 
 | File | What it is |
 |---|---|
 | `deployment.yaml` | What the agent is, what it may do, how risky it is (stakes and autonomy), who holds each role, and who may approve. |
 | `record.yaml` | One entry for each of the 53 checklist items: the outcome (pass, gap, na, not_reviewed), who leads it, and links to evidence. |
-| `manifest.yaml` | The inputs that define this agent type: container, harness, prompt, model, config. `brace.py hash` turns them into the agent-type-id. |
+| `manifest.yaml` | The inputs that define this agent type: container, harness, prompt, model, config. `brace hash` turns them into the agent-type-id. |
 | `exceptions/` | One file per accepted risk (a Required gap, or a Detection gap on a low-stakes, low-autonomy deployment). Blocker gaps can't be accepted. |
 | `na/` | One file per item that doesn't apply, with the reason, evidence, and reviewer. |
 
@@ -21,6 +21,6 @@ If the file changes later, it needs a new approved pull request.
 
 ## Commands
 
-    python tools/brace/brace.py check      # GO or NO-GO, with reasons
-    python tools/brace/brace.py hash       # print the agent-type-id
-    python tools/brace/brace.py items      # list the checklist items
+    brace check      # GO or NO-GO, with reasons
+    brace hash       # print the agent-type-id
+    brace items      # list the checklist items

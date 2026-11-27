@@ -33,3 +33,19 @@ def test_published_report_schema_matches_the_packaged_one():
     rel = "open_agent_security/report/schema/report-1.schema.json"
     assert (ROOT / "tools/brace" / rel).read_bytes() == (ROOT / "src" / rel).read_bytes()
     assert not list((ROOT / "tools/brace/open_agent_security").rglob("*.py"))
+
+
+def test_version_pins_in_docs_and_templates_follow_the_version_file():
+    import re
+    import subprocess
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    pin = re.compile(r"open-agent-security(?:\[[a-z]+\])?==([0-9][0-9.]*[0-9])|open-agent-security(?:/actions/plan)?@v([0-9][0-9.]*[0-9])")
+    files = subprocess.run(["git", "ls-files", "*.md", "*.yml", "*.yaml", "*.html", "*.txt"], cwd=ROOT,
+                           capture_output=True, text=True).stdout.split()
+    found = {}
+    for f in files:
+        if f.startswith(("evals/", ".beads/")) or not (ROOT / f).is_file():
+            continue
+        for m in pin.finditer((ROOT / f).read_text(encoding="utf-8", errors="replace")):
+            found.setdefault(m.group(1) or m.group(2), []).append(f)
+    assert set(found) <= {version}, found

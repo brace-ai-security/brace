@@ -13,4 +13,4 @@ same repository).
 | `jsf-0.82.schema.json` | JSON Signature Format referenced by the BOM schema |
 | `cryptography-defs.schema.json` | Cryptography definitions referenced by the BOM schema |
 
-`topology.py validate` resolves these references locally, without network access.
+`brace map validate` resolves these references locally, without network access.

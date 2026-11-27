@@ -40,7 +40,7 @@ For high-stakes or high-autonomy deployments, report tested scope, results, gaps
    - set up the fixture (test tenant, throwaway resource, mock server);
    - run the allowed case first, then the forbidden or failure cases from the recipe;
    - check the destination's state;
-   - write a result file `brace-evidence/<ITEM>-<date>.json` containing `item`, `date`, `commit`, `agent_type_id` (from `python tools/brace/brace.py hash` if a manifest exists), `cases` (name, expected, actual, passed), and `passed`.
+   - write a result file `brace-evidence/<ITEM>-<date>.json` containing `item`, `date`, `commit`, `agent_type_id` (from `brace hash`, or `python tools/brace/brace.py hash` in a vendored copy, if a manifest exists), `cases` (name, expected, actual, passed), and `passed`.
 5. **When a recipe can't be automated**, write a drill script instead: `tests/brace/drills/<ITEM>.md`. Include numbered steps, the pass criteria, who runs it (the item's Lead role), and a results table to fill in. Examples are stop drills (R11, E09), operator lookups (A05), and fleet incident exercises (E12).
 6. **Run what you can** in the test environment. Report results plainly: which cases passed, which failed, and what wasn't tested. Failed cases are findings, not test bugs, unless the test itself is wrong.
 7. **Hand off.** Give the user the evidence file paths to link from `.brace/record.yaml`, through the `brace-record` skill.

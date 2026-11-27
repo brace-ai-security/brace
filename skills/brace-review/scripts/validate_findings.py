@@ -13,7 +13,7 @@ Usage:
   --conservative   Also turn every likely_pass into needs_evidence. Use with small
                    models: the review then only finds gaps and can't suggest a pass.
   --aspect X       Check only one aspect's items (for files made with new_findings.py --aspect).
-  --topology FILE  A CycloneDX topology (tools/brace/topology.py). Every finding's
+  --topology FILE  A CycloneDX topology (`brace map build`). Every finding's
                    optional `components` must name bom-refs in it.
 
 Optional action fields on a finding: `components` (list of bom-refs) and `fix`

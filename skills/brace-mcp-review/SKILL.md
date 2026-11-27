@@ -108,12 +108,13 @@ focused MCP review, not completion of the full 53-item BRACE assessment.
      action per step, naming the file and line) and one "done when" sentence anyone
      can check.
 
-   If the project has `tools/brace/`, also map the servers: build the topology with
-   `python tools/brace/topology.py build <repo> -o <repo>/brace-topology.cdx.json`,
+   If the `brace` command is available (`pip install "open-agent-security[record]"`; or a vendored
+   `tools/brace/`, with `python tools/brace/topology.py` in place of `brace map`), also map the servers: build the topology with
+   `brace map build <repo> -o <repo>/brace-topology.cdx.json`,
    record each traced tool, backend and network with `add-node`, `add-edge --risk ...`
    and `set-zone` (each needs `path:line` and the exact quote), and name the affected
    bom-refs next to each finding. Offer to create or update `.brace/topology.cdx.json`
-   with `topology.py record`; pass `--apply` only after the user says yes.
+   with `brace map record`; pass `--apply` only after the user says yes.
 
 Before returning, reconcile the entrypoint/operation inventory with the coverage rows. Check
 every finding's source ID and each date/verification claim against the specific
