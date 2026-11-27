@@ -105,7 +105,7 @@ def test_long_workflow_lines_are_linear(tmp_path, line):
     fast(lambda: found(tmp_path))
 
 
-def grows_linearly(rx: re.Pattern, texts: list[str], reps: int = 3) -> bool:
+def grows_linearly(rx: re.Pattern, texts: list[str], reps: int = 3, small_reps: int | None = None) -> bool:
     """Whether searching inputs four times longer takes well under sixteen times as long.
 
     CPU time (process_time) ignores other processes, the two sizes are timed in turn and the
@@ -122,6 +122,8 @@ def grows_linearly(rx: re.Pattern, texts: list[str], reps: int = 3) -> bool:
     small = large = float("inf")
     for _ in range(reps):
         small, large = min(small, seconds(quarter)), min(large, seconds(texts))
+    for _ in range((small_reps or reps) - reps):
+        small = min(small, seconds(quarter))
     return large < 10 * small + 0.05
 
 
@@ -134,8 +136,9 @@ def test_the_linearity_check_catches_a_quadratic_regex():
     """The negative control: a pattern that rescans the rest of the input from every position."""
     # Measured at 24,000 chars: quarter ~0.32 s, full ~5.2 s (ratio ~16). 16,000 chars once keeps the
     # quarter run (~0.14 s) well above the 0.05 s floor and the whole test under ~3 s of CPU, so it can't
-    # hit the per-test timeout under parallel load.
-    assert not grows_linearly(re.compile(r"[ \t]*!x"), [" " * 16_000], reps=1)
+    # hit the per-test timeout under parallel load. The cheap quarter run is timed five times and its
+    # best kept: one inflated quarter timing under load used to drop the ratio below ten (a flake).
+    assert not grows_linearly(re.compile(r"[ \t]*!x"), [" " * 16_000], reps=1, small_reps=5)
 
 
 LITERAL_WORD = re.compile(r"[A-Za-z_][\w-]{1,30}")
