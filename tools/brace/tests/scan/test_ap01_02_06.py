@@ -148,7 +148,7 @@ def test_a_flag_only_mentioned_is_not_reported(tmp_path, rel, text):
 
 
 def test_the_mention_rule_is_documented():
-    assert "only mentioned" in (TOOL_DIR / "SCAN.md").read_text(encoding="utf-8")
+    assert "only mentioned" in (TOOL_DIR / "SCAN-DETAILS.md").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("line,expected", [("copilot -p hi --allow-all-tools\n", ["AP01"]),
@@ -547,7 +547,7 @@ def test_round10_gated_flags_of_another_command_are_not_reported(tmp_path, rel, 
 
 
 def test_round10_the_reporting_bias_is_documented():
-    doc = (TOOL_DIR / "SCAN.md").read_text(encoding="utf-8")
+    doc = (TOOL_DIR / "SCAN-DETAILS.md").read_text(encoding="utf-8")
     assert "errs toward reporting" in doc and "open-agent-security: ignore" in doc
 
 
