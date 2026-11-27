@@ -288,7 +288,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <main class="wrap">
 @@BODY@@
 </main>
-<footer><div class="wrap">The BRACE Framework · <a href="/">braceframework.org</a> · <a href="/checklist/">Sign-off checklist</a> · CC BY 4.0.</div></footer>
+<footer><div class="wrap">The BRACE Framework · <a href="/">braceframework.org</a> · <a href="/checklist/">Sign-off checklist</a> · Content CC BY 4.0 · Code Apache-2.0.</div></footer>
 </body>
 </html>
 """

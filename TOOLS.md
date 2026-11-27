@@ -56,4 +56,4 @@ The skills follow the common `SKILL.md` format. To use them with Claude Code, co
 
 ---
 
-*Part of [BRACE](README.md), a security framework for autonomous AI agents. CC BY 4.0.*
+*Part of [BRACE](README.md), a security framework for autonomous AI agents. Content CC BY 4.0; code Apache-2.0.*

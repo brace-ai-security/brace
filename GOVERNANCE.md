@@ -1,6 +1,6 @@
 # Governing BRACE
 
-BRACE is an open, vendor-neutral set of technical controls for autonomous AI agents, released under CC BY 4.0. It is run in the open and built to be shared. This page explains how decisions are made and how to get more involved.
+BRACE is an open, vendor-neutral set of technical controls for autonomous AI agents, with documentation under CC BY 4.0 and code under Apache-2.0. It is run in the open and built to be shared. This page explains how decisions are made and how to get more involved.
 
 ## Principles
 
@@ -33,7 +33,7 @@ Steady, high-quality work leads to an invitation from the current maintainers. E
 
 ## License
 
-The framework and all contributions are under CC BY 4.0.
+Documentation and framework content, and contributions to them, are under CC BY 4.0 ([LICENSE-docs](LICENSE-docs)). Code, and contributions to it, are under the Apache License 2.0 ([LICENSE](LICENSE)). The README's License section defines the split.
 
 ---
 

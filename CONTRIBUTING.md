@@ -59,7 +59,7 @@ Reuse existing OpenTelemetry conventions where you can, rather than inventing ne
 
 ## Licensing
 
-By contributing, you agree that your contribution is released under **Creative Commons Attribution 4.0 (CC BY 4.0)**, the same license as the rest of the project. You keep credit, and the work stays open for reuse.
+Contributions are licensed inbound as they are outbound. By contributing, you agree that contributions to code are released under the **Apache License 2.0** and contributions to documentation and framework content under **Creative Commons Attribution 4.0 (CC BY 4.0)**. The README's License section says which files are which. You keep credit, and the work stays open for reuse.
 
 ## Status
 

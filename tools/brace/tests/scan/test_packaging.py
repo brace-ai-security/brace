@@ -40,6 +40,16 @@ def test_package_version_is_single_sourced():
     assert 'attr = "open_agent_security.__version__"' in text and open_agent_security.__version__
 
 
+def test_package_version_follows_repo_version_file():
+    version_file = (TOOL_DIR.parent.parent / "VERSION").read_text(encoding="utf-8").strip()
+    assert open_agent_security.__version__ == version_file
+
+
+def test_package_license_metadata():
+    text = (TOOL_DIR.parent.parent / "pyproject.toml").read_text()
+    assert 'license = "Apache-2.0"' in text and 'license-files = ["LICENSE", "NOTICE"]' in text
+
+
 def test_action_yml_is_valid_and_hardened():
     yaml = pytest.importorskip("yaml")
     action = yaml.safe_load((ROOT / "action.yml").read_text(encoding="utf-8"))

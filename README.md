@@ -200,4 +200,9 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 
 ## License
 
-Released under [CC BY 4.0](LICENSE). Use it, adapt it, and build on it. Just credit the source.
+BRACE uses two licences:
+
+- **Code: [Apache License 2.0](LICENSE).** Everything under `tools/`, the scripts under `skills/`, `action.yml`, `action/`, `.github/`, the tests, the site generators, and all `*.py` files and `*.yml` workflow and Action files.
+- **Documentation and framework content: [CC BY 4.0](LICENSE-docs).** `CHECKLIST*.md` and the other Markdown documents, `mappings/`, the text of the site pages, and images.
+
+See [NOTICE](NOTICE). Use it, adapt it, and build on it. Just credit the source.

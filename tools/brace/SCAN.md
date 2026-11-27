@@ -570,3 +570,8 @@ open-agent-security:
 A clean scan means none of these patterns was found. It is not a security review and not
 BRACE compliance. For that, use [BRACE Starter](https://braceframework.org/starter/) or the
 full [sign-off checklist](https://braceframework.org/checklist/).
+
+## License
+
+Apache License 2.0. See `LICENSE` and `NOTICE` in the package. BRACE documentation is
+under CC BY 4.0.

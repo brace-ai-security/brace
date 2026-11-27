@@ -132,9 +132,10 @@ def test_every_module_regex_is_linear(name, rx):
 
 def test_the_linearity_check_catches_a_quadratic_regex():
     """The negative control: a pattern that rescans the rest of the input from every position."""
-    # 24,000 characters so the quarter-size run is well above the 0.05 s floor: at 12,000 the
-    # floor nearly absorbed the quadratic growth and the control flaked on a CI runner.
-    assert not grows_linearly(re.compile(r"[ \t]*!x"), [" " * 24_000], reps=3)
+    # Measured at 24,000 chars: quarter ~0.32 s, full ~5.2 s (ratio ~16). 16,000 chars once keeps the
+    # quarter run (~0.14 s) well above the 0.05 s floor and the whole test under ~3 s of CPU, so it can't
+    # hit the per-test timeout under parallel load.
+    assert not grows_linearly(re.compile(r"[ \t]*!x"), [" " * 16_000], reps=1)
 
 
 LITERAL_WORD = re.compile(r"[A-Za-z_][\w-]{1,30}")
