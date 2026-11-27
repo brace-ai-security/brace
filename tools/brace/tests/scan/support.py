@@ -173,9 +173,13 @@ def noise(suffix: str = "") -> list[str]:
 
 
 def all_outputs(root: Path) -> list[str]:
-    code, text = scan(root, "--fail-on", "none", "--sarif", str(root.parent / "out.sarif"))
+    prompt = root.parent / "out.prompt"
+    code, text = scan(root, "--fail-on", "none", "--sarif", str(root.parent / "out.sarif"),
+                      "--output", f"agent-prompt={prompt}")
     sarif = (root.parent / "out.sarif").read_text(encoding="utf-8")
-    return [text, json.dumps(report(root)["notes"]), sarif]
+    out = [text, json.dumps(report(root)["notes"]), sarif, prompt.read_text(encoding="utf-8")]
+    prompt.unlink()
+    return out
 
 
 def fast(fn, limit: float = 3.0):

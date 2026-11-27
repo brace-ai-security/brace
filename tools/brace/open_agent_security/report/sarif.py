@@ -20,7 +20,7 @@ from ..catalog import DOCS, TAXA, TAXONOMIES, RuleMeta
 from ..limits import MAX_RESULTS
 from ..model import Finding, Report
 from ..output import path_uri
-from .common import ReportOptions, rules_by_id
+from .common import ReportOptions, examples_markdown, rules_by_id
 
 SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 LEVEL = {"critical": "error", "high": "error", "medium": "warning", "low": "note"}
@@ -47,10 +47,12 @@ def split_ref(ref: str) -> tuple[str, str]:
 def rule_entry(r: RuleMeta) -> dict:
     checklist = f"BRACE checklist: {', '.join(r.checklist)}." if r.checklist else ""
     cwes = [entry for prefix, entry in map(split_ref, r.refs) if prefix == "cwe"]
+    template = f"Hardened template: {r.template}." if r.template else ""
+    examples = examples_markdown(r)
     entry = {"id": r.id, "name": r.name, "shortDescription": {"text": r.title}, "fullDescription": {"text": r.why},
-             "help": {"text": f"{r.fix} {checklist}".strip(),
-                      "markdown": f"{r.why}\n\n**Fix:** {r.fix}\n\n{checklist} [Details]({r.help_uri})".replace(
-                          "\n\n [", "\n\n[")},
+             "help": {"text": " ".join(t for t in (r.fix, template, checklist) if t),
+                      "markdown": "\n\n".join(t for t in (r.why, f"**Fix:** {r.fix}", examples,
+                                                            f"{checklist} [Details]({r.help_uri})".strip()) if t)},
              "helpUri": r.help_uri, "defaultConfiguration": {"level": LEVEL[r.severity]},
              "properties": {"security-severity": SECURITY_SEVERITY[r.severity],
                             "tags": ["security", "ai-agent", *(f"external/cwe/cwe-{c}" for c in cwes)]}}
@@ -82,12 +84,25 @@ def result(f: Finding, meta: dict) -> dict:
            "locations": [location(f.file, f.line)],
            "partialFingerprints": {FINGERPRINT: f.id}}
     s = f.suppression
+    if f.edit and not s:
+        out["fixes"] = [fix(f)]
     if s:
         sup = {"kind": s.kind, "status": "accepted", "justification": s.justification}
         if s.file:
             sup["location"] = location(s.file, s.line)
         out["suppressions"] = [sup]
     return out
+
+
+def fix(f: Finding) -> dict:
+    """The finding's deterministic edit as a SARIF fix (§3.55): one replacement of an exact region."""
+    e = f.edit
+    replacement = {"deletedRegion": {"startLine": e.line, "startColumn": e.start, "endColumn": e.end}}
+    if e.replacement:
+        replacement["insertedContent"] = {"text": e.replacement}
+    return {"description": {"text": e.description},
+            "artifactChanges": [{"artifactLocation": {"uri": path_uri(f.file), "uriBaseId": SRCROOT},
+                                 "replacements": [replacement]}]}
 
 
 def location(file: str, line: int) -> dict:

@@ -141,6 +141,21 @@ class Suppression:
     line: int = 0
 
 
+@dataclass(frozen=True)
+class Edit:
+    """A fix that follows from the finding alone, safe to apply without judgement: on `line`,
+    replace columns start..end (1-based, end exclusive, counted in UTF-16 code units as SARIF
+    counts them by default) holding `deleted` with `replacement` ("" removes it). Checks set one
+    only when the change is unambiguous offline, such as removing a bypass flag from a command
+    line; never for a change that needs information the scan does not have (a version, a digest)."""
+    line: int
+    start: int
+    end: int
+    deleted: str
+    replacement: str
+    description: str
+
+
 @dataclass
 class Finding:
     """Checks set rule, file, line and detail; the engine sets the effective severity and host.
@@ -153,6 +168,7 @@ class Finding:
     host: bool = False  # a file on this machine, not in the scanned folder
     id: str = ""        # a stable fingerprint, set by the engine
     suppression: Suppression | None = None  # set by the engine on a suppressed finding
+    edit: Edit | None = None  # a deterministic fix, when one exists (see Edit)
 
 
 SKIP_LABELS = {"symlink": "symlink(s), not followed", "not a regular file": "special file(s) such as FIFOs"}

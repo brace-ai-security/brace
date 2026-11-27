@@ -14,7 +14,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from . import __version__
-from .catalog import SEVERITY_ORDER
+from .catalog import SEVERITY_ORDER, TAXA, TAXONOMIES, RuleMeta
 from .config import FAIL_ON, Config, ConfigError, load
 from .engine import run_scan
 from .fsio import write_new
@@ -45,6 +45,9 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--plugin", metavar="NAME", action="append", default=[],
                    help="load an installed plugin (repeatable); plugins run as ordinary Python")
     p.add_argument("--list-rules", action="store_true", help="list the rules (with --json, as JSON) and exit")
+    p.add_argument("--explain", metavar="RULE",
+                   help="explain one rule: why, the fix, a before/after example, BRACE items, taxonomy entries and "
+                        "a hardened template (with --json, as JSON) and exit; same as `explain RULE`")
 
 
 def output_arg(value: str) -> tuple[str, str]:
@@ -63,7 +66,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    return run_args(build_parser().parse_args(argv))
+    return run_args(build_parser().parse_args(subcommand(sys.argv[1:] if argv is None else argv)))
+
+
+def subcommand(argv: list[str]) -> list[str]:
+    """`explain RULE ...` as `--explain RULE ...`. A folder named explain is scanned as ./explain."""
+    if argv[:1] == ["explain"]:
+        if len(argv) < 2 or argv[1].startswith("-"):
+            return ["--explain", ""] + argv[1:]
+        return ["--explain", argv[1]] + argv[2:]
+    return argv
 
 
 def run_args(a: argparse.Namespace) -> int:
@@ -104,6 +116,14 @@ def run(a: argparse.Namespace) -> int:
         return 2
     if a.list_rules:
         sys.stdout.write(rule_list(registry, config.rules, a.json))
+        return 0
+    if a.explain is not None:
+        meta = registry.rules.get(a.explain.upper())
+        if meta is None:
+            error(f"no rule {clean(a.explain)!r}; choose from {', '.join(registry.rules)}")
+            return 2
+        text = explain(meta, config.rules.get(meta.id, meta.severity), a.json)
+        sys.stdout.write(inert(text, "json" if a.json else "text") if actions_log() else text)
         return 0
     try:
         stdout, files = outputs(a, registry)
@@ -186,3 +206,27 @@ def rule_list(registry: Registry, overrides, as_json: bool) -> str:
                                       "checklist": list(m.checklist), "help_uri": m.help_uri} for m, s in rows]},
                           indent=2) + "\n"
     return "".join(f"{m.id:6} {s:9} {m.title}\n" for m, s in rows)
+
+
+def explain(m: RuleMeta, severity: str, as_json: bool) -> str:
+    """One rule in full: title, why, fix, before/after example, BRACE items, taxonomy entries,
+    hardened template and documentation link."""
+    refs = [{"id": r, "taxonomy": TAXONOMIES[r.partition(":")[0]].name, "name": TAXA.get(r, "")} for r in m.refs]
+    if as_json:
+        return json.dumps({"id": m.id, "title": m.title, "severity": m.severity if severity == "off" else severity,
+                           "enabled": severity != "off", "why": m.why, "fix": m.fix,
+                           "example_bad": m.example_bad, "example_good": m.example_good,
+                           "checklist": list(m.checklist), "refs": refs, "template": m.template or None,
+                           "help_uri": m.help_uri}, indent=2) + "\n"
+    lines = [f"{m.id}: {m.title}", f"Severity: {severity}", "", f"Why: {m.why}", "", f"Fix: {m.fix}"]
+    for label, example in (("Before", m.example_bad), ("After", m.example_good)):
+        if example:
+            lines += ["", f"{label}:", *("    " + x for x in example.splitlines())]
+    if m.checklist:
+        lines += ["", f"BRACE checklist: {', '.join(m.checklist)}"]
+    if refs:
+        lines += ["", "Taxonomy:", *(f"    {r['id']}" + (f"  {r['name']}" if r["name"] else "") for r in refs)]
+    if m.template:
+        lines += ["", f"Hardened template: {m.template}"]
+    lines += ["", f"Details: {m.help_uri}"]
+    return "\n".join(lines) + "\n"
