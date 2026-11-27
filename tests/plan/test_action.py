@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-TOOL_DIR = Path(__file__).resolve().parent.parent
+TOOL_DIR = Path(__file__).resolve().parents[2] / "tools" / "brace"
 ROOT = TOOL_DIR.parent.parent
 ACTION = ROOT / "actions" / "plan" / "action.yml"
 EXAMPLE = TOOL_DIR / "examples" / "billing-agent"

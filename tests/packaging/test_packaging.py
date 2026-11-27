@@ -150,7 +150,7 @@ def test_round11_ci_runs_the_wheel_and_history_tests_on_every_supported_python()
     assert checkout["with"]["fetch-depth"] == 0
     runs = " ".join(s.get("run", "") for s in job["steps"])
     assert re.search(r"\bbuild==\S+", runs) and re.search(r"\bsetuptools==\S+", runs)
-    assert "pytest tools/brace/tests -q -rs" in runs
+    assert "python -m pytest -q -rs" in runs
 
 
 def test_round11_the_must_run_tests_fail_instead_of_skipping_in_ci(monkeypatch):

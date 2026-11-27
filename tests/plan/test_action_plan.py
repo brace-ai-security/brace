@@ -8,13 +8,12 @@ from pathlib import Path
 
 import pytest
 
-TOOL_DIR = Path(__file__).resolve().parent.parent
+TOOL_DIR = Path(__file__).resolve().parents[2] / "tools" / "brace"
 ROOT = TOOL_DIR.parent.parent
-sys.path.insert(0, str(TOOL_DIR))
 sys.path.insert(0, str(ROOT / "skills/brace-review/scripts"))
 
-import action_plan  # noqa: E402
-import topology  # noqa: E402
+from brace_tools.plan import core as action_plan
+from brace_tools.topology import core as topology
 import validate_findings  # noqa: E402
 
 pytest.importorskip("jsonschema")
@@ -189,7 +188,7 @@ def test_fail_on_levels(example, tmp_path):
 
 
 def test_html_escapes_untrusted_text(example):
-    import report_html
+    from brace_tools.plan import html as report_html
     bom, findings = example
     evil = json.loads(json.dumps(findings))
     evil["findings"][0]["fix"]["problem"] = "<script>alert(1)</script> and `<img src=x onerror=alert(2)>`"

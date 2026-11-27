@@ -5,10 +5,9 @@ from pathlib import Path
 
 import pytest
 
-TOOL_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(TOOL_DIR))
-import topology  # noqa: E402
-import topology_report as tr  # noqa: E402
+TOOL_DIR = Path(__file__).resolve().parents[2] / "tools" / "brace"
+from brace_tools.topology import core as topology
+from brace_tools.report import map_html as tr
 
 EX = TOOL_DIR / "examples" / "travel-agent"
 

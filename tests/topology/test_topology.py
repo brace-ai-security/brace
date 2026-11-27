@@ -7,11 +7,10 @@ from pathlib import Path
 
 import pytest
 
-TOOL_DIR = Path(__file__).resolve().parent.parent
+TOOL_DIR = Path(__file__).resolve().parents[2] / "tools" / "brace"
 ROOT = TOOL_DIR.parent.parent
-sys.path.insert(0, str(TOOL_DIR))
 
-import topology  # noqa: E402
+from brace_tools.topology import core as topology
 
 pytest.importorskip("jsonschema")
 FIXTURE = ROOT / "evals" / "fixtures" / "billing-agent"

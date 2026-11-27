@@ -179,7 +179,7 @@ def action_stage(model, fixture, final, dest, timeout, safety, test_python=None)
             call(model, work, safety +
                  "Read skill/SKILL.md. The review (steps 1-8) is finished and agent/brace-findings.json is final. "
                  "Run commands from agent/. Perform only: the 'Map the connections' paragraph of step 2 (run the "
-                 "inventory first), step 9 and step 10. In step 10 run topology.py record WITHOUT --apply: the user "
+                 "inventory first), step 9 and step 10. In step 10 run `brace map record` (or python tools/brace/brace.py map record) WITHOUT --apply: the user "
                  "has not confirmed. Do not write files under agent/.brace/. Do not change any rating, check, "
                  "evidence, summary, challenge or other existing field; only add the fields step 9 lists. "
                  "Do not edit the fixture's source code in agent/. For step 9's self-check you MAY copy agent/ to "
@@ -199,7 +199,7 @@ def action_stage(model, fixture, final, dest, timeout, safety, test_python=None)
         else:
             after = json.loads(after_path.read_text())
             info["core_unchanged"] = core(before) == core(after)
-            plan = subprocess.run([sys.executable, str(TOOLS / "action_plan.py"), str(after_path), str(topo),
+            plan = subprocess.run([sys.executable, str(TOOLS / "brace.py"), "plan", str(after_path), str(topo),
                                    "-o", str(adir / "harness-action-plan.md"), "--repo", str(repo), "--strict"],
                                   capture_output=True, text=True)
             info["strict_exit"] = plan.returncode
@@ -214,10 +214,10 @@ def action_stage(model, fixture, final, dest, timeout, safety, test_python=None)
             info["with_test"] = sum(bool((f.get("fix") or {}).get("test")) for f in actionable)
             bom = json.loads(topo.read_text())
             info["topology_valid"] = not subprocess.run(
-                [sys.executable, str(TOOLS / "topology.py"), "validate", str(topo)], capture_output=True).returncode
+                [sys.executable, str(TOOLS / "brace.py"), "map", "validate", str(topo)], capture_output=True).returncode
             info["nodes"] = len(json.loads(subprocess.run(
-                [sys.executable, "-c", "import json,sys;sys.path.insert(0,sys.argv[2]);import topology;"
-                 "print(json.dumps(list(topology.all_nodes(json.load(open(sys.argv[1]))))))", str(topo), str(TOOLS)],
+                [sys.executable, "-c", "import json,sys;sys.path.insert(0,sys.argv[2]);from brace_tools.topology import core as topology;"
+                 "print(json.dumps(list(topology.all_nodes(json.load(open(sys.argv[1]))))))", str(topo), str(ROOT / "src")],
                 capture_output=True, text=True).stdout or "[]"))
             info["status"] = "pass" if (info["core_unchanged"] and plan.returncode == 0 and not info["field_errors"]
                                         and info["with_fix_steps"] == info["actionable"]

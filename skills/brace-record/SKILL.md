@@ -9,7 +9,7 @@ The `.brace/` folder holds a codebase's BRACE sign-off record: what was decided,
 
 The file formats are defined by the JSON schemas in the `open-agent-security` package (`brace_tools/data/schemas/`), and the BRACE tools README explains them.
 
-Commands: `brace <command>` comes from `pip install "open-agent-security[record]"`. If `brace` is not installed but the project vendors `tools/brace/`, run `python tools/brace/brace.py <command>` for `init`, `items`, `hash`, `check`, `export` and `import-results`, `python tools/brace/topology.py <sub>` for `brace map <sub>`, and `python tools/brace/action_plan.py` for `brace plan`.
+Commands: `brace <command>` comes from `pip install "open-agent-security[record]"`. If `brace` is not installed but the project vendors the BRACE `tools/brace/` and `src/` folders, `python tools/brace/brace.py <command>` runs the same commands (deprecated; kept for one release).
 
 Accept full-agent or focused MCP review findings as drafts, and test/drill outputs
 as evidence to inspect. A focused report updates only its mapped item scope; leave

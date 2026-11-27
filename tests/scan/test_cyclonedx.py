@@ -9,8 +9,7 @@ import sys
 import pytest
 from support import TOKEN, TOOL_DIR, cli_run, write
 
-sys.path.insert(0, str(TOOL_DIR))
-import topology  # noqa: E402
+from brace_tools.topology import core as topology
 
 from open_agent_security.report.cyclonedx import purl, split_spec  # noqa: E402
 

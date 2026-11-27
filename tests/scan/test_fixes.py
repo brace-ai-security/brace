@@ -13,7 +13,7 @@ from open_agent_security.catalog import EXAMPLES, RULES, TAXA, load_examples
 from open_agent_security.report.common import fence
 
 jsonschema = pytest.importorskip("jsonschema")
-SARIF_SCHEMA = TOOL_DIR / "tests" / "fixtures" / "schemas" / "sarif-schema-2.1.0.json"
+SARIF_SCHEMA = TOOL_DIR.parent.parent / "tests" / "fixtures" / "schemas" / "sarif-schema-2.1.0.json"
 POLICY = ROOT / "templates" / "policy"
 
 

@@ -8,11 +8,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-TOOL_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(TOOL_DIR))
-sys.path.insert(0, str(TOOL_DIR.parent.parent / "src"))
+ROOT = Path(__file__).resolve().parent.parent
+TOOL_DIR = ROOT / "tools" / "brace"
 
-import brace  # noqa: E402
+from brace_tools.record import core as brace  # noqa: E402
 
 MAX_WORKERS = 8  # more workers than this only add start-up and scheduling cost on a busy machine
 

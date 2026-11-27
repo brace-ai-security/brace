@@ -7,9 +7,9 @@ import yaml
 
 from conftest import TOOL_DIR, brace
 
-import results_import as ri
+from brace_tools.imports import results as ri
 
-FIX = Path(__file__).resolve().parent / "fixtures" / "results"
+FIX = Path(__file__).resolve().parents[1] / "fixtures" / "results"
 
 
 @pytest.fixture

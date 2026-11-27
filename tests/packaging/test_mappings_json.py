@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 GEN = ROOT / "tools/site/gen_mappings_json.py"
 PAGES = sorted((ROOT / "mappings").glob("*.md"))
 sys.path.insert(0, str(GEN.parent))

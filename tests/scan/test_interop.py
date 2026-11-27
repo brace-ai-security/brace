@@ -16,8 +16,8 @@ from support import plugins  # noqa: F401  (a fixture)
 from open_agent_security.catalog import RULES, TAXA, TAXONOMIES
 
 jsonschema = pytest.importorskip("jsonschema")
-GOLDEN = TOOL_DIR / "tests" / "fixtures" / "oas_golden"
-SCHEMAS = TOOL_DIR / "tests" / "fixtures" / "schemas"
+GOLDEN = TOOL_DIR.parent.parent / "tests" / "fixtures" / "oas_golden"
+SCHEMAS = TOOL_DIR.parent.parent / "tests" / "fixtures" / "schemas"
 REPORT_SCHEMA = ROOT / "src" / "open_agent_security" / "report" / "schema" / "report-1.schema.json"
 
 

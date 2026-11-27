@@ -1,28 +1,20 @@
 #!/usr/bin/env python3
-"""Deprecated launcher for the BRACE record checker; use the `brace` command instead.
+"""Deprecated launcher for the `brace` command; install the package and run `brace` instead.
 
-`python tools/brace/brace.py <command>` keeps working for one release. Install the tools with
-`pip install "open-agent-security[record]"` and run `brace <command>`. The code lives in
-src/brace_tools/record/core.py; importing this file aliases that module.
+`python tools/brace/brace.py <command>` runs any `brace` command (scan, init, items, hash,
+check, export, import-results, map ..., plan) from a checkout or vendored copy. It is kept for
+one release. Install the tools with `pip install "open-agent-security[record]"`. The code lives
+in src/brace_tools/; importing this file gives the record checker (brace_tools.record.core).
 """
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-if __name__ == "__main__" and sys.argv[1:2] == ["scan"]:  # the scanner needs only the standard library
-    from open_agent_security.cli import main as _scan_main
-    sys.exit(_scan_main(sys.argv[2:]))
-
-try:
-    from brace_tools.record import core as _real
-except ModuleNotFoundError as exc:
-    if exc.name not in ("yaml", "jsonschema"):
-        raise
-    sys.stderr.write('brace.py needs PyYAML. Install it with: pip install pyyaml '
-                     '(or pip install "open-agent-security[record]")\n')
-    sys.exit(2)
-
 if __name__ == "__main__":
-    sys.exit(_real.main())
+    from brace_tools.cli import main  # scan needs only the standard library; the rest say which extra is missing
+    sys.exit(main())
+
+from brace_tools.record import core as _real  # noqa: E402
+
 sys.modules[__name__] = _real

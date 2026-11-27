@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 POLICY = ROOT / "examples" / "policy"
 REGO = POLICY / "rego"
 INPUTS = POLICY / "inputs"

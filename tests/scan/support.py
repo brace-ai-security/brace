@@ -16,12 +16,8 @@ from pathlib import Path
 
 import pytest
 
-TOOL_DIR = Path(__file__).resolve().parents[2]
-ROOT = TOOL_DIR.parent.parent
-SRC = ROOT / "src"
-for _p in (TOOL_DIR, SRC):
-    if str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
+ROOT = Path(__file__).resolve().parents[2]
+TOOL_DIR = ROOT / "tools" / "brace"
 
 from open_agent_security import cli, registry  # noqa: E402
 from open_agent_security.config import load  # noqa: E402

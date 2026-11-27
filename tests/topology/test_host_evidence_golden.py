@@ -6,11 +6,11 @@ import os
 import re
 from pathlib import Path
 
-import topology
+from brace_tools.topology import core as topology
 from conftest import TOOL_DIR
 
 HS = TOOL_DIR / "examples" / "host-scan"
-GOLDEN = TOOL_DIR / "tests" / "fixtures" / "host_evidence.json"
+GOLDEN = TOOL_DIR.parent.parent / "tests" / "fixtures" / "host_evidence.json"
 
 
 def normalise_checkout(text: str) -> str:

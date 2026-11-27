@@ -375,5 +375,7 @@ def test_items_command(capsys):
 
 
 def test_generated_files_up_to_date():
-    import gen_items
-    assert gen_items.main(["--check"]) == 0
+    import runpy
+    from conftest import ROOT
+    gen_items = runpy.run_path(str(ROOT / "tools" / "dev" / "gen_items.py"))
+    assert gen_items["main"](["--check"]) == 0

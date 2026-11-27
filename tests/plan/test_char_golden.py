@@ -2,7 +2,7 @@
 
 Each case runs a command-line tool on a checked-in example and compares the bytes it writes
 with tests/fixtures/char_golden/. A change here must be reviewed and explained.
-Regenerate: BRACE_REGEN_GOLDEN=1 pytest tests/test_char_golden.py -p no:xdist
+Regenerate: BRACE_REGEN_GOLDEN=1 pytest tests/plan/test_char_golden.py -n 0
 """
 from __future__ import annotations
 
@@ -14,20 +14,24 @@ from pathlib import Path
 
 import pytest
 
-TOOL_DIR = Path(__file__).resolve().parent.parent
+TOOL_DIR = Path(__file__).resolve().parents[2] / "tools" / "brace"
 ROOT = TOOL_DIR.parent.parent
-GOLDEN = TOOL_DIR / "tests" / "fixtures" / "char_golden"
+GOLDEN = TOOL_DIR.parent.parent / "tests" / "fixtures" / "char_golden"
 BILL = TOOL_DIR / "examples" / "billing-agent"
 TRAVEL = TOOL_DIR / "examples" / "travel-agent"
 REGEN = os.environ.get("BRACE_REGEN_GOLDEN") == "1"
 
 
 def tool(name: str) -> list[str]:
-    return [sys.executable, str(TOOL_DIR / name)]
+    """The command lines as users run them: `brace plan`, `brace map` and the old brace.py launcher."""
+    if name == "brace.py":
+        return [sys.executable, str(TOOL_DIR / "brace.py")]
+    return [sys.executable, "-m", "brace_tools", {"action_plan.py": "plan", "topology.py": "map"}[name]]
 
 
 def run(cmd, cwd):
-    p = subprocess.run([str(c) for c in cmd], cwd=cwd, capture_output=True, text=True)
+    env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    p = subprocess.run([str(c) for c in cmd], cwd=cwd, capture_output=True, text=True, env=env)
     return p.returncode, p.stdout, p.stderr
 
 

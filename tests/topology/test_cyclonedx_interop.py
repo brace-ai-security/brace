@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-TOOL_DIR = Path(__file__).resolve().parent.parent
+TOOL_DIR = Path(__file__).resolve().parents[2] / "tools" / "brace"
 TOPOLOGIES = sorted((TOOL_DIR / "examples").glob("*/topology.cdx.json"))
 IDS = [p.parent.name for p in TOPOLOGIES]
 

@@ -5,12 +5,11 @@ from pathlib import Path
 
 import pytest
 
-TOOL_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(TOOL_DIR))
-import host_scan  # noqa: E402
-import scan_import  # noqa: E402
-import topology  # noqa: E402
-import topology_report as tr  # noqa: E402
+TOOL_DIR = Path(__file__).resolve().parents[2] / "tools" / "brace"
+from open_agent_security import host_scan
+from brace_tools.imports import scanners as scan_import
+from brace_tools.topology import core as topology
+from brace_tools.report import map_html as tr
 
 HS = TOOL_DIR / "examples" / "host-scan"
 EX = TOOL_DIR / "examples" / "travel-agent"

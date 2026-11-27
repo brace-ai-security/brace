@@ -109,7 +109,7 @@ focused MCP review, not completion of the full 53-item BRACE assessment.
      can check.
 
    If the `brace` command is available (`pip install "open-agent-security[record]"`; or a vendored
-   `tools/brace/`, with `python tools/brace/topology.py` in place of `brace map`), also map the servers: build the topology with
+   copy, with `python tools/brace/brace.py map` in place of `brace map`), also map the servers: build the topology with
    `brace map build <repo> -o <repo>/brace-topology.cdx.json`,
    record each traced tool, backend and network with `add-node`, `add-edge --risk ...`
    and `set-zone` (each needs `path:line` and the exact quote), and name the affected

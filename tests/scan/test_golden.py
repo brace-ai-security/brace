@@ -15,7 +15,7 @@ from support import TOKEN, TOOL_DIR, cli_run, result
 import open_agent_security
 from open_agent_security.catalog import RULES
 
-GOLDEN = TOOL_DIR / "tests" / "fixtures" / "oas_golden"
+GOLDEN = TOOL_DIR.parent.parent / "tests" / "fixtures" / "oas_golden"
 # When the scan ran: GitLab's start_time and end_time, JUnit's timestamp and time.
 TIMES = re.compile(r'((?:"start_time": |"end_time": |timestamp=|time=)")[^"]*')
 
