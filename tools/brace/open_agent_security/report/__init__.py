@@ -1,7 +1,8 @@
-"""Reporters: render a Report as text, JSON, SARIF, Markdown, GitLab SAST, JUnit XML, GitHub step outputs or a
-prompt for a coding agent."""
+"""Reporters: render a Report as text, JSON, SARIF, Markdown, GitLab SAST, JUnit XML, a CycloneDX inventory,
+GitHub step outputs or a prompt for a coding agent."""
 from .agent_prompt import AgentPrompt
 from .common import ReportOptions
+from .cyclonedx import CycloneDx
 from .github_output import GithubOutput
 from .gitlab_sast import GitlabSast
 from .json_out import Json
@@ -11,4 +12,4 @@ from .sarif import Sarif
 from .text import Text
 
 __all__ = ["BUILTIN", "ReportOptions"]
-BUILTIN = (Text(), Json(), Sarif(), Markdown(), GitlabSast(), Junit(), GithubOutput(), AgentPrompt())
+BUILTIN = (Text(), Json(), Sarif(), Markdown(), GitlabSast(), Junit(), CycloneDx(), GithubOutput(), AgentPrompt())

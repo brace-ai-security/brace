@@ -71,7 +71,7 @@ conditions is in [SCAN-DETAILS.md](SCAN-DETAILS.md#what-the-scanner-reads-and-sk
 |---|---|
 | `--fail-on LEVEL` | Exit 1 when a finding is `critical`, `high` (default), `medium` or `low` or worse, or when the scan is incomplete. `none` exits 0 unless the scan could not run. |
 | `--json` | Print JSON instead of text (the same as `--output json=-`). |
-| `--output NAME=FILE` | Also write the `NAME` report to `FILE`: `text`, `json`, `sarif`, `markdown`, `gitlab-sast`, `junit`, `agent-prompt`, or a loaded plugin's. Repeat it for more than one. `FILE` `-` replaces the report on standard output. Markdown appends to `FILE`; the others replace it. |
+| `--output NAME=FILE` | Also write the `NAME` report to `FILE`: `text`, `json`, `sarif`, `markdown`, `gitlab-sast`, `junit`, `cyclonedx`, `agent-prompt`, or a loaded plugin's. Repeat it for more than one. `FILE` `-` replaces the report on standard output. Markdown appends to `FILE`; the others replace it. |
 | `--sarif FILE` | Also write SARIF 2.1.0 for GitHub code scanning (the same as `--output sarif=FILE`). |
 | `--markdown FILE` | Also append a Markdown summary, for example to `$GITHUB_STEP_SUMMARY` (the same as `--output markdown=FILE`). |
 | `--host` | Also read the agent settings on this machine. |
@@ -143,6 +143,24 @@ SAST or JUnit) found in the scanned folder are not scanned, and a note counts th
   rule without findings, and a "the scan is complete" case that is an error when the scan
   is incomplete. Suppressed findings are left out: JUnit has no "accepted" state, and a
   skipped test case would read as a check that did not run.
+- **cyclonedx**: a CycloneDX 1.7 JSON inventory of what the scan saw (`--output
+  cyclonedx=agents.cdx.json`). Each agent config file, and each CI workflow that runs an
+  agent, is a `file` component; each MCP server is a service; the package or image a server
+  fetches at start is a `library` (with a `purl`, and a `version` when pinned) or `container`
+  (with its SHA-256 digest when pinned) component the service depends on. Properties in the
+  `brace:` namespace give the client the file belongs to (`brace:client`, guessed from the
+  path), `brace:config_file` and `brace:line`, `brace:transport`, `brace:command` and
+  `brace:runner`, redacted `brace:args`, `brace:url_host` (scheme and host only: a URL's path
+  and query can hold a token), `brace:pinned`, and the *names* of env keys and headers
+  (`brace:env_key`, `brace:header_key`), never their values. Findings are not in the BOM:
+  CycloneDX `vulnerabilities` describe known vulnerabilities in a component, not how it is
+  configured, so each node a finding points at carries `brace:finding` = `<rule> <id>`, the
+  `id` of the finding in the JSON and SARIF outputs. `compositions` say the list is
+  `incomplete` when the scan was, else `unknown`: a scan lists what it read, not everything
+  that runs. The serial number is derived from the content. At most 5,000 entries are listed.
+  Tests validate it offline against the bundled CycloneDX 1.7 schema. For the richer map of
+  tools, data stores, trust zones and flows, use
+  [`topology.py`](README.md#security-map-and-action-plan), which writes the same CycloneDX version.
 
 Skipped files are listed as notes: files over 1 MB, binary or unreadable files (including
 bytes that start like UTF-16 but are not), symlinks and special files, and agent config
@@ -187,6 +205,19 @@ settings, Codex `requirements.toml` and managed config, Gemini CLI system settin
 enterprise hooks. AP01 and AP02 link the index of all four; AP06 links the Claude Code managed
 settings. Each template names the vendor page it follows and the date it was checked, and
 passes this scanner with `--fail-on low`.
+
+## Policy as code
+
+[`examples/policy/`](../../examples/policy/README.md) has small OPA/Conftest policies over the
+JSON report: no critical findings, no unpinned MCP server outside an approved list, no
+suppression without a written reason, and no incomplete scan.
+
+    open-agent-security . --json --fail-on none > report.json
+    conftest test report.json -p examples/policy/rego --data examples/policy/inputs/approved.json
+
+The same page has a table that points from checklist items B01, B05 and E06 to the policy
+languages MCP gateways use (Cedar, CEL, Rego). Those items are enforced at run time, not by
+this scanner.
 
 ## Silencing a reviewed finding
 
