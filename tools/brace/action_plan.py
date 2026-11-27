@@ -43,7 +43,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import topology  # noqa: E402
 
-ITEMS = {i["id"]: i for i in json.loads((HERE / "brace_items.json").read_text())}
+ITEMS = {i["id"]: i for i in json.loads((HERE.parent.parent / "src" / "brace_tools" / "data" / "brace_items.json").read_text())}
 ROLE_NAMES = {
     "agent_team": "Agent team", "operations": "Operations", "security": "Security",
     "infrastructure": "Infrastructure", "governance": "Governance", "business_owner": "Business owner",

@@ -40,7 +40,7 @@ import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-CDX_DIR = HERE / "schemas" / "cyclonedx-1.7"
+CDX_DIR = HERE.parent.parent / "src" / "brace_tools" / "data" / "schemas" / "cyclonedx-1.7"
 SPEC_VERSION = "1.7"
 NS = uuid.UUID("6f1c3a52-6a39-4f0e-9a64-2b1f6e0f7a11")  # BRACE topology namespace
 SECRET_FLAG = re.compile(r"(token|secret|password|passwd|api[-_]?key|credential)", re.I)

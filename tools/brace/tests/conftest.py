@@ -45,7 +45,7 @@ def pytest_sessionfinish(session, exitstatus):
         session.exitstatus = 1
 
 
-ITEMS = json.loads((TOOL_DIR / "brace_items.json").read_text(encoding="utf-8"))
+ITEMS = json.loads((TOOL_DIR.parent.parent / "src/brace_tools/data/brace_items.json").read_text(encoding="utf-8"))
 GATE = {i["id"]: i["gate"] for i in ITEMS}
 
 

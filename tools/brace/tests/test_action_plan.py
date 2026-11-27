@@ -162,7 +162,7 @@ def test_json_output_matches_schema_and_sarif_shape(example):
     bom, findings = example
     actions, problems = action_plan.actions_from(findings, topology.all_nodes(bom))
     data = action_plan.plan_data(findings, bom, actions, problems)
-    jsonschema.validate(data, json.loads((TOOL_DIR / "schemas/action-plan.schema.json").read_text()))
+    jsonschema.validate(data, json.loads((ROOT / "src/brace_tools/data/schemas/action-plan.schema.json").read_text()))
     assert data["summary"]["blocker_gaps"] == 4 and data["summary"]["actions"] == 8
     s = action_plan.sarif(data)
     run = s["runs"][0]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate tools/brace/brace_items.json and the record.yaml template.
+"""Generate src/brace_tools/data/brace_items.json and the record.yaml template.
 
 Sources:
   CHECKLIST.md  item headings, e.g. `**B05 · Blocker · C4 — Destructive-action interception.**`
@@ -20,8 +20,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-ITEMS_JSON = HERE / "brace_items.json"
-RECORD_TEMPLATE = HERE / "templates" / ".brace" / "record.yaml"
+DATA = HERE.parent.parent / "src" / "brace_tools" / "data"
+ITEMS_JSON = DATA / "brace_items.json"
+RECORD_TEMPLATE = DATA / "templates" / ".brace" / "record.yaml"
 
 ASPECTS = {
     "B": "build-time",

@@ -78,7 +78,7 @@ def test_scan_md_table_matches_the_catalog():
 
 
 def test_checklist_items_exist():
-    items = {i["id"] for i in json.loads((TOOL_DIR / "brace_items.json").read_text(encoding="utf-8"))}
+    items = {i["id"] for i in json.loads((ROOT / "src/brace_tools/data/brace_items.json").read_text(encoding="utf-8"))}
     for m in RULES:
         assert m.checklist and set(m.checklist) <= items, m.id
 

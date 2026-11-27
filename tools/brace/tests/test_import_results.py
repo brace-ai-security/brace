@@ -72,7 +72,7 @@ def test_categorize(name, cat):
 
 
 def test_suggestions_are_real_items():
-    known = {i["id"] for i in json.loads((TOOL_DIR / "brace_items.json").read_text())}
+    known = {i["id"] for i in json.loads((TOOL_DIR.parent.parent / "src/brace_tools/data/brace_items.json").read_text())}
     for items in ri.CATEGORY_ITEMS.values():
         assert set(items) <= known
 

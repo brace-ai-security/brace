@@ -16,7 +16,7 @@ file, for security questionnaires and GRC tools to import:
 
 The first column is the framework's own ID (a Markdown link keeps its URL in "url"), the
 second its name, the last the rationale as plain text. Item IDs are checked against
-tools/brace/brace_items.json and coverage values against the three the pages define.
+src/brace_tools/data/brace_items.json and coverage values against the three the pages define.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = ROOT / "mappings"
-ITEMS = {i["id"] for i in json.loads((ROOT / "tools/brace/brace_items.json").read_text(encoding="utf-8"))}
+ITEMS = {i["id"] for i in json.loads((ROOT / "src/brace_tools/data/brace_items.json").read_text(encoding="utf-8"))}
 COVERAGE = ("Direct", "Partial", "Out of scope")
 LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]*)\)")
 ITEM_ID = re.compile(r"\b[BRACE]\d\d\b")

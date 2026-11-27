@@ -48,9 +48,10 @@ except ImportError:  # pragma: no cover - depends on environment
     _JSValidator = None
 
 HERE = Path(__file__).resolve().parent
-SCHEMA_DIR = HERE / "schemas"
-ITEMS_FILE = HERE / "brace_items.json"
-TEMPLATE_DIR = HERE / "templates" / ".brace"
+DATA_DIR = HERE.parent.parent / "src" / "brace_tools" / "data"
+SCHEMA_DIR = DATA_DIR / "schemas"
+ITEMS_FILE = DATA_DIR / "brace_items.json"
+TEMPLATE_DIR = DATA_DIR / "templates" / ".brace"
 
 EXIT_GO = 0
 EXIT_NOGO = 1
