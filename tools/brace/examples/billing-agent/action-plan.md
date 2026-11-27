@@ -105,7 +105,7 @@ The **Lead** is the role that usually owns the fix (see ROLES.md).
 | [B03](#b03) | A secret login token for the accounting server is saved in a settings file in the code. | accounting | Fix before release, or get a written risk approval (Required) | Infrastructure |
 | [E06](#e06) | The agent talks straight to the accounting server. Nothing in between checks, limits or logs each call. | accounting | Fix before release, or get a written risk approval (Required) | Infrastructure |
 | [R05](#r05) | Saved notes are filed by email address only, so two customer companies with the same contact share notes. | negotiation memory (Redis), recall_negotiation, save_negotiation_note | Fix soon; track until done (Detection) | Data and privacy |
-| [R02](#r02) | Text from the accounting server and saved notes reaches the model, but there is no test showing an attack in that text is stopped. | accounting, negotiation memory (Redis) | Show proof it works, or get a written risk approval (Required) | Security |
+| [R02](#r02) | Text from the accounting server and saved notes reaches the model, but there is no test showing an attack in that text is stopped. | accounting, negotiation memory (Redis) | Show proof it works before release (Blocker) | Security |
 
 ## 4. How to fix each one
 
@@ -251,7 +251,7 @@ The **Lead** is the role that usually owns the fix (see ROLES.md).
 
 ### R02
 
-**Separate data from instructions and test injection containment** · Show proof it works, or get a written risk approval (Required)
+**Separate data from instructions and test injection containment** · Show proof it works before release (Blocker)
 
 **The problem:** Text from the accounting server and saved notes reaches the model, but there is no test showing an attack in that text is stopped.
 

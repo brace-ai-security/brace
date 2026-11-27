@@ -21,6 +21,7 @@ Example output:
     .github/workflows/triage.yml:5  --dangerously-skip-permissions
     Why:  A CI agent with no approvals and the job's token can be steered by anyone who can write an issue, PR, commit message or file it reads, and then push code, read secrets or publish packages.
     Fix:  Keep approvals on, give the job read-only permissions, and run untrusted-input jobs without repository secrets.
+    Template: templates/policy/README.md
     BRACE checklist B05, B02, B03, B09 · https://braceframework.org/anti-patterns/#ap02-unattended-agent-in-ci-with-permission-checks-turned-off
 
 ✗ HIGH     MCP server installed from an unpinned package  [AP04] ×1

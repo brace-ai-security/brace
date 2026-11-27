@@ -71,7 +71,7 @@ def test_findings_go_on_connections_or_parts(built):
     assert items["E08"]["gate"] == "Blocker" and items["R08"]["gate"] == "Detection"
     assert items["E08"]["lead"] == "Agent team" and items["B03"]["lead"] == "Infrastructure"
     assert not any("assignee" in f for f in m["findings"])
-    assert m["summary"]["findings"] == {"Blocker": 3, "Required": 4, "Detection": 1}
+    assert m["summary"]["findings"] == {"Blocker": 5, "Required": 2, "Detection": 1}
     assert not any(re.search(r"\bG[123]\b", json.dumps(f)) for f in m["findings"])
 
 

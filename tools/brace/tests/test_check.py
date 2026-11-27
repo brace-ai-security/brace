@@ -16,7 +16,7 @@ def test_go(repo):
     code, res = repo.check("--approvals", "off")
     assert code == 0, res["reasons"]
     assert res["decision"] == "GO"
-    assert res["counts"]["Blocker"]["pass"] == 18
+    assert res["counts"]["Blocker"]["pass"] == 20
     assert sum(c["pass"] for c in res["counts"].values()) == 53
 
 
