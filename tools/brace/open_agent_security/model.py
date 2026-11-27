@@ -69,6 +69,7 @@ class Image:
 class WorkflowFacts:
     trigger_line: int | None     # first line that triggers on pull_request_target
     agent_step: bool             # a step runs an agent
+    local_uses: tuple[str, ...] = ()  # local actions and reusable workflows it uses (`./.github/actions/x`)
 
 
 class ParseError(Exception):
@@ -86,6 +87,8 @@ class Document:
     permissions: Permissions | None = None
     images: list[Image] = field(default_factory=list)
     workflow: WorkflowFacts | None = None
+    full_access: list[tuple[tuple, str]] = field(default_factory=list)  # (key path, detail): Codex full access
+    data: Any = None             # the parsed document, for parsers that do not read JSON (Codex's TOML)
 
     def __post_init__(self):
         self._json: tuple | None = None

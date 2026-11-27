@@ -194,3 +194,29 @@ def test_round9_zapier_key_in_a_url_path_is_a_secret(tmp_path):
 def test_round9_public_or_descriptive_names_are_not_secrets(tmp_path, env):
     mcp(tmp_path, {"command": "node", "args": ["s.js"], "env": env})
     assert rules(tmp_path) == []
+
+
+def test_round11_secrets_anywhere_in_agent_config_are_reported_once_and_never_printed(tmp_path):
+    """Every string of an agent config is checked by format and by key; values the server rules
+    already check (env, headers, arguments, URL) are not reported twice."""
+    write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {
+        "a": {"url": "https://x.example", "apiKey": TOKEN, "headers": {"Authorization": "Bearer " + TOKEN}},
+        "b": {"command": "node", "env": {"GH": TOKEN}, "args": ["--token", TOKEN]}}}, indent=2))
+    write(tmp_path, ".codex/config.toml", f'[mcp_servers.x]\nurl = "https://x.example"\n'
+                                          f'http_headers = {{ "X-Api-Key" = "{TOKEN}" }}\n'
+                                          f'[model_providers.p]\nexperimental_bearer_token = "{TOKEN}"\n')
+    got = sorted((f.file, f.detail) for f in result(tmp_path).findings if f.rule == "AP05")
+    assert got == [(".codex/config.toml", "model_providers.p.experimental_bearer_token = <redacted>"),
+                   (".codex/config.toml", "x: headers.X-Api-Key = <redacted>"),
+                   (".mcp.json", "a: headers.Authorization = <redacted>"),
+                   (".mcp.json", "b: env.GH = <redacted>"),
+                   (".mcp.json", "b: secret in arguments or URL (<redacted>)"),
+                   (".mcp.json", "mcpServers.a.apiKey = <redacted>")]
+    assert not any(TOKEN in out for out in all_outputs(tmp_path))
+
+
+def test_round11_settings_in_agent_config_that_are_not_secrets_are_not_reported(tmp_path):
+    write(tmp_path, ".claude/settings.json", json.dumps({"model": "claude-sonnet-4-5", "apiKeyHelper": "~/bin/key.sh",
+                                                         "statusLine": {"command": "~/.claude/status.sh"}}))
+    write(tmp_path, "opencode.json", json.dumps({"provider": {"x": {"options": {"apiKey": "{env:X_API_KEY}"}}}}))
+    assert rules(tmp_path) == []

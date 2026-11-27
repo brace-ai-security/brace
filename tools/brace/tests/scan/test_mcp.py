@@ -18,11 +18,14 @@ GITHUB_TOKEN = "{TOKEN_MIXED}"
 '''
 
 
+IMG = "img@sha256:" + "a" * 64  # a container image pinned by digest (an unpinned one is AP04)
+
+
 def test_mcp_server_rules(tmp_path):
     cfg = {"mcpServers": {
         "a": {"command": "npx", "args": ["-y", "@scope/thing"]},
         "b": {"command": "uvx", "args": ["tool@latest"]},
-        "c": {"command": "docker", "args": ["run", "-v", "/var/run/docker.sock:/var/run/docker.sock", "img"]},
+        "c": {"command": "docker", "args": ["run", "-v", "/var/run/docker.sock:/var/run/docker.sock", IMG]},
         "d": {"url": "http://tools.example.com/mcp"},
         "e": {"url": "http://localhost:3000/mcp"},
         "f": {"command": "node", "args": ["x.js"], "env": {"TOKEN": TOKEN}},
@@ -68,9 +71,9 @@ def test_plain_http_detail_has_no_userinfo(tmp_path):
     assert details["AP07"] == "s: http://tools.example.com" and "s3cretpw" not in details["AP05"]
 
 
-@pytest.mark.parametrize("args", [["run", "--privileged", "i"], ["run", "--volume", "/:/host", "i"],
-                                  ["run", "--mount", "type=bind,source=/,target=/h", "i"], ["run", "--net=host", "i"],
-                                  ["run", "--cap-add=SYS_ADMIN", "i"]])
+@pytest.mark.parametrize("args", [["run", "--privileged", IMG], ["run", "--volume", "/:/host", IMG],
+                                  ["run", "--mount", "type=bind,source=/,target=/h", IMG], ["run", "--net=host", IMG],
+                                  ["run", "--cap-add=SYS_ADMIN", IMG]])
 def test_container_escape_forms(tmp_path, args):
     write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {"s": {"command": "docker", "args": args}}}))
     assert rules(tmp_path) == ["AP08"]
@@ -78,7 +81,7 @@ def test_container_escape_forms(tmp_path, args):
 
 def test_safe_container_mount_not_flagged(tmp_path):
     write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {"s": {"command": "docker",
-                                                              "args": ["run", "-v", "/srv/data:/data:ro", "i"]}}}))
+                                                              "args": ["run", "-v", "/srv/data:/data:ro", IMG]}}}))
     assert rules(tmp_path) == []
 
 
@@ -511,3 +514,19 @@ def test_round10_a_secret_in_a_url_path_is_reported(tmp_path, server, expected):
     """Finding 7."""
     write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {"s": server}}))
     assert ("AP05" in rules(tmp_path)) is expected
+
+
+@pytest.mark.parametrize("args,image", [
+    (["run", "-i", "--rm", "ghcr.io/github/github-mcp-server"], "ghcr.io/github/github-mcp-server"),
+    (["run", "-i", "--rm", "-e", "GITHUB_TOKEN", "--name", "gh", "mcp/github:latest"], "mcp/github:latest"),
+    (["container", "run", "--env=X=1", "-v", "/srv:/srv", "img:1.2"], "img:1.2"),
+])
+def test_round11_an_mcp_container_image_without_a_digest_is_unpinned(tmp_path, args, image):
+    write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {"s": {"command": "docker", "args": args}}}))
+    assert [f for f in found(tmp_path) if f[0] == "AP04"] == [("AP04", f"s: docker image {image} (no @sha256 digest)")]
+
+
+@pytest.mark.parametrize("args", [["run", "-i", "--rm", "ghcr.io/a/b@sha256:" + "0" * 64], ["ps"], ["run", "$IMAGE"]])
+def test_round11_a_digest_pinned_or_absent_image_is_not_reported(tmp_path, args):
+    write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {"s": {"command": "podman", "args": args}}}))
+    assert rules(tmp_path) == []

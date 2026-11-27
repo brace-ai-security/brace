@@ -51,7 +51,7 @@ def run_scan(config: Config, registry: Registry) -> Report:
     report = Report(rules=rules, config=config.path, tally=tally, secrets=secrets, started=now())
     for n in config.notes:
         report.note(n)
-    from_file, notes = load_ignores(config.root, config.limits.max_file_bytes) if config.root else ([], [])
+    from_file, notes = load_ignores(config.root, config.limits.max_file_bytes, registry.rules) if config.root else ([], [])
     for n in notes:
         report.note(n)
     unknown = sorted({e.rule for e in from_file if e.rule and e.rule not in registry.rules})

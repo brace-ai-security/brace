@@ -223,13 +223,13 @@ def scalars(vals) -> dict:
 
 
 def to_server(path: tuple, name: str, raw: dict) -> Server:
-    """One server. Its name, arguments and keys reach finding details, so each is cut to
+    """One server (Codex's `http_headers` read as headers). Its name, arguments and keys reach finding details, so each is cut to
     MAX_VALUE characters here: a finding then holds kilobytes, not a megabyte-long name, and
     the engine still sees any secret in what is kept whole when it redacts before cutting."""
     entry = common_shape(raw)
     cmd, args = command_and_args(entry)
     return Server(path, str(name)[:MAX_VALUE], cmd[:MAX_VALUE], tuple(a[:MAX_VALUE] for a in args),
-                  scalars(entry.get("env")), scalars(entry.get("headers")), entry_url(entry), raw)
+                  scalars(entry.get("env")), scalars(entry.get("headers", entry.get("http_headers"))), entry_url(entry), raw)
 
 
 class McpJson:

@@ -26,6 +26,9 @@ def rules_by_id(report) -> dict:
     return {r.id: r for r in report.rules}
 
 
+INCOMPLETE = "The scan is incomplete (see the notes)."  # the headline above findings when the scan is incomplete
+
+
 def headline(report) -> str:
     """The one-line verdict when there are no findings, shared by the text and Markdown reports."""
     if report.verdict == "incomplete":

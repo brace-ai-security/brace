@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import NamedTuple
+from typing import Collection, NamedTuple
 
 from .catalog import RULE_ID_PATTERN
 from .fsio import ReadFailure, read
@@ -18,6 +18,7 @@ IGNORE_FILE = ".open-agent-security-ignore"
 IGNORE_MARK = "open-agent-security: ignore"
 STARS = re.compile(r"\*+")
 TRAILING_COMMENT = re.compile(r"(?:^|\s)#.*$")
+BUILTIN_RULE = re.compile(r"^AP\d\d$")  # a built-in rule ID's form, registered or not
 RULE_PREFIX = re.compile(rf"^({RULE_ID_PATTERN})\s+(.+)$")  # `AP04 path`, or a plugin rule such as `ACME-01 path`
 
 
@@ -108,11 +109,12 @@ def parse_pattern(line: str, rule: str | None = None) -> PathGlob | None:
     return PathGlob(rule, neg, segs, dir_only)
 
 
-def load_ignores(root: Path, limit: int = MB) -> tuple[list[PathGlob], list[str]]:
+def load_ignores(root: Path, limit: int = MB, rules: Collection[str] = ()) -> tuple[list[PathGlob], list[str]]:
     """Patterns from IGNORE_FILE. Each line: [RULE ]pattern [# comment].
 
     A line starting with `#` is a comment, and so is ` #...` after a pattern. An optional rule
-    ID first (`AP04 .vscode/mcp.json`, or a plugin's rule ID) limits the entry to that rule. At most MAX_IGNORES
+    ID first (`AP04 .vscode/mcp.json`, or a registered plugin rule ID from `rules`) limits the
+    entry to that rule; any other first word is part of the path (`LICENSE files/x.sh`). At most MAX_IGNORES
     entries of up to MAX_PATTERN characters are read. Patterns deeper than MAX_SEGMENTS folders,
     and patterns past the MAX_FLEX budget, are skipped with a note. A file that cannot be read
     (a symlink, too large, unreadable) is not applied, with a note. Returns (entries, notes)."""
@@ -134,7 +136,7 @@ def load_ignores(root: Path, limit: int = MB) -> tuple[list[PathGlob], list[str]
             continue
         rule = None
         m = RULE_PREFIX.match(line)
-        if m:
+        if m and (m.group(1) in rules or BUILTIN_RULE.match(m.group(1))):
             rule, line = m.group(1), m.group(2).strip()
         try:
             entry = parse_pattern(line, rule)

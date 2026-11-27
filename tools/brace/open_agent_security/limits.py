@@ -42,6 +42,8 @@ WRAPPER_DEPTH = 6                    # wrappers looked through to find a server'
 MAX_OPEN_BRACKETS = 1000             # brackets tracked when deciding whether a flag sits in a deny-list
 MAX_PER_COMMAND = 200                # gated flags examined in one logical command (a line and its continuations)
 JSON_INDEX_KEYS = 200_000            # object keys indexed for line numbers in one JSON file
+WALK_DEPTH = 32                      # nesting followed when every value of an agent config is checked for secrets
+WALK_VALUES = 20_000                 # values of one agent config checked for secrets
 JSON_INDEX_DEPTH = 8                 # findings point at most 6 keys deep (projects.<p>.mcpServers.<n>.env.<k>)
 
 # Ignore entries and config globs: matching cost grows with these, so they are capped

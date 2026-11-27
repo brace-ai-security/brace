@@ -68,7 +68,7 @@ def test_round3_missed_patterns(tmp_path):
     assert ("AP02", ".github/workflows/w.yml") in got
     assert ("AP01", "scripts/agent") in got and ("AP01", ".env") in got
     assert ("AP05", ".claude/settings.json") in got
-    assert [r for r, f in got if f == ".mcp.json" and r == "AP04"] == ["AP04", "AP04", "AP04"]
+    assert [r for r, f in got if f == ".mcp.json" and r == "AP04"] == ["AP04"] * 4  # with docker image `i`
     assert ("AP08", ".mcp.json") in got
     assert ("AP03", ".github/workflows/p.yml") in got and ("AP03", ".github/workflows/q.yml") in got
 
@@ -547,3 +547,94 @@ def test_round10_gated_flags_of_another_command_are_not_reported(tmp_path, rel, 
 def test_round10_the_reporting_bias_is_documented():
     doc = (TOOL_DIR / "SCAN.md").read_text(encoding="utf-8")
     assert "errs toward reporting" in doc and "open-agent-security: ignore" in doc
+
+
+# --- Round 11 ---------------------------------------------------------------------------------
+STEP = "jobs:\n  a:\n    runs-on: x\n    steps:\n"
+
+
+@pytest.mark.parametrize("rel,text", [
+    # 4: -y in an agent action's step belongs to npx or apt-get, not to the agent.
+    (".github/workflows/w.yml", STEP + "      - uses: anthropics/claude-code-action@v1\n        with:\n          mcp_config: |\n"
+     '            {"mcpServers":{"g":{"command":"npx","args":["-y","@modelcontextprotocol/server-github@1.2.3"]}}}\n'),
+    (".github/workflows/w.yml", STEP + "      - uses: anthropics/claude-code-action@v1\n        with:\n"
+     "          prompt: run apt-get install -y jq first\n"),
+    (".github/workflows/w.yml", STEP + "      - uses: google-github-actions/run-gemini-cli@v0\n        with:\n          settings: |\n"
+     '            {"mcpServers":{"g":{"command":"npx","args":["-y","x@1.0.0"]}}}\n'),
+    (".github/workflows/w.yml", STEP + "      - uses: google-github-actions/run-gemini-cli@v0\n        with:\n"
+     "          prompt: never pass --yolo here\n"),
+    # 8: a path, file or flag value that equals a CLI name.
+    ("run.sh", "deno run --allow-all examples/gemini.ts\n"),
+    ("package.json", json.dumps({"scripts": {"gen": "deno run --allow-all scripts/copilot.ts"}})),
+    ("run.sh", "python train.py --yolo --out codex/\n"),
+    ("run.sh", "mytool --provider gemini -y\n"),
+    ("run.sh", "mytool --provider=gemini --yolo\n"),
+])
+def test_round11_gated_flags_of_another_command_are_not_reported(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert not {"AP01", "AP02"} & set(rules(tmp_path))
+
+
+@pytest.mark.parametrize("rel,text", [
+    (".github/workflows/w.yml", STEP + "      - uses: google-github-actions/run-gemini-cli@v0\n        with:\n"
+     "          gemini_cli_args: |\n            --yolo\n"),
+    (".github/workflows/w.yml", STEP + "      - uses: openai/codex-action@v1\n        with:\n          args: --yolo\n"),
+    ("run.sh", "/usr/local/bin/gemini --yolo -p fix\n"),
+    ("run.sh", "gemini.exe --yolo\n"),
+    ("run.sh", "npx -y @google/gemini-cli -y -p fix\n"),
+])
+def test_round11_gated_flags_of_the_agent_still_count(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert {"AP01", "AP02"} & set(rules(tmp_path))
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("check.sh", f'case "$arg" in\n  {FLAG}) echo "refused"; exit 1 ;;\nesac\n'),
+    ("check.sh", f'case "$a" in -h) usage ;; {FLAG}) exit 1 ;; esac\n'),
+    (".github/workflows/w.yml", STEP + f'      - run: |\n          case "$ARGS" in\n            *{FLAG}*) exit 1 ;;\n'
+                                       f'          esac\n'),
+    ("check.sh", f'if grep -q -- "{FLAG}" "$1"; then exit 1; fi\n'),
+    ("check.sh", f'x=$(grep -c -- {FLAG} run.log)\n'),
+    ("check.sh", f'if [ "$1" = "{FLAG}" ]; then exit 1; fi\n'),
+    ("Makefile", f'check:\n\ttest "$$FLAGS" != {FLAG}\n'),
+])
+def test_round11_structural_mentions_in_shell_are_still_mentions(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert rules(tmp_path) == []
+
+
+@pytest.mark.parametrize("rel,text", [
+    # (c) shell forms only in shell: a case arm or test shape in another language counts.
+    ("a.py", f'x = [\n"{FLAG}")\n'),
+    # no `case ... in` open: a line-starting `--flag)` is not an arm
+    ("run.sh", f'run_agent \\\n  {FLAG})\n'),
+    ("run.sh", f'esac\n{FLAG})\n'),
+    # the overriding rule: an agent CLI in the same call
+    ("a.py", f'subprocess.run(["claude", "-p", q, "--", "grep", "{FLAG}"])\n'),
+])
+def test_round11_shell_shapes_elsewhere_are_reported(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert {"AP01", "AP02"} & set(rules(tmp_path))
+
+
+def test_round11_an_agent_on_the_line_overrides_every_mention_form(tmp_path):
+    write(tmp_path, "run.sh", f'case "$a" in\n  {FLAG}) claude -p hi ;;\nesac\ngrep -q -- {FLAG} log && claude -p fix\n')
+    assert [f.line for f in result(tmp_path).findings] == [2, 4]
+
+
+def test_round11_ansible_block_is_not_a_deny_list_but_blocked_still_is(tmp_path):
+    write(tmp_path, "play.yml", f"- block:\n    - {FLAG}\n")
+    assert rules(tmp_path) == ["AP01"]
+    write(tmp_path, "play.yml", f"blocked:\n  - {FLAG}\nblocklist:\n  - {FLAG}\n")
+    assert rules(tmp_path) == []
+    write(tmp_path, "play.yml", f'blocked:\n  - shell: "x {FLAG}"\n')
+    assert rules(tmp_path) == ["AP01"]
+
+
+def test_round11_codex_full_access_is_read_from_the_parsed_toml(tmp_path):
+    write(tmp_path, ".codex/config.toml", 'approval_policy = "never"\nsandbox_mode = """danger-full-access"""\n'
+                                          '[profiles.ci]\nsandbox_mode = "danger-\\u0066ull-access"\n')
+    found_ = result(tmp_path).findings
+    assert [(f.rule, f.line, f.detail) for f in found_] == [
+        ("AP01", 2, 'sandbox_mode = "danger-full-access" + approval_policy = "never"'),
+        ("AP01", 4, 'profiles.ci.sandbox_mode = "danger-full-access"')]

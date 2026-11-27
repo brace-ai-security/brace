@@ -106,10 +106,10 @@ def test_globs_cannot_escape_the_folder(tmp_path, key, pattern):
 
 
 def test_include_and_agent_config_globs(tmp_path):
-    write(tmp_path, "deploy/run.tpl", "gemini --yolo\n")
+    write(tmp_path, "deploy/run.sht", "gemini -y\n")  # -y is not a bypass marker, so the walk reads no .sht
     write(tmp_path, "config/mcp.prod.cfgjson", '{"servers": {')
     assert cli_run(tmp_path, "--fail-on", "low")[0] == 0  # neither file is read by default
-    config(tmp_path, {"include": ["deploy/*.tpl"], "agent-config": ["config/mcp.*.cfgjson"]})
+    config(tmp_path, {"include": ["deploy/*.sht"], "agent-config": ["config/mcp.*.cfgjson"]})
     code, out, _ = cli_run(tmp_path, "--fail-on", "none", "--json")
     report = json.loads(out)
     assert [f["rule"] for f in report["findings"]] == ["AP01"]

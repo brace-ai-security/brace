@@ -71,11 +71,24 @@ def test_ignore_cache_overflow_does_not_raise(monkeypatch):
 
 
 def test_plugin_rule_ids_in_ignore_file(tmp_path):
+    """A registered plugin rule ID limits an entry to that rule; an unregistered word is part of
+    the path, so `ACME01 .mcp.json` names a file called that and suppresses nothing."""
     six_servers(tmp_path)
     write(tmp_path, IGNORE_FILE, "ACME01 .mcp.json\n")
     r = report(tmp_path)
-    assert len(r["findings"]) == 6 and any("unknown rule ACME01" in n for n in r["notes"])
-    assert load_ignores(tmp_path)[0][0].rule == "ACME01"
+    assert len(r["findings"]) == 6 and not any("unknown rule" in n for n in r["notes"])
+    assert load_ignores(tmp_path, rules={"ACME01"})[0][0].rule == "ACME01"
+    assert load_ignores(tmp_path)[0][0].rule is None
+
+
+def test_an_unknown_first_word_in_the_ignore_file_is_part_of_the_path(tmp_path):
+    """Round 11: `LICENSE files/x.sh` is a path with a space, not rule LICENSE on files/x.sh."""
+    write(tmp_path, "LICENSE files/x.sh", f"claude -p hi {FLAG}\n")
+    write(tmp_path, "files/x.sh", f"claude -p hi {FLAG}\n")
+    write(tmp_path, IGNORE_FILE, "LICENSE files/x.sh\nAP99 nothing\n")
+    entries = load_ignores(tmp_path)[0]
+    assert [e.rule for e in entries] == [None, "AP99"]
+    assert [f["file"] for f in report(tmp_path)["findings"]] == ["files/x.sh"]
 
 
 def test_patterns_deeper_than_the_cap_are_skipped_with_a_note(tmp_path):
@@ -101,11 +114,10 @@ def test_ignore_matching_still_follows_gitignore_rules(tmp_path):
 
 def test_plugin_rule_ids_with_dashes_in_the_ignore_file(tmp_path):
     write(tmp_path, IGNORE_FILE, "ACME-01 run.sh\n")
-    assert load_ignores(tmp_path)[0][0].rule == "ACME-01"
+    assert load_ignores(tmp_path, rules={"ACME-01"})[0][0].rule == "ACME-01"
     write(tmp_path, "run.sh", f"claude -p hi {FLAG}\n")
     r = report(tmp_path)
-    assert [f["rule"] for f in r["findings"]] == ["AP01"]
-    assert any("unknown rule ACME-01" in n for n in r["notes"])
+    assert [f["rule"] for f in r["findings"]] == ["AP01"]  # `ACME-01 run.sh` is a path that matches nothing
 
 
 @pytest.mark.parametrize("pattern,path,ignored", [

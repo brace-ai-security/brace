@@ -74,11 +74,13 @@ found. It doesn't mean the agent is secure; for that, use the
 
 ### AP04: MCP server installed from an unpinned package
 
-**Looks like:** `"command": "npx", "args": ["-y", "some-mcp-server"]`, `uvx tool@latest`.
+**Looks like:** `"command": "npx", "args": ["-y", "some-mcp-server"]`, `uvx tool@latest`, `"command": "docker", "args": ["run", "-i", "--rm", "ghcr.io/org/mcp-server:latest"]`.
+
+**Detected:** a package that a runner (`npx`, `uvx`, `bunx`, `pnpx`, `deno`) fetches without an exact version, and a `docker` or `podman` image whose reference has no `@sha256:` digest (a tag such as `:latest` or `:1.2`, or no tag at all, can be moved to new contents). The finding names the package or image.
 
 **Why it's dangerous:** The newest version is downloaded at every start and runs with everything your agent can reach. A hijacked maintainer account, a typosquatted name or a malicious update becomes code execution on your machine, with no review and often no record of which version ran. A server can also change its tool descriptions between versions to steer the model.
 
-**Do instead:** Pin an exact version (`some-mcp-server@1.4.2`, `tool==1.4.2`), install from a reviewed lockfile, and re-check tool descriptions when you upgrade.
+**Do instead:** Pin an exact version (`some-mcp-server@1.4.2`, `tool==1.4.2`) or a container image by digest (`ghcr.io/org/mcp-server@sha256:...`), install from a reviewed lockfile, and re-check tool descriptions when you upgrade.
 
 **BRACE:** [E02](CHECKLIST.md), [E03](CHECKLIST.md), [C05](CHECKLIST.md)
 
@@ -86,7 +88,7 @@ found. It doesn't mean the agent is secure; for that, use the
 
 **Looks like:** `"env": {"GITHUB_TOKEN": "ghp_..."}` in `.mcp.json` or `claude_desktop_config.json`, `"Authorization": "Bearer ..."` or `"X-API-Key": "..."` in headers, a key in a URL (`?api_key=...`), or `docker run -e API_TOKEN=...` in a server's arguments.
 
-**Detected:** known token formats (GitHub, OpenAI, Anthropic, AWS, Slack tokens and webhook URLs, GitLab, Google, Stripe, npm, PyPI, Hugging Face, Notion, Zapier `sk-ak-`, JWTs, PEM private keys and inline Google Cloud service-account keys) anywhere in a server's env, headers, arguments or URL, URL passwords, and values under a secret-looking name (a word that is `key`, `pass`, `pwd`, `auth`, `authorization` or `cred`, or ends with `token`, `secret`, `password`, `passwd`, `passphrase`, `credential`, `apikey`, `accesskey`, `privatekey`, `secretkey`, `authkey` or `oauth`; not `public` or `publishable`): 16 or more characters mixing letters and digits, or any 8 or more printable characters when a word holds `pass` or `pwd` or ends with `secret`. Names are read in env keys such as `BRAVE_API_KEY` or `POSTGRES_PASSWORD`, header names, URL query parameters, `KEY=value` arguments, secret-named flags and Claude Code settings `env`; names that end by saying what else the value is (`TOKEN_FILE`, `KEY_ID`, `PRIMARY_KEY_COLUMN`) are not. Placeholders and references such as `${BRAVE_API_KEY}` are not reported. A secret under a name that does not say so, or in a prompt or image, needs review by hand.
+**Detected:** known token formats (GitHub, OpenAI, Anthropic, AWS, Slack tokens and webhook URLs, GitLab, Google, Stripe, npm, PyPI, Hugging Face, Notion, Zapier `sk-ak-`, JWTs, PEM private keys and inline Google Cloud service-account keys) anywhere in a server's env, headers, arguments or URL, or in any other value of an agent config file (`"apiKey"`, `oauth.clientSecret`, Codex `bearer_token` and `http_headers`, an opencode provider's `options.apiKey`), URL passwords, and values under a secret-looking name (a word that is `key`, `pass`, `pwd`, `auth`, `authorization` or `cred`, or ends with `token`, `secret`, `password`, `passwd`, `passphrase`, `credential`, `apikey`, `accesskey`, `privatekey`, `secretkey`, `authkey` or `oauth`; not `public` or `publishable`): 16 or more characters mixing letters and digits, or any 8 or more printable characters when a word holds `pass` or `pwd` or ends with `secret`. Names are read in env keys such as `BRAVE_API_KEY` or `POSTGRES_PASSWORD`, header names, URL query parameters, `KEY=value` arguments, secret-named flags and Claude Code settings `env`; names that end by saying what else the value is (`TOKEN_FILE`, `KEY_ID`, `PRIMARY_KEY_COLUMN`) are not. Placeholders and references such as `${BRAVE_API_KEY}` are not reported. A secret under a name that does not say so, or in a prompt or image, needs review by hand.
 
 **Why it's dangerous:** Agent config files get committed, synced, pasted into issues and read by the agent itself, which can be talked into printing them. The tokens in these files tend to be long-lived and broadly scoped.
 

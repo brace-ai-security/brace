@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from support import FLAG, ROOT, TOOL_DIR, write
+from support import FLAG, ROOT, TOOL_DIR, skip_unless_ci, write
 
 import open_agent_security
 
@@ -72,7 +72,7 @@ def test_action_exit_2_message_names_the_config_file():
 def test_the_wheel_installs_and_runs(tmp_path):
     tool = build_tool()
     if tool is None:
-        pytest.skip("no wheel build tool (uv or python -m build) is available")
+        skip_unless_ci("no wheel build tool (uv or python -m build) is available")
     out = tmp_path / "dist"
     before = build_leftovers()
     try:
@@ -81,7 +81,7 @@ def test_the_wheel_installs_and_runs(tmp_path):
         for left in build_leftovers() - before:
             shutil.rmtree(left, ignore_errors=True)
     if p.returncode != 0:
-        pytest.skip("the wheel could not be built offline: " + p.stderr.decode("utf-8", "replace")[-300:])
+        skip_unless_ci("the wheel could not be built offline: " + p.stderr.decode("utf-8", "replace")[-300:])
     wheel = next(out.glob("*.whl"))
     venv.create(tmp_path / "venv", with_pip=True)
     bindir = tmp_path / "venv" / ("Scripts" if os.name == "nt" else "bin")
@@ -129,3 +129,24 @@ def test_the_docs_say_which_outputs_are_capped_and_which_rules_span_files():
     hooks = (ROOT / ".pre-commit-hooks.yaml").read_text(encoding="utf-8")
     assert "SARIF and JSON\noutputs have all" not in scan_md and "SARIF at most\n5,000" in scan_md
     assert "AP09" not in hooks and "(AP09, AP10)" not in scan_md
+
+
+def test_round11_ci_runs_the_wheel_and_history_tests_on_every_supported_python():
+    flow = yaml.safe_load((ROOT / ".github/workflows/tooling.yml").read_text(encoding="utf-8"))
+    job = flow["jobs"]["check"]
+    assert job["strategy"]["matrix"]["python-version"] == ["3.11", "3.12"] and job["timeout-minutes"] == 10
+    checkout = next(s for s in job["steps"] if s.get("uses", "").startswith("actions/checkout@"))
+    assert checkout["with"]["fetch-depth"] == 0
+    runs = " ".join(s.get("run", "") for s in job["steps"])
+    assert re.search(r"\bbuild==\S+", runs) and re.search(r"\bsetuptools==\S+", runs)
+    assert "pytest tools/brace/tests -q -rs" in runs
+
+
+def test_round11_the_must_run_tests_fail_instead_of_skipping_in_ci(monkeypatch):
+    from support import skip_unless_ci
+    monkeypatch.setenv("CI", "true")
+    with pytest.raises(pytest.fail.Exception):
+        skip_unless_ci("no tool")
+    monkeypatch.setenv("CI", "")
+    with pytest.raises(pytest.skip.Exception):
+        skip_unless_ci("no tool")

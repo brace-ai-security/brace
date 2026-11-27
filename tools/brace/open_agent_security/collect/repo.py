@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 from pathlib import Path
 from typing import Iterator
 
@@ -26,27 +27,40 @@ from ..report.json_out import KEYS as JSON_REPORT_KEYS
 
 VENV = "Python virtual environments"
 DEPENDENCY_DIRS = {"node_modules", "site-packages", VENV}       # never entered; counted in one note
-SKIPPED_DIRS = {".git", ".hg", ".svn", "__pycache__", "node_modules", "site-packages"}  # never entered; counted
+SKIPPED_DIRS = {".git", ".hg", ".svn", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules",
+                "site-packages"}  # never entered; counted
 VENV_NAMES = {".venv", "venv"}                                 # skipped and counted when they hold pyvenv.cfg
 TEXT_EXT = {".json", ".jsonc", ".yaml", ".yml", ".toml", ".py", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs",
             ".cjs", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd", ".md", ".env", ".ini", ".cfg", ".go",
-            ".rs", ".rb", ".java", ".kt", ".scala", ".groovy", ".mk", ".dockerfile", ".containerfile"}
+            ".rs", ".rb", ".java", ".kt", ".scala", ".groovy", ".mk", ".dockerfile", ".containerfile",
+            # service and process definitions, editor workspaces, infrastructure, notebooks, other
+            # languages and templates (comment markers for each are in checks/permissions.py)
+            ".service", ".conf", ".code-workspace", ".tf", ".hcl", ".ipynb", ".php", ".cs", ".swift", ".lua", ".pl",
+            ".c", ".h", ".cpp", ".ex", ".exs", ".dart", ".vue", ".svelte", ".html", ".nix", ".j2", ".jinja", ".tpl",
+            ".properties", ".json5", ".txt"}
 SHELL_STARTUP = {".zshrc", ".bashrc", ".bash_aliases", ".bash_profile", ".zprofile", ".profile", ".envrc", ".zshenv"}
-TEXT_NAMES = {"makefile", "gnumakefile", "justfile", ".justfile", "jenkinsfile", ".mcp.json", *SHELL_STARTUP}  # lowercased
+TEXT_NAMES = {"makefile", "gnumakefile", "justfile", ".justfile", "jenkinsfile", ".mcp.json", "procfile",
+              *SHELL_STARTUP}  # lowercased
 CI_PATH = re.compile(r"(?:^|/)(?:\.github/workflows/|\.gitlab-ci\.ya?ml$|\.gitlab/|\.circleci/|\.buildkite/|Jenkinsfile$|"
                      r"azure-pipelines\.ya?ml$|bitbucket-pipelines\.ya?ml$|\.drone\.ya?ml$|\.woodpecker|\.tekton/)", re.I)
 SCRIPT_EXT = {".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd", ""}
 SCANNER = "open-agent-security"
-REPORT_EXT = {".json", ".sarif"}  # the only formats it writes that the walk can read (JUnit's .xml is never read)
+REPORT_EXT = {".json", ".sarif", ".xml"}  # formats it writes that the walk can read (.xml only with a bypass marker)
+JUNIT_HEAD = f'<testsuites name="{SCANNER}"'
+JUNIT_HEAD_CHARS = 300
 
 
 def own_report(rel: str, text: str) -> bool:
-    """A JSON, SARIF or GitLab SAST report this scanner wrote, such as report.json left in the
-    scanned folder: scanning it would report the findings it lists, more each run. Only a .json
-    or .sarif file the rules do not need, holding exactly one of those documents (parsed whole,
-    strict JSON), counts, so no script, workflow, Dockerfile or agent config can pass for one."""
+    """A JSON, SARIF, GitLab SAST or JUnit report this scanner wrote, such as report.json left in
+    the scanned folder: scanning it would report the findings it lists, more each run. Only a
+    .json or .sarif file the rules do not need, holding exactly one of those documents (parsed
+    whole, strict JSON), or an .xml file (a kind the walk reads only for a bypass marker) that
+    opens as its JUnit report, counts, so no script, workflow, Dockerfile or agent config can
+    pass for one."""
     if Path(rel.lower()).suffix not in REPORT_EXT or required(rel, False) or SCANNER not in text:
         return False
+    if rel.lower().endswith(".xml"):  # read only when it holds a bypass marker (see marked)
+        return text.lstrip().startswith("<?xml") and JUNIT_HEAD in text[:JUNIT_HEAD_CHARS]
     try:
         data = json.loads(text)
     except (ValueError, RecursionError):
@@ -98,6 +112,17 @@ def gives_roles(rel: str) -> bool:
     return rel.rsplit("/", 1)[-1].lower() in CONFIG_DIRS or rel.lower().endswith(".github/workflows")
 
 
+def marked(p: Path, limit: int) -> bool:
+    """A regular file of a kind the walk does not read, within the size limit, that holds a
+    bypass marker (BYPASS_BYTES): it is read as text, so no file kind hides a bypass. A byte
+    search, cheap next to reading every file as text."""
+    try:
+        st = os.lstat(p)
+    except OSError:
+        return False
+    return stat.S_ISREG(st.st_mode) and 0 < st.st_size <= limit and contains(p, BYPASS_BYTES, limit)
+
+
 def is_script(p: Path) -> bool:
     """An extensionless file that starts with #! (a shell or Python script)."""
     return starts_with(p, b"#!")
@@ -132,7 +157,8 @@ class RepoCollector:
                 configured = agent_config.match(rel)
                 agent = configured or bool(CONFIG_FILE.search(rel))
                 if not (wanted(name) or agent or include.match(rel)):
-                    if "." in name or not is_script(here / name):
+                    if ("." in name or not is_script(here / name)) and \
+                            not marked(here / name, limits.max_file_bytes):
                         continue
                 count += 1
                 if count > limits.max_files:

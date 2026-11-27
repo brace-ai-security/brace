@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from support import ROOT, TOKEN, fast, found, result, write
+from support import ROOT, TOKEN, fast, found, result, skip_unless_ci, write
 
 AGENT = json.dumps({"mcpServers": {"t": {"command": "node", "args": ["t.js"]}}})  # agent evidence for AP10
 SECRET_ANT = "sk-ant-api03-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0"
@@ -232,7 +232,7 @@ def original_ids(scanner, tmp: Path, files: dict[str, str]) -> list[str]:
 def test_expected_matches_the_original(tmp_path):
     scanner = original_scanner(tmp_path)
     if scanner is None:
-        pytest.skip("git or the 3.1.0 commit is not available")
+        skip_unless_ci("git or the 3.1.0 commit is not available")
     try:
         assert {name: original_ids(scanner, tmp_path, files) for name, files in CASES.items()} == EXPECTED
     finally:
@@ -369,6 +369,76 @@ REVIEW_CASES: dict[str, tuple[dict[str, str], list[str]]] = {
         url="https://mcp.zapier.com/api/mcp/s/NjY2ZDk4ZTItYWJjZC00ZWZnLTEyMzQtNTY3ODkwYWJjZGVm/mcp")}, ["AP05"]),
     # 9: Crush's -y.
     "r10-crush-y": ({"run.sh": "crush -y\n"}, ["AP01"]),
+    # Review 11. 1: a flag starting a continued line, or closing a call, read as a shell case arm.
+    "r11-subst-continued": ({"run.sh": f'OUT=$(claude -p "$PROMPT" --output-format json \\\n  {FLAG})\n'}, ["AP01"]),
+    "r11-subst-run-block": ({".github/workflows/w.yml": wf(f'      - run: |\n          OUT=$(claude -p "$P" --output-format json \\\n'
+                                                            f'          {FLAG})\n', "on: push\n")}, ["AP02"]),
+    "r11-subshell": ({"run.sh": f"(cd repo && claude -p hi \\\n  {FLAG})\n"}, ["AP01"]),
+    "r11-go-call": ({"a.go": f'exec.Command("claude", "-p", p,\n\t"{FLAG}")\n'}, ["AP01"]),
+    "r11-js-concat": ({"a.js": f'execSync("claude -p x " +\n  "{FLAG}");\n'}, ["AP01"]),
+    "r11-py-call": ({"a.py": f'run("claude", "-p", prompt,\n    "{FLAG}")\n'}, ["AP01"]),
+    "r11-ts-execa": ({"a.ts": f'execa("claude",\n  "{FLAG}")\n'}, ["AP01"]),
+    # 2: a search tool's name anywhere before the flag made it a search.
+    "r11-grep-prompt": ({"run.sh": f'claude -p "grep the logs for errors and fix them" {FLAG}\n'}, ["AP01"]),
+    "r11-bash-grep-tool": ({"run.sh": f'claude --allowedTools "Bash(grep:*)" {FLAG}\n'}, ["AP01"]),
+    "r11-grep-tool": ({"run.sh": f'claude --allowedTools "Read,Grep,Glob" {FLAG}\n'}, ["AP01"]),
+    "r11-rg-prompt": ({"run.sh": f'claude -p "use rg to find TODOs" {FLAG}\n'}, ["AP01"]),
+    "r11-claude-args-grep": ({".github/workflows/w.yml": wf(
+        f'      - uses: anthropics/claude-code-action@v1\n        with:\n'
+        f'          claude_args: --allowedTools "Bash(grep:*)" {FLAG}\n', "on: push\n")}, ["AP02"]),
+    "r11-package-json-grep": ({"package.json": '{"scripts":{"fix":"claude -p \\"grep for bugs\\" ' + FLAG + '"}}'}, ["AP01"]),
+    "r11-grep-file-name": ({"run.sh": f'claude -p "$(cat prompts/grep.txt)" {FLAG}\n'}, ["AP01"]),
+    "r11-ack-prompt": ({"run.sh": f'claude -p "ack the alert" {FLAG}\n'}, ["AP01"]),
+    # 3: any `[ ` before `=` read as a test.
+    "r11-compose-list": ({"docker-compose.yml": f'services:\n  a:\n    command: [ "sh", "-c", "FLAGS={FLAG} claude -p hi" ]\n'},
+                         ["AP01"]),
+    "r11-py-list-kwarg": ({"a.py": f'run([ "claude" ], extra="{FLAG}")\n'}, ["AP01"]),
+    "r11-workflow-env-list": ({".github/workflows/w.yml": wf(
+        f'      - run: x\n        env:\n          ARGS: [ "--model=x", "FLAGS={FLAG}" ]\n', "on: push\n")}, ["AP02"]),
+    # 5: known-format tokens elsewhere in agent config.
+    "r11-codex-http-headers": ({".codex/config.toml": f'[mcp_servers.x]\nurl = "https://x.example/mcp"\n'
+                                                      f'http_headers = {{ Authorization = "Bearer {TOKEN}", "X-Api-Key" = "{TOKEN}" }}\n'},
+                               ["AP05"]),
+    "r11-codex-bearer-token": ({".codex/config.toml": f'[mcp_servers.x]\nurl = "https://x.example/mcp"\nbearer_token = "{TOKEN}"\n'},
+                               ["AP05"]),
+    "r11-codex-provider-token": ({".codex/config.toml": f'[model_providers.x]\nexperimental_bearer_token = "{TOKEN}"\n'},
+                                 ["AP05"]),
+    "r11-mcp-api-key": ({".mcp.json": server(url="https://x.example", apiKey=TOKEN)}, ["AP05"]),
+    "r11-mcp-oauth-secret": ({".mcp.json": server(url="https://x.example", oauth={"clientSecret": "Zp4rT9qLm2Xv8Ws1Zp4r"})},
+                             ["AP05"]),
+    "r11-mcp-request-init": ({".mcp.json": server(url="https://x.example",
+                                                  requestInit={"headers": {"Authorization": "Bearer " + TOKEN}})}, ["AP05"]),
+    "r11-mcp-env-list": ({".mcp.json": server(command="node", env=["API_KEY=" + TOKEN])}, ["AP05"]),
+    "r11-opencode-provider": ({"opencode.json": json.dumps({"provider": {"x": {"options": {"apiKey": TOKEN}}}})}, ["AP05"]),
+    "r11-gemini-settings-key": ({".gemini/settings.json": json.dumps({"apiKey": TOKEN})}, ["AP05"]),
+    # 6: files of kinds the walk did not read.
+    **{f"r11-unread-{name}": ({name: f"claude {FLAG} -p hi\n"}, ["AP01"]) for name in (
+        "Procfile", "agent.service", "supervisord.conf", "x.code-workspace", "main.tf", "n.ipynb", "a.php", "a.cs",
+        "a.swift", "a.lua", "a.pl", "a.c", "a.exs", "a.dart", "a.vue", "a.html", "flake.nix", "a.j2", "a.tpl",
+        "a.properties", "a.json5", "notes.txt", "runagent", "odd.xyz")},
+    # 7: an Ansible `block:` read as a deny-list.
+    "r11-ansible-block": ({"play.yml": '- hosts: all\n  tasks:\n    - block:\n        - shell: "{{ agent_bin }} '
+                                       + FLAG + ' -p hi"\n'}, ["AP01"]),
+    # 9: Codex full access with other quoting.
+    "r11-codex-triple-quotes": ({".codex/config.toml": 'sandbox_mode = """danger-full-access"""\n'}, ["AP01"]),
+    "r11-codex-literal-triple": ({".codex/config.toml": "sandbox_mode = '''danger-full-access'''\n"}, ["AP01"]),
+    "r11-codex-escaped-quotes": ({"run.sh": 'codex exec -c sandbox_mode=\\"danger-full-access\\" fix\n'}, ["AP01"]),
+    "r11-codex-profile": ({".codex/config.toml": '[profiles.ci]\nsandbox_mode = """danger-full-access"""\n'}, ["AP01"]),
+    # 11: indirect agents under pull_request_target, aider, unpinned MCP images.
+    "r11-local-composite-action": ({".github/workflows/w.yml": wf("      - uses: ./.github/actions/review\n"),
+                                    ".github/actions/review/action.yml": "runs:\n  using: composite\n  steps:\n"
+                                                                         "    - uses: anthropics/claude-code-action@v1\n"},
+                                   ["AP03"]),
+    "r11-local-reusable-workflow": ({".github/workflows/w.yml": "on: pull_request_target\njobs:\n  a:\n"
+                                                                "    uses: ./.github/workflows/claude.yml\n",
+                                     ".github/workflows/claude.yml": "on: workflow_call\njobs:\n  a:\n    runs-on: x\n"
+                                                                     "    steps:\n      - run: claude -p hi\n"}, ["AP03"]),
+    "r11-aider-message-file": ({".github/workflows/w.yml": wf("      - run: aider --yes-always --message-file p.txt\n")},
+                               ["AP03"]),
+    "r11-mcp-image-latest": ({".mcp.json": server(command="docker", args=["run", "-i", "--rm", "ghcr.io/a/b:latest"])},
+                             ["AP04"]),
+    "r11-mcp-image-untagged": ({".mcp.json": server(command="docker", args=["run", "-i", "--rm", "-e", "TOK", "ghcr.io/a/b"])},
+                               ["AP04"]),
     # 13: a truncated wsl command raised and lost every server in the file.
     "r8-truncated-wsl": ({".mcp.json": json.dumps({"mcpServers": {
         "w": {"command": "wsl", "args": ["-d"]}, "s": {"command": "npx", "args": ["-y", "evil-mcp"]}}})}, ["AP04"]),

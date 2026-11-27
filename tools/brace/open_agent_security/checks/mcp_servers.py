@@ -1,13 +1,14 @@
-"""AP04, AP05, AP07, AP08: one MCP server at a time (unpinned package, literal secret, plain HTTP, container escape)."""
+"""AP04, AP05, AP07, AP08: one MCP server at a time (unpinned package or image, literal secret, plain HTTP,
+container escape), and AP05 for a secret anywhere else in agent configuration."""
 from __future__ import annotations
 
 import re
 from typing import Iterator
 from urllib.parse import urlsplit
 
-from ..limits import MAX_VALUE
-from ..model import CheckContext, Document, Finding
-from ..parse.mcp_json import CONTAINERS, RUNNERS
+from ..limits import MAX_VALUE, WALK_DEPTH, WALK_VALUES
+from ..model import CheckContext, Document, Finding, ParseError
+from ..parse.mcp_json import CONTAINERS, RUNNERS, URL_KEYS, is_json
 from ..secrets import opaque, random_token, secret_kind, secret_name, url_path_secret
 
 LOOPBACK = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}
@@ -150,6 +151,48 @@ def docker_escape(args) -> str:
     return ""
 
 
+# docker/podman run options that take a value as the next argument (from `docker run --help`);
+# any other option is taken to be a switch. The first other argument is the image.
+CONTAINER_VALUE_FLAGS = {
+    "-a", "--attach", "--add-host", "--annotation", "--blkio-weight", "-c", "--cpu-shares", "--cap-add", "--cap-drop",
+    "--cgroup-parent", "--cgroupns", "--cidfile", "--cpus", "--cpuset-cpus", "--cpuset-mems", "--device",
+    "--device-cgroup-rule", "--dns", "--dns-option", "--dns-search", "--domainname", "--entrypoint", "-e", "--env",
+    "--env-file", "--expose", "--gpus", "--group-add", "--health-cmd", "--health-interval", "--health-retries",
+    "--health-start-period", "--health-timeout", "-h", "--hostname", "--ip", "--ip6", "--ipc", "--isolation",
+    "--label", "-l", "--label-file", "--link", "--log-driver", "--log-opt", "--mac-address", "-m", "--memory",
+    "--memory-reservation", "--memory-swap", "--mount", "--name", "--network", "--net", "--network-alias",
+    "--pid", "--pids-limit", "--platform", "-p", "--publish", "--pull", "--restart", "--runtime", "--security-opt",
+    "--shm-size", "--stop-signal", "--stop-timeout", "--storage-opt", "--sysctl", "--tmpfs", "--ulimit", "-u",
+    "--user", "--userns", "--uts", "-v", "--volume", "--volumes-from", "-w", "--workdir", "--secret", "--pod"}
+IMAGE_SHAPE = re.compile(r"^[A-Za-z0-9][\w.\-/:@]{0,300}$")
+DIGEST = "@sha256:"
+
+
+def container_image(args) -> str:
+    """The image of a `docker run` (or `create`, `container run`) command line, or ''."""
+    args = list(args)
+    if args[:2] in (["container", "run"], ["container", "create"]):
+        args = args[1:]
+    if args[:1] not in (["run"], ["create"]):
+        return ""
+    i = 1
+    while i < len(args):
+        a = args[i][:MAX_VALUE]
+        if a == "--":
+            return args[i + 1][:MAX_VALUE] if i + 1 < len(args) else ""
+        if not a.startswith("-"):
+            return a
+        if "=" not in a and a in CONTAINER_VALUE_FLAGS:
+            i += 1
+        i += 1
+    return ""
+
+
+def shown_image(image: str) -> str:
+    """The image as a finding shows it: only a value shaped like an image reference."""
+    return image if IMAGE_SHAPE.match(image) and not opaque(image) and not random_token(image) else "<redacted>"
+
+
 def plain_http_host(url: str) -> str:
     """The host of a plain-HTTP URL that leaves this machine, or ''."""
     try:
@@ -177,6 +220,9 @@ class McpServers:
             if pkg:
                 yield Finding("AP04", where, line, f"{s.name}: {s.command} {shown_package(pkg)}")
             if s.command in CONTAINERS:
+                image = container_image(s.args)
+                if image and DIGEST not in image and not image.startswith("$"):
+                    yield Finding("AP04", where, line, f"{s.name}: {s.command} image {shown_image(image)} (no @sha256 digest)")
                 hit = docker_escape(s.args)
                 if hit:
                     yield Finding("AP08", where, line, f"{s.name}: {hit}")
@@ -194,3 +240,71 @@ class McpServers:
             host = next((h for h in (plain_http_host(u) for u in urls if u.lower().startswith("http:")) if h), "")
             if host:
                 yield Finding("AP07", where, line, f"{s.name}: http://{host}")
+
+
+# Keys of a server entry whose values McpServers already checks for secrets: env and headers
+# (when a mapping), and the command line and URL.
+SERVER_CHECKED = {"env", "environment", "headers", "http_headers"}
+SERVER_COMMAND = {"command", "args", *URL_KEYS}
+
+
+class ConfigSecrets:
+    """AP05 for a secret anywhere in agent configuration (JSON, JSONC or Codex's TOML): every
+    string value of the parsed document, up to WALK_DEPTH deep and WALK_VALUES values, by its
+    format (`ghp_...`, `Bearer ...`) or by its key (`"apiKey": "..."`). Values McpServers and
+    ClaudeSettings already check (a server's env, headers, command line and URL; settings' env)
+    are left to them."""
+    name = "config-secrets"
+    emits = ("AP05",)
+    scope = "file"
+
+    def run(self, doc: Document, ctx: CheckContext) -> Iterator[Finding]:
+        src = doc.source
+        if not src.is_agent_config:
+            return
+        data = doc.data
+        if data is None:
+            if not is_json(src):
+                return
+            try:
+                data = doc.json()
+            except ParseError:
+                return  # the parser has already reported it
+        skip = set(self.checked_elsewhere(doc))
+        for keys, key, value in walk(data):
+            if any(keys[:k] in skip for k in range(1, len(keys) + 1)):
+                continue
+            if ctx.secrets.known_format(value) or (key and ctx.secrets.secret_pair(key, value)):
+                shown = ".".join(keys)[:MAX_VALUE] or "value"
+                yield Finding("AP05", src.display, doc.line_of(keys), f"{shown} = <redacted>{secret_kind(value)}")
+
+    @staticmethod
+    def checked_elsewhere(doc: Document) -> list[tuple]:
+        skip = []
+        for s in doc.servers:
+            raw = s.raw.get("command") if isinstance(s.raw, dict) else None
+            for k, v in (s.raw.items() if isinstance(s.raw, dict) else ()):
+                if (k in SERVER_CHECKED and isinstance(v, dict)) or k in SERVER_COMMAND:
+                    skip.append((*s.path, k))
+            if isinstance(raw, dict):  # Zed's `command: {path, args, env}`
+                skip.append((*s.path, "command"))
+        if doc.permissions is not None and doc.permissions.env:
+            skip.append(("env",))
+        return skip
+
+
+def walk(data) -> Iterator[tuple[tuple, str, str]]:
+    """(key path, nearest key, value) for each string value, depth-first, bounded by WALK_DEPTH
+    and WALK_VALUES. List items keep the path and key of their list."""
+    stack: list[tuple[tuple, str, object, int]] = [((), "", data, 0)]
+    seen = 0
+    while stack and seen < WALK_VALUES:
+        keys, key, value, depth = stack.pop()
+        seen += 1
+        if isinstance(value, str):
+            yield keys, key, value[:MAX_VALUE]
+        elif depth < WALK_DEPTH and isinstance(value, dict):
+            stack += [((*keys, str(k)[:MAX_VALUE]), str(k)[:MAX_VALUE], v, depth + 1)
+                      for k, v in reversed(list(value.items())[:WALK_VALUES])]
+        elif depth < WALK_DEPTH and isinstance(value, list):
+            stack += [(keys, key, v, depth + 1) for v in reversed(value[:WALK_VALUES])]

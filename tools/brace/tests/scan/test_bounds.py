@@ -434,3 +434,32 @@ def test_round10_dense_gated_flags_over_continued_lines_are_linear(tmp_path, uni
         return time.process_time() - start
     small = min(seconds(300), seconds(300))
     assert seconds(1200) < 10 * small + 0.2
+
+
+def scan_cpu(tmp_path, rel: str, text: str) -> float:
+    write(tmp_path, rel, text)
+    start = time.process_time()
+    result(tmp_path)
+    return time.process_time() - start
+
+
+@pytest.mark.parametrize("rel,unit", [
+    # case arms, `case ... in` lines and continued lines: open_cases, case_arm and logical commands
+    ("a.sh", f'case "$a" in\n  {FLAG_TEXT}) x ;;\n  y \\\n  {FLAG_TEXT})\n'),
+    # flags in one unclosed call: the overriding rule searches each bracket once
+    ("a.py", f'run(\n  "{FLAG_TEXT}",\n  [ "x" ], "{FLAG_TEXT}",\n'),
+    # block scalars and run keys: yaml_blocks
+    ("w.yml", f'- run: |\n    case $x in\n      {FLAG_TEXT}) exit ;;\n    esac\n  env:\n    A: [ "{FLAG_TEXT}" ]\n'),
+    # every value of an agent config is walked for secrets
+    (".mcp.json", '{"a": {"b": ["x", {"apiKey": "not-a-key"}]}},\n'),
+])
+def test_round11_new_passes_grow_linearly(tmp_path, rel, unit):
+    """CPU time for an input four times larger stays well under sixteen times as long."""
+    n = 400
+    if rel == ".mcp.json":
+        small, large = ("[" + unit * k + "{}]" for k in (n, 4 * n))
+    else:
+        small, large = unit * n, unit * 4 * n
+    t_small = min(scan_cpu(tmp_path, rel, small) for _ in range(2))
+    t_large = min(scan_cpu(tmp_path, rel, large) for _ in range(2))
+    assert t_large < 10 * t_small + 0.1, (t_small, t_large)

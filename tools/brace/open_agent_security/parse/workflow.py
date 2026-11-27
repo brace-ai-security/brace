@@ -1,4 +1,5 @@
-"""GitHub Actions workflows: the pull_request_target trigger and whether a step runs an agent.
+"""GitHub Actions workflows and local actions (`action.yml`): the pull_request_target trigger,
+whether a step runs an agent, and the local actions and reusable workflows they use.
 
 There is no YAML parser in the standard library, so these are line heuristics, not a step tree.
 """
@@ -21,7 +22,7 @@ PREFIX = (r"(?:(?:[A-Za-z_]\w{0,60}=\S{0,200}|"
           r"(?:[ \t]{1,20}\d[\w.]{0,10})?|"  # timeout's duration
           r"if|!|then|do|else|npx(?:[ \t]{1,20}-y)?|bunx|pnpm[ \t]{1,20}dlx)[ \t]{1,20}){0,6}")
 CLI_CALL = (PREFIX + rf"(?:(?:{alternation(CLIS)})(?![\w-])[^\n|;&]{{0,300}}?"
-            r"[ \t](?:-p|--print|--prompt|exec|run|--message)(?![\w-])|"
+            r"[ \t](?:-p|--print|--prompt|exec|run|--message|--message-file|--yes-always)(?![\w-])|"
             r"(?:gemini|qwen)[ \t]{1,20}[\"'])")  # Gemini CLI and Qwen Code also take the prompt as a quoted argument
 AGENT_CLI = re.compile(r"(?:\brun:[ \t]*(?:[|>][ \t]*)?|[;&|][ \t]*|\$\([ \t]*)" + CLI_CALL)
 AGENT_CLI_AT_START = re.compile(CLI_CALL)  # used with match(), inside a run block
@@ -31,6 +32,9 @@ STEP_NAME = re.compile(r"^-?[ \t]*name[ \t]*:")
 PRT_LINE = re.compile(r"^(?:-\s*)?[\"']?pull_request_target[\"']?\s*(?::\s*)?(?:#.*)?$|^[\"']?pull_request_target[\"']?\s*:|"
                       r"^[\"']?on[\"']?\s*:.*\bpull_request_target\b|^\[.*\bpull_request_target\b")
 WORKFLOW_FILE = re.compile(r"(?:^|/)\.github/workflows/[^/]+\.ya?ml$", re.I)
+ACTION_FILE = re.compile(r"(?:^|/)action\.ya?ml$", re.I)
+LOCAL_USES = re.compile(r"^[ \t]*(?:-[ \t]+)?uses[ \t]*:[ \t]*[\"']?\./([^\s\"'#@]{1,300})", re.M)
+MAX_LOCAL_USES = 50  # local actions and reusable workflows kept per file
 
 
 def is_workflow(display: str) -> bool:
@@ -110,7 +114,9 @@ class Workflow:
     name = "github-workflow"
 
     def claims(self, src: SourceFile) -> bool:
-        return src.origin == "repo" and is_workflow(src.display)
+        return src.origin == "repo" and (is_workflow(src.display) or bool(ACTION_FILE.search(src.display)))
 
     def parse(self, src: SourceFile, doc: Document) -> None:
-        doc.workflow = WorkflowFacts(trigger_line(src.text), agent_step(src.text))
+        trigger = trigger_line(src.text) if is_workflow(src.display) else None
+        uses = tuple(m.group(1).rstrip("/") for m in LOCAL_USES.finditer(src.text))[:MAX_LOCAL_USES]
+        doc.workflow = WorkflowFacts(trigger, agent_step(src.text), uses)

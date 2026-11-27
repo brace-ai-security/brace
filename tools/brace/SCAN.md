@@ -43,15 +43,25 @@ the CLI (`codex-args:`, `gemini_cli_args:`) or in a step that uses an agent acti
 `npm install -g @google/gemini-cli && apt-get install -y jq` and `deno run --allow-all x.ts &&
 codex exec ...` count nothing. The short `-y` (Gemini CLI, Qwen Code, Crush) counts only after
 the CLI, so `npx -y` does not. Codex's full-access sandbox counts in any spelling:
-`--sandbox danger-full-access`, `sandbox_mode`, the TypeScript SDK's `sandboxMode` and
-openai/codex-action's `sandbox:` input.
+`--sandbox danger-full-access`, `sandbox_mode` (quoted once, three times or with escaped
+quotes, as in `codex exec -c sandbox_mode=\"danger-full-access\"`), the TypeScript SDK's
+`sandboxMode` and openai/codex-action's `sandbox:` input. In `.codex/config.toml` the parsed
+`sandbox_mode` is read too, at the top level and in each `[profiles.<name>]`, and the finding
+adds `approval_policy = "never"` when the same scope sets it. A gated flag's CLI must be the
+program: a file or path named after it (`examples/gemini.ts`, `--out codex/`) or a flag's
+value (`--provider gemini`) does not count, and for `-y` the CLI must be in command position.
+Inside an agent action's step, `--yolo` and `--allow-all-tools` also count as the value of an
+args key (`gemini_cli_args`, `codex-args`, `args`), never under `mcp_config`, `settings` or
+`prompt`; `-y` counts only beside its CLI.
 
 **This scanner errs toward reporting.** A missed bypass costs more than a false positive, and
 a false positive is easy to silence after review: add `open-agent-security: ignore` on the
 line, or list the file in `.open-agent-security-ignore` (see below). So a reviewed guard,
 help text or test that names a bypass flag may be reported; silence it with an inline mark or
 the ignore file. A bypass flag is treated as only mentioned, and not reported, in these forms
-only:
+only, and the forms of the third and fifth items never apply in code whose logical command
+(lines joined by `\`, `^` or backtick continuations) or enclosing call or list (the two
+innermost open `(` or `[`) names an agent CLI or agent package:
 
 - inside a comment, a Python docstring or a block comment (strings are skipped whole when
   looking for block comments: template literals with their `${...}`, Groovy and Kotlin, Java
@@ -62,17 +72,25 @@ only:
   `"--flag" not in x`, `x in ("--a", "--flag")` (not `for x in`), `.includes(`, `.contains(`,
   `.has(`, `.indexOf(`, `.startsWith(`, `.endsWith(`, a `re.*(` or `RegExp(` pattern, a
   JavaScript or Ruby `/regex/` literal; an argument of `grep`, `egrep`, `fgrep`, `rg`, `ag`,
-  `ack`, `findstr` or `Select-String`; a shell `case` pattern (`--flag)`); a JavaScript
-  `case '--flag':` label; or the right side of `==`, `!=`, `=~` or `=` in `[[ ]]`, `[ ]` or
-  `test`;
+  `ack`, `findstr` or `Select-String` when that tool is the program of the flag's own simple
+  command (in command position, case-sensitive, not inside a quoted string such as a prompt);
+  a JavaScript `case '--flag':` label; and, in shell only (shell scripts, Makefiles,
+  justfiles, shell start-up files and the YAML values and block scalars of `run`, `script`,
+  `before_script`, `after_script` and `commands`), a `case` arm pattern (`--flag)` with no
+  `(` or `[` open at it, the line before not continued, and a `case ... in` open on an
+  earlier line of the same block, at most 200 lines up, or on the same line) or the right
+  side of `==`, `!=`, `=~` or `=` (with spaces on both sides) in a `[[ ]]`, `[ ]` or `test`
+  command in command position;
 - as a value under Claude Code settings' `permissions.deny` or `permissions.ask`, in a JSON or
   YAML file whose name contains `settings`;
-- as an item of a list assigned to a name whose last word is `block`, `blocked`, `blocklist`,
+- as an item of a list assigned to a name whose last word is `block` (not in YAML, where
+  `block:` is an Ansible block), `blocked`, `blocklist`,
   `deny`, `denied`, `denylist`, `forbid`, `forbidden`, `ban`, `banned`, `disallow`,
   `disallowed`, `reject` or `rejected` (`BLOCKED`, `deny`, `forbidden`), when the list names no
   agent CLI and, in code, every other use of the name in the file is a membership test
   (`x in NAME`, `any(f in cmd for f in NAME)`, `NAME.includes(x)`, `NAME.has(x)`); in JSON and
-  YAML the key alone qualifies.
+  YAML the key alone qualifies, and in YAML only when every item is a bare value (`- --flag`,
+  not `- shell: ...`).
 
 Everything else counts: help text, prompts, error messages and descriptions that name the flag
 (even with words such as "never" or "do not"), a function argument in a test assertion
@@ -83,12 +101,25 @@ after a YAML value does not change how the value is read.
 
 Bypass mode written as JSON counts anywhere: nested under another key, inside a JSON string
 (a devcontainer command that writes settings), or as the VS Code extension's
-`claudeCode.initialPermissionMode`. In `.ini` and `.cfg` files `;` starts a comment only at
-the start of a line. A file's own report
+`claudeCode.initialPermissionMode`. In `.ini`, `.cfg` and `.service` files `;` starts a
+comment only at the start of a line. A file's own report
 format cannot hide anything either: only a whole `.json` or `.sarif` file that is exactly a
-JSON, SARIF or GitLab SAST report from this scanner is skipped, never a script, workflow,
-Dockerfile or agent config file. AP03 reads
-workflows in `.github/workflows/` at any depth, so nested projects count.
+JSON, SARIF or GitLab SAST report from this scanner, or an `.xml` file that opens as its JUnit
+report, is skipped, never a script, workflow, Dockerfile or agent config file. AP03 reads
+workflows in `.github/workflows/` at any depth, so nested projects count, and follows a local
+composite action (`uses: ./.github/actions/review`, its `action.yml` or `action.yaml`) or
+reusable workflow (`uses: ./.github/workflows/claude.yml`) up to three levels, from the root
+of the workflow's repository.
+
+AP05 also checks every string of an agent config file (JSON, JSONC or `.codex/config.toml`),
+up to 32 levels deep and 20,000 values: a known token format anywhere (`ghp_...`,
+`Bearer ...`), or a credential-shaped value under a secret-named key (`apiKey`,
+`clientSecret`, `bearer_token`). Codex's `http_headers` are read as a server's headers. A
+value the server checks already report (env, headers, arguments, URL) is reported once.
+
+AP04 also covers MCP servers run from a container: a `docker` or `podman` `run`/`create`
+whose image has no `@sha256:` digest (`ghcr.io/org/server:latest`, or no tag at all) is
+unpinned, and the finding names the image.
 
 MCP servers are read from these formats:
 
@@ -115,12 +146,23 @@ An agent config file that does not parse makes the scan incomplete.
   the import path, so a scanned repository's own `tomllib.py`, `argparse.py` or
   `open_agent_security/` would be imported. The `open-agent-security` command and the
   pre-commit hook are not affected.
-- In the scanned folder it reads regular files up to 1 MB with known config and source
-  extensions, Makefiles (`Makefile`, `GNUmakefile`, `*.mk`), justfiles, Dockerfiles
-  (`Dockerfile`, `Containerfile`, `Dockerfile.<tag>`, `*.dockerfile`), `.env` files, shell
-  start-up files (`.zshrc`, `.bashrc`, `.bash_aliases`, `.bash_profile`, `.zprofile`,
-  `.profile`, `.envrc`, `.zshenv`, with `#` comments) and extensionless scripts that start
-  with `#!`; names are compared without regard to case.
+- In the scanned folder it reads regular files up to 1 MB with these extensions: `.json`,
+  `.jsonc`, `.json5`, `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.conf`, `.properties`,
+  `.env`, `.py`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`, `.sh`, `.bash`,
+  `.zsh`, `.fish`, `.ps1`, `.bat`, `.cmd`, `.go`, `.rs`, `.rb`, `.java`, `.kt`, `.scala`,
+  `.groovy`, `.php`, `.cs`, `.swift`, `.lua`, `.pl`, `.c`, `.h`, `.cpp`, `.ex`, `.exs`,
+  `.dart`, `.vue`, `.svelte`, `.html`, `.nix`, `.tf`, `.hcl`, `.ipynb`, `.code-workspace`,
+  `.service`, `.j2`, `.jinja`, `.tpl`, `.txt`, `.md` and `.mk`; also Makefiles (`Makefile`,
+  `GNUmakefile`), justfiles, `Procfile`, Dockerfiles (`Dockerfile`, `Containerfile`,
+  `Dockerfile.<tag>`, `*.dockerfile`, `*.containerfile`), `.env` files, shell start-up files
+  (`.zshrc`, `.bashrc`, `.bash_aliases`, `.bash_profile`, `.zprofile`, `.profile`, `.envrc`,
+  `.zshenv`, with `#` comments) and extensionless scripts that start with `#!`; names are
+  compared without regard to case. Any other regular file up to the size limit is searched
+  for bypass markers (`--dangerously-skip-permissions`,
+  `--dangerously-bypass-approvals-and-sandbox`, `bypassPermissions`, `danger-full-access`,
+  `sandbox_mode`, `--allow-all-tools`, `--yolo`, `--approval-mode`) as bytes, and read as text
+  when it holds one, so no file kind hides a bypass. `.pytest_cache`, `.mypy_cache` and
+  `.ruff_cache` folders are not entered, like `__pycache__`.
   It never follows symlinks and never opens FIFOs or other special files; it lists them in
   a note, and the headline then says some files could not be read. A symlink to a path
   inside the scanned folder that the walk reads anyway (`CLAUDE.md -> AGENTS.md`,
@@ -237,7 +279,8 @@ file or workflow, a Dockerfile or a shell
 script. It is also incomplete when an agent config file didn't parse, when the scan stopped
 at 200,000 files, or when one check found more than 100 findings in one file (the rest are
 not shown). An incomplete scan never reports itself clean, and it fails unless
-`--fail-on none`. When other files were skipped, the scan is complete but the headline says
+`--fail-on none`; with findings, the text and Markdown reports open with "The scan is
+incomplete (see the notes)." When other files were skipped, the scan is complete but the headline says
 how many files could not be read instead of reporting the folder clean.
 
 JSON with comments, trailing commas or a byte-order mark (JSONC, as VS Code uses) is read
@@ -261,8 +304,9 @@ AP04 .mcp.json         # a rule ID first limits the entry to that rule
 
 The file holds at most 200 entries of at most 200 characters and 16 folders each; later
 or longer lines are not read, and patterns of more than 16 folders are skipped with a
-note. A rule ID can be a plugin's (`ACME01` or `ACME-01 path`): capital letters, digits,
-`_` and `-`, starting with a letter. An ID that no loaded rule has matches nothing and is
+note. The first word is a rule ID only when it is a loaded rule's ID (a plugin's `ACME01` or
+`ACME-01`) or has the built-in form `AP` and two digits; any other first word is part of the
+path (`LICENSE files/x.sh`). An `APnn` ID that no loaded rule has matches nothing and is
 named in a note. An ignore file that is a symlink, larger than the file size limit or
 unreadable is not applied, and a note says so.
 

@@ -125,3 +125,16 @@ def test_findings_that_share_a_rule_and_line_have_distinct_names(tmp_path):
         else:
             names = [(v["name"], json.dumps(v["location"])) for v in json.loads(text)["vulnerabilities"]]
         assert len(names) == 3 and len(set(names)) == 3, name
+
+
+def test_round11_an_incomplete_scan_with_findings_says_so_in_the_headline(tmp_path):
+    write(tmp_path, "run.sh", f"claude {FLAG}\n")
+    write(tmp_path, ".mcp.json", "{ not json")
+    md = tmp_path.parent / "s.md"
+    _, text = run(tmp_path, md_path=str(md))
+    assert text.split("\n")[0] == "The scan is incomplete (see the notes)."
+    assert md.read_text().split("\n")[:3] == ["### open-agent-security", "", "The scan is incomplete (see the notes)."]
+    (tmp_path / ".mcp.json").unlink()
+    md = tmp_path.parent / "complete.md"  # the Markdown report appends to a job summary
+    _, text = run(tmp_path, md_path=str(md))
+    assert "incomplete" not in text and "incomplete" not in md.read_text()

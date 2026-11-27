@@ -39,6 +39,14 @@ TUNED = "/".join(["*?*", "**"] * 5)  # live states in every folder of a 6-deep t
 needs_symlinks = pytest.mark.skipif(not hasattr(os, "symlink") or os.name == "nt", reason="needs symlinks")
 
 
+def skip_unless_ci(reason: str) -> None:
+    """Skip locally when a tool or the history is missing; in CI (CI=true) fail instead, since
+    these tests must run there."""
+    if os.environ.get("CI") == "true":
+        pytest.fail(f"must run in CI: {reason}")
+    pytest.skip(reason)
+
+
 class EntryPoint:
     """A fake installed plugin: counts how often it is loaded."""
 

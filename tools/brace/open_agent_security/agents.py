@@ -55,7 +55,9 @@ BYPASS = re.compile(
     r"\b(?:initial_?)?permission_?mode[\"']?[ \t]*[:=][ \t]*[\"']?bypassPermissions" + END + r"[\"']?|"
     # Codex's sandbox setting by any spelling: config.toml's sandbox_mode, the TypeScript SDK's
     # sandboxMode, and openai/codex-action's `sandbox:` input.
-    r"\bsandbox(?:_?mode)?[\"']?[ \t]*[:=][ \t]*[\"']?danger-full-access" + END + r"[\"']?", re.I)
+    # The value may be quoted once, three times (a TOML multi-line string) or with escaped quotes
+    # (`codex exec -c sandbox_mode=\\"danger-full-access\\"`).
+    r"\bsandbox(?:_?mode)?[\"']?[ \t]*[:=][ \t]*\\?[\"']{0,3}danger-full-access" + END + r"[\"']?", re.I)
 # Bypasses only next to an agent CLI that takes them: Gemini/Qwen/Codex/Crush --yolo, and
 # Copilot CLI's --allow-all-tools ("allow every tool without asking") and --allow-all.
 GATED_BYPASS = re.compile(r"--(?:yolo|allow-all-tools|allow-all)" + END)
@@ -103,9 +105,11 @@ def command_position(before: str) -> bool:
                for w in words)
 
 
-# Byte strings that mark a bypass, for files too large to read as text.
+# Byte strings that mark a bypass: in files too large to read as text (which makes the scan
+# incomplete), and in files of kinds the walk does not read (which are then read as text).
 BYPASS_BYTES = (b"--dangerously-skip-permissions", b"--dangerously-bypass-approvals-and-sandbox",
-                b"bypassPermissions", b"danger-full-access", b"--allow-all-tools")
+                b"bypassPermissions", b"danger-full-access", b"sandbox_mode", b"--allow-all-tools", b"--yolo",
+                b"--approval-mode")
 
 # Files that configure an agent or its MCP servers, as paths ending a repository path.
 CONFIG_FILES = (".mcp.json", "mcp.json", "mcp.jsonc", "mcp_config.json", "mcp-config.json",

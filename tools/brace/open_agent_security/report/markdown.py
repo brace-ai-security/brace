@@ -4,7 +4,7 @@ from __future__ import annotations
 from ..limits import MAX_NOTES, MAX_ROWS
 from ..model import Report
 from ..output import md_escape
-from .common import ReportOptions, headline, rules_by_id
+from .common import INCOMPLETE, ReportOptions, headline, rules_by_id
 
 
 class Markdown:
@@ -24,7 +24,8 @@ class Markdown:
             out.append(f"### open-agent-security\n\n{headline(report)}\n")
         else:
             meta = rules_by_id(report)
-            out += ["### open-agent-security", "", "| Severity | Problem | Where | Fix |", "|---|---|---|---|"]
+            out += ["### open-agent-security", ""] + ([INCOMPLETE, ""] if report.verdict == "incomplete" else [])
+            out += ["| Severity | Problem | Where | Fix |", "|---|---|---|---|"]
             for f in findings[:MAX_ROWS]:
                 m = meta[f.rule]
                 out.append(f"| {f.severity} | [{md_escape(m.title)}]({m.help_uri}) | "

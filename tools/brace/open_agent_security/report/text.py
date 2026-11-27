@@ -6,7 +6,7 @@ from ..ignore import IGNORE_FILE, IGNORE_MARK
 from ..limits import MAX_PLACES
 from ..model import Finding, Report
 from ..output import plural, shown_path
-from .common import ReportOptions, headline, rules_by_id
+from .common import INCOMPLETE, ReportOptions, headline, rules_by_id
 
 COLORS = {"critical": "\033[1;31m", "high": "\033[31m", "medium": "\033[33m", "low": "\033[36m",
           "dim": "\033[2m", "bold": "\033[1m", "end": "\033[0m"}
@@ -25,6 +25,8 @@ class Text:
         lines = []
         if not findings:
             lines.append(f"{g('bold')}{headline(report)}{g('end')}")
+        elif report.verdict == "incomplete":
+            lines.append(f"{g('bold')}{INCOMPLETE}{g('end')}")
         if not findings and report.verdict != "incomplete":
             lines.append(f"{g('dim')}This checks {len(report.rules)} anti-patterns only. It is not a security review; "
                          f"see https://braceframework.org/checklist/ for the full sign-off.{g('end')}")

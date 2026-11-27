@@ -160,11 +160,15 @@ def test_the_scanners_own_reports_are_not_scanned(tmp_path, name, rel):
 
 
 def test_a_junit_report_is_never_read(tmp_path):
-    """The walk does not read .xml, so JUnit needs no skip, and JUnit-shaped text is never skipped."""
+    """An .xml file is read only for a bypass marker (round 11), and the scanner's own JUnit
+    report, which names the flags it found, is then skipped as its own report; JUnit-shaped
+    text in a script is never skipped (see below)."""
     write(tmp_path, "run.sh", f"claude {FLAG}\n")
     scan(tmp_path, "--fail-on", "none", "--output", f"junit={tmp_path / 'out.xml'}")
     r = report(tmp_path)
-    assert [f["rule"] for f in r["findings"]] == ["AP01"] and not any("report file" in n for n in r["notes"])
+    assert [f["file"] for f in r["findings"]] == ["run.sh"] and any("report file" in n for n in r["notes"])
+    write(tmp_path, "other.xml", f'<?xml version="1.0"?>\n<cmd>claude {FLAG}</cmd>\n')
+    assert sorted(f["file"] for f in report(tmp_path)["findings"]) == ["other.xml", "run.sh"]
 
 
 JUNIT_HEAD = '<?xml\n{body}\n# ?><testsuites name="open-agent-security">\n'
@@ -203,3 +207,38 @@ def test_round9_shell_startup_files_are_read(tmp_path, name):
     write(tmp_path, name, "# alias c='claude --dangerously-skip-permissions'\n"
                           "alias c='claude --dangerously-skip-permissions'\n")
     assert [(f["rule"], f["line"]) for f in report(tmp_path)["findings"]] == [("AP01", 2)]
+
+
+@pytest.mark.parametrize("name", ["Procfile", "agent.service", "supervisord.conf", "w.code-workspace", "main.tf",
+                                  "x.hcl", "n.ipynb", "a.php", "a.cs", "a.swift", "a.lua", "a.pl", "a.c", "a.h",
+                                  "a.cpp", "a.ex", "a.exs", "a.dart", "a.vue", "a.svelte", "a.html", "flake.nix",
+                                  "a.j2", "a.jinja", "a.tpl", "a.properties", "a.json5", "notes.txt"])
+def test_round11_more_file_kinds_are_read(tmp_path, name):
+    write(tmp_path, name, "gemini -y -p fix\n")  # -y is not a bypass marker: the file is read for its kind
+    assert rules(tmp_path) == ["AP01"]
+
+
+@pytest.mark.parametrize("name", ["odd.xyz", "runagent", "bin/agent.command"])
+def test_round11_any_unread_file_holding_a_bypass_marker_is_read(tmp_path, name):
+    write(tmp_path, name, f"claude {FLAG} -p hi\n")
+    assert rules(tmp_path) == ["AP01"]
+    write(tmp_path, name, "gemini -y -p hi\n")  # no marker: not read
+    assert rules(tmp_path) == []
+
+
+@pytest.mark.parametrize("name,text", [("a.lua", f"-- claude {FLAG}\nprint(1)\n"), ("a.php", f"<?php // claude {FLAG}\n"),
+                                       ("main.tf", f"# claude {FLAG}\n"), ("x.service", f"; claude {FLAG}\n")])
+def test_round11_comments_in_the_new_kinds_hide_a_mention(tmp_path, name, text):
+    write(tmp_path, name, text)
+    assert rules(tmp_path) == []
+
+
+def test_round11_the_lua_comment_marker_does_not_swallow_flags(tmp_path):
+    write(tmp_path, "a.lua", f'os.execute("claude -p hi {FLAG}")\nos.execute("claude -p hi " .. " {FLAG}")\n')
+    assert rules(tmp_path) == ["AP01", "AP01"]
+
+
+def test_round11_cache_folders_are_not_entered(tmp_path):
+    write(tmp_path, ".pytest_cache/v/cache/nodeids", f'["test_x.py::test[claude {FLAG}]"]\n')
+    r = report(tmp_path)
+    assert r["findings"] == [] and any(".pytest_cache" in n for n in r["notes"])

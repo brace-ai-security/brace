@@ -136,3 +136,39 @@ def test_round9_trailing_comment_on_the_on_line_is_not_a_trigger(tmp_path):
     write(tmp_path, ".github/workflows/a.yml", "on: pull_request   # deliberately not pull_request_target\njobs:\n"
           "  a:\n    steps:\n      - uses: anthropics/claude-code-action@v1\n")
     assert rules(tmp_path) == []
+
+
+ACTION = "runs:\n  using: composite\n  steps:\n    - run: claude -p review\n      shell: bash\n"
+
+
+def test_round11_an_agent_in_a_local_action_or_reusable_workflow_is_followed(tmp_path):
+    write(tmp_path, ".github/workflows/w.yml", PRT + "      - uses: ./.github/actions/outer\n")
+    write(tmp_path, ".github/actions/outer/action.yaml", "runs:\n  using: composite\n  steps:\n"
+                                                         "    - uses: ./.github/actions/inner\n")
+    write(tmp_path, ".github/actions/inner/action.yml", ACTION)
+    assert [(f.rule, f.line, f.detail) for f in result(tmp_path).findings] == [
+        ("AP03", 2, "pull_request_target + agent step in ./.github/actions/outer")]
+
+
+def test_round11_local_uses_are_followed_at_most_three_levels_and_only_when_they_exist(tmp_path):
+    write(tmp_path, ".github/workflows/w.yml", PRT + "      - uses: ./.github/actions/a1\n      - uses: ./missing\n")
+    for i in range(1, 4):
+        write(tmp_path, f".github/actions/a{i}/action.yml", f"runs:\n  steps:\n    - uses: ./.github/actions/a{i + 1}\n")
+    write(tmp_path, ".github/actions/a4/action.yml", ACTION)
+    assert rules(tmp_path) == []
+    write(tmp_path, ".github/actions/a3/action.yml", ACTION)
+    assert rules(tmp_path) == ["AP03"]
+
+
+def test_round11_a_nested_project_resolves_local_uses_from_its_own_root(tmp_path):
+    write(tmp_path, "sub/.github/workflows/w.yml", PRT + "      - uses: ./.github/actions/r\n")
+    write(tmp_path, "sub/.github/actions/r/action.yml", ACTION)
+    write(tmp_path, ".github/workflows/w.yml", PRT + "      - uses: ./.github/actions/x\n")
+    write(tmp_path, ".github/actions/x/action.yml", "runs:\n  steps:\n    - run: echo hi\n")
+    assert [(f.rule, f.file) for f in result(tmp_path).findings] == [("AP03", "sub/.github/workflows/w.yml")]
+
+
+def test_round11_a_direct_agent_step_is_reported_once(tmp_path):
+    write(tmp_path, ".github/workflows/w.yml", PRT + "      - run: claude -p hi\n      - uses: ./.github/actions/r\n")
+    write(tmp_path, ".github/actions/r/action.yml", ACTION)
+    assert rules(tmp_path) == ["AP03"]

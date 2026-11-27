@@ -13,7 +13,8 @@ from ..limits import MAX_OPEN_BRACKETS, MAX_PER_COMMAND, MAX_PER_LINE
 from ..model import CheckContext, Document, Finding
 from ..parse.dockerfile import is_dockerfile
 from ..secrets import secret_kind
-from .mentions import Mentions
+from ..agents import command_position
+from .mentions import Mentions, yaml_blocks
 
 # The same setting written as JSON anywhere: inside another file (a workflow passing Claude Code
 # settings), inside a JSON string (a devcontainer command writing settings) or nested under
@@ -23,12 +24,16 @@ INLINE_DEFAULT_MODE = re.compile(r"\\?[\"']defaultMode\\?[\"'][ \t]*:[ \t]*\\?[\
 # justfile), at the start of a line or after a space. Block comments (/* */, docstrings) are
 # found by mentions.Regions.
 COMMENT_MARKERS = {**dict.fromkeys((".yml", ".yaml", ".sh", ".bash", ".zsh", ".fish", ".py", ".toml", ".rb", ".ps1",
-                                    ".env", ".mk", ".dockerfile", ""), ("#",)),
+                                    ".env", ".mk", ".dockerfile", "", ".service", ".conf", ".pl", ".ex", ".exs",
+                                    ".nix", ".properties"), ("#",)),
                    **dict.fromkeys((".ini", ".cfg"), ("#",)),
                    **dict.fromkeys((".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".go", ".rs", ".java",
-                                    ".kt", ".scala", ".jsonc", ".groovy"), ("//",)),
+                                    ".kt", ".scala", ".jsonc", ".groovy", ".code-workspace", ".json5", ".cs", ".swift",
+                                    ".c", ".h", ".cpp", ".dart"), ("//",)),
+                   **dict.fromkeys((".tf", ".hcl", ".php"), ("#", "//")),
+                   ".lua": ("-- ",),  # with its space, so a `--flag` after a space is not a comment
                    **dict.fromkeys((".bat", ".cmd"), ("REM ", "rem ", "Rem ", "@REM ", "@rem ", "::"))}
-LINE_COMMENTS = {".ini": ";", ".cfg": ";"}  # comment markers only at the start of a line (after whitespace)
+LINE_COMMENTS = {".ini": ";", ".cfg": ";", ".service": ";"}  # comment markers only at the start of a line (after whitespace)
 MAKE_NAMES = {"makefile", "gnumakefile", "justfile", ".justfile"}
 # Flags that count only next to a CLI that takes them: the CLI as a word, the CLI as a quoted
 # item, and whether the CLI must come before the flag (`npx -y @google/gemini-cli` is npx's -y).
@@ -41,6 +46,12 @@ INSTALL_VERBS = frozenset(("install", "add", "i"))
 INSTALL_LOOKBACK = 300  # characters of a simple command before the CLI searched for an install command
 CLI_CANDIDATES = 5      # CLI words in one simple command checked for one that is not an install argument
 BRACKETS = re.compile(r"[()\[\]{}]")
+FILE_EXT = re.compile(r"\.\w")                         # `gemini.ts`: a file named after the CLI
+PROGRAM_EXT = re.compile(r"\.(?:exe|cmd)(?![\w.])", re.I)  # `gemini.exe`: the program
+LONG_FLAG = re.compile(r"^--[\w-]{1,60}$")             # `--provider gemini`: the CLI name is the flag's value
+# A YAML key whose value is a list of arguments for an agent (`gemini_cli_args`, `codex-args`),
+# where a gated flag counts in an agent action's step even without the CLI's name beside it.
+ARGS_KEY = re.compile(r"(?:^|[_-])(?:args|arguments)$")
 # A `command:`, `cmd:` or `entrypoint:` key (JSON or YAML) whose value starts with a gated CLI.
 COMMAND_KEY = re.compile(rf"[\"']?\b(?:command|cmd|entrypoint)[\"']?[ \t]*:[ \t]*\[?[ \t]*[\"']?(?:[\w.~-]{{0,100}}/)?"
                          rf"(?:{alternation(GATED_FLAG_CLIS)}|@google/gemini-cli|@qwen-code/|@github/copilot)(?![\w-])",
@@ -55,7 +66,6 @@ SPAWN = re.compile(r"\b(?:spawn|spawnSync|exec|execSync|execFile|execFileSync|ex
                    r"check_output|Command|ProcessBuilder)[ \t]*\(")
 SPAWN_WINDOW = 300  # characters around a use of a pushed-to name searched for the spawn call and CLI
 NAME_USES = 50      # later uses of a pushed-to name looked at
-YAML_KEY = re.compile(r"^[ \t]*(?:-[ \t]+)?[\"']?([\w.\-]{1,80})[\"']?[ \t]*:")
 AGENT_ACTION = re.compile(rf"^[ \t]*(?:-[ \t]+)?uses[ \t]*:[ \t]*[\"']?(?:{alternation(ACTIONS)})", re.I)
 SPACES = re.compile(r"\s+")
 SHELL_ALLOW_ALL = {"Bash", "Bash(*)", "Bash(:*)", "Bash(**)", "Bash(*:*)", "*"}
@@ -163,10 +173,30 @@ class Gate:
                 return False
             if begin <= c and not (start <= c < end):
                 if c not in self.install:
-                    self.install[c] = install_argument(self.text[max(begin, c - INSTALL_LOOKBACK):c])
+                    self.install[c] = install_argument(self.text[max(begin, c - INSTALL_LOOKBACK):c]) \
+                        or not self.program(begin, c, ce)
                 if not self.install[c]:
                     return True
         return False
+
+    def program(self, begin: int, c: int, ce: int) -> bool:
+        """Whether the CLI word at c..ce (in the simple command starting at begin) names the
+        program, not a path, file or value: not followed by `/`, `=` or a file extension other
+        than .exe/.cmd, not after `=` or a long flag (`--provider gemini`), and after `/` only as
+        a path in command position (`/usr/local/bin/gemini`). For -y the CLI must be in command
+        position. A package (`@google/gemini-cli`) is judged by install_argument alone."""
+        text = self.text
+        if text[c] == "@":
+            return not self.cli_first or command_position(text[begin:c])
+        before, after = text[c - 1:c] if c else "", text[ce:ce + 8]
+        if after[:1] in ("/", "=") or before == "=" or (FILE_EXT.match(after) and not PROGRAM_EXT.match(after)):
+            return False
+        words = text[max(begin, c - INSTALL_LOOKBACK):c].split()
+        if before.isspace() and words and LONG_FLAG.match(words[-1]):
+            return False
+        if self.cli_first or before == "/":
+            return command_position(text[begin:c])
+        return True
 
     def listed(self, start: int) -> bool:
         """A gated CLI is a quoted item before the flag in the list that holds it, or in the call
@@ -259,10 +289,11 @@ class Gate:
         return False
 
 
-def agent_key(line: str) -> bool:
-    """A YAML key that names an agent CLI: `codex-args:`, `gemini_cli_args:`."""
-    key = YAML_KEY.match(line)
-    return bool(key) and any(name in key.group(1).lower() for name in GATED_FLAG_CLIS)
+def args_key(key: str, in_agent_step: bool) -> bool:
+    """A YAML key that holds an agent's arguments: one that names a CLI that takes gated flags
+    (`codex-args`, `gemini_cli_args`), or any args key in an agent action's step. Never
+    `mcp_config`, `settings` or `prompt`, whose -y or --yolo belongs to something else."""
+    return bool(ARGS_KEY.search(key)) and (in_agent_step or any(name in key for name in GATED_FLAG_CLIS))
 
 
 def agent_action_steps(text: str) -> list[tuple[int, int]]:
@@ -329,6 +360,10 @@ class PermissionFlags:
     def run(self, doc: Document, ctx: CheckContext) -> Iterator[Finding]:
         src = doc.source
         kind = file_kind(src.display)
+        settled = set()  # lines reported from parsed facts, whose text matches are not reported again
+        for path, detail in doc.full_access:
+            settled.add(doc.line_of(path))
+            yield Finding("AP02" if src.is_ci else "AP01", src.display, doc.line_of(path), detail)
         if src.origin != "repo" or kind == ".md":
             return
         text = src.text
@@ -340,6 +375,7 @@ class PermissionFlags:
             if perms is not None and perms.default_mode == "bypassPermissions" else 0
         mentions = Mentions(text, kind, settings="settings" in src.display.rsplit("/", 1)[-1].lower())
         steps: list[tuple[int, int]] | None = None
+        owners: list[str] = []
         for rx in patterns:
             gate_args = GATES.get(rx)
             gate: Gate | None = None
@@ -356,17 +392,19 @@ class PermissionFlags:
                     lead = LINE_COMMENTS.get(kind)
                     comment_at[n] = start + (len(line) - len(line.lstrip()) if lead and line.lstrip().startswith(lead)
                                              else comment_start(line, markers) if markers else len(line))
-                if m.start() >= comment_at[n] or (rx is INLINE_DEFAULT_MODE and n == structural):
+                if m.start() >= comment_at[n] or (rx is INLINE_DEFAULT_MODE and n == structural) or n in settled:
                     continue
                 if gate_args:
                     if gate is None:
                         gate = Gate(text, lines, kind, *gate_args)
                     if not gate.counts(n, m.start(), m.end()):
-                        if kind not in (".yml", ".yaml"):
+                        # -y counts only beside its CLI; --yolo and --allow-all-tools also as the
+                        # value of an agent action's args key (`gemini_cli_args: --yolo`).
+                        if kind not in (".yml", ".yaml") or rx is SHORT_YOLO:
                             continue
                         if steps is None:
-                            steps = agent_action_steps(text)
-                        if not (agent_key(text[start:end]) or in_steps(steps, n)):
+                            steps, owners = agent_action_steps(text), yaml_blocks(text)[0]
+                        if not args_key(owners[n] if n < len(owners) else "", in_steps(steps, n)):
                             continue
                 if mentions.is_mention(start, text[start:comment_at[n]], n, m.start(), m.end()):
                     continue
