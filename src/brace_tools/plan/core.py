@@ -39,7 +39,8 @@ import re
 import sys
 from pathlib import Path
 
-from brace_tools import data
+from brace_tools import __version__, data, io
+from open_agent_security.output import path_uri
 from brace_tools.topology import core as topology
 
 ITEMS = {i["id"]: i for i in json.loads(data.path("brace_items.json").read_text(encoding="utf-8"))}
@@ -108,7 +109,11 @@ def reference_problems(text: str, repo: Path) -> list[str]:
             if not re.search(r"\b(create|new file|add (?:a|the) file|make (?:a|the) file)\b", text, re.I):
                 out.append(f"`{f}` is not a file in the repository (say \"create\" if the step makes it)")
             continue
-        n = len(path.read_text(errors="replace").splitlines())
+        try:
+            n = len(io.read_text(path).splitlines())
+        except io.ReadError as exc:
+            out.append(str(exc))
+            continue
         for a, b in LINE_REF.findall(text) if len(files) == 1 else []:
             for x in (a, b):
                 if x and not 1 <= int(x) <= n:
@@ -119,9 +124,9 @@ def reference_problems(text: str, repo: Path) -> list[str]:
 # ---------------------------------------------------------------------- build
 def load(path: Path) -> dict:
     try:
-        return json.loads(path.read_text())
-    except (OSError, ValueError) as e:
-        sys.exit(f"can't read {path}: {e}")
+        return io.read_json_object(path, follow=True)
+    except io.ReadError as e:
+        sys.exit(str(e))
 
 
 def actions_from(findings: dict, nodes: dict, repo: Path | None = None) -> tuple[list[dict], list[str]]:
@@ -189,8 +194,36 @@ def name(nodes: dict, ref: str) -> str:
     return n["name"] if n else ref
 
 
+MD_ACTIVE = re.compile(r"([\\<>\[\]])")  # backslash, HTML and autolinks, links and images
+BACKTICKS = re.compile(r"`+")
+CODE_SPAN = re.compile(r"(`+)(.+?)\1")  # a code span: its content is not Markdown
+
+
+def md_inline(text) -> str:
+    """Untrusted text (findings come from a review of someone else's code) as one line of
+    Markdown that cannot start a heading, open a link or image, or carry HTML. Backticks stay,
+    so code spans in findings still render."""
+    parts = CODE_SPAN.split(" ".join(str(text).split()))
+    # split() with two groups yields text, ticks, code, text, ...: escape only the text parts
+    return "".join(MD_ACTIVE.sub(r"\\\1", x) if i % 3 == 0 else (x + parts[i + 1] + x if i % 3 == 1 else "")
+                   for i, x in enumerate(parts))
+
+
 def cell(text: str) -> str:
-    return str(text).replace("|", "\\|").replace("\n", " ")
+    return md_inline(text).replace("|", "\\|")
+
+
+def code(text) -> str:
+    """An inline code span that holds any text, backticks included."""
+    t = " ".join(str(text).split())
+    ticks = "`" * (max((len(m) for m in BACKTICKS.findall(t)), default=0) + 1)
+    pad = " " if t.startswith("`") or t.endswith("`") or ticks != "`" else ""
+    return f"{ticks}{pad}{t}{pad}{ticks}"
+
+
+def fence(text: str) -> str:
+    """A code fence longer than any backtick run in the text, so the text cannot close it."""
+    return "`" * max(3, max((len(m) for m in BACKTICKS.findall(text)), default=0) + 1)
 
 
 def report(findings: dict, bom: dict, actions: list[dict], problems: list[str]) -> str:
@@ -206,9 +239,9 @@ def report(findings: dict, bom: dict, actions: list[dict], problems: list[str]) 
     needs = len(actions) - gaps
     stale = topology.stale_entries(bom)
     unknown_zone = [r for r, n in nodes.items() if topology.node_props(n).get("trust_zone") == ["unknown"]]
-    L = [f"# Security map and action plan: {agent}", ""]
-    L += [f"Review of `{findings.get('repo', '?')}` at commit `{findings.get('commit') or 'unknown'}`, "
-          f"{findings.get('reviewed_at', 'date unknown')}.", "",
+    L = [f"# Security map and action plan: {md_inline(agent)}", ""]
+    L += [f"Review of {code(findings.get('repo', '?'))} at commit {code(findings.get('commit') or 'unknown')}, "
+          f"{md_inline(findings.get('reviewed_at', 'date unknown'))}.", "",
           f"**{gaps} things to fix** and **{needs} things that need proof** were found. "
           "Each one below has a person to lead it, a place to write who is doing it, and steps to follow.", ""]
 
@@ -252,24 +285,25 @@ def report(findings: dict, bom: dict, actions: list[dict], problems: list[str]) 
     L += ["## 4. How to fix each one", ""]
     for a in actions:
         L += [f"### {a['id']}", "", f"**{a['title']}** · {a['priority']} ({a['gate']})", "",
-              f"**The problem:** {a['summary']}", "",
-              f"**Where:** {', '.join(name(nodes, c) for c in a['components']) or 'not mapped to a component'}"
-              + (f" — {', '.join(f'`{e}`' for e in a['evidence'])}" if a["evidence"] else ""), "",
+              f"**The problem:** {md_inline(a['summary'])}", "",
+              f"**Where:** {md_inline(', '.join(name(nodes, c) for c in a['components']) or 'not mapped to a component')}"
+              + (f" — {', '.join(code(e) for e in a['evidence'])}" if a["evidence"] else ""), "",
               f"**Lead:** {ROLE_NAMES.get(a['lead_role'], a['lead_role'])}" + (f" · **Effort:** {a['effort']}" if a["effort"] else ""), "",
               "**Steps:**", ""]
-        L += [f"{i}. {s}" for i, s in enumerate(a["steps"], 1)]
+        L += [f"{i}. {md_inline(s)}" for i, s in enumerate(a["steps"], 1)]
         if a["test"] and a["test"].get("code"):
-            lang = Path(a["test"].get("file", "")).suffix.lstrip(".") or ""
-            L += ["", f"**Test to add** (`{a['test'].get('file', 'test file')}`):", "", f"```{lang}",
-                  a["test"]["code"].rstrip(), "```"]
+            lang = re.sub(r"\W", "", Path(str(a["test"].get("file", ""))).suffix)
+            body = str(a["test"]["code"]).rstrip()
+            L += ["", f"**Test to add** ({code(a['test'].get('file', 'test file'))}):", "", fence(body) + lang,
+                  body, fence(body)]
             if a["test"].get("run"):
-                L += ["", f"Run it with `{a['test']['run']}`."]
+                L += ["", f"Run it with {code(a['test']['run'])}."]
         if not a["plain"]:
             L += ["", "_These steps came from the reviewer's notes and are not yet written in plain words._"]
         if a["done_when"]:
-            L += ["", f"**You are done when:** {a['done_when']}"]
+            L += ["", f"**You are done when:** {md_inline(a['done_when'])}"]
         if a["also_affects"]:
-            L += ["", f"**Also fixes or affects:** {', '.join(a['also_affects'])}"]
+            L += ["", f"**Also fixes or affects:** {md_inline(', '.join(map(str, a['also_affects'])))}"]
         L.append("")
 
     L += ["## 5. What this report does not show", "",
@@ -277,9 +311,9 @@ def report(findings: dict, bom: dict, actions: list[dict], problems: list[str]) 
           "- The map may be missing parts. Parts reached only through code are included only if the "
           "reviewer traced them."]
     if unknown_zone:
-        L.append(f"- We don't know which network these run in: {', '.join(name(nodes, r) for r in unknown_zone)}.")
+        L.append(f"- We don't know which network these run in: {md_inline(', '.join(name(nodes, r) for r in unknown_zone))}.")
     for s in stale:
-        L.append(f"- Left off the map because its code evidence changed: {s}.")
+        L.append(f"- Left off the map because its code evidence changed: {md_inline(s)}.")
     unmapped = [a["id"] for a in actions if not a["components"]]
     if unmapped:
         L.append(f"- Not linked to a part of the map yet: {', '.join(unmapped)}.")
@@ -290,7 +324,7 @@ def report(findings: dict, bom: dict, actions: list[dict], problems: list[str]) 
 
 
 def write_csv(path: Path, actions: list[dict], nodes: dict) -> None:
-    with path.open("w", newline="") as fh:
+    with path.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["id", "title", "priority", "gate", "rating", "components", "lead",
                     "problem", "steps", "done_when", "evidence"])
@@ -358,6 +392,9 @@ def plan_data(findings: dict, bom: dict, actions: list[dict], problems: list[str
     }
 
 
+MAX_SARIF_RESULTS = 5000  # code scanning rejects far larger runs; a plan has one result per action
+
+
 def sarif(data: dict) -> dict:
     """SARIF 2.1.0 for code-scanning tools: one rule per BRACE item, one result per action."""
     level = {("gap", "Blocker"): "error", ("gap", "Required"): "error", ("gap", "Detection"): "warning"}
@@ -375,7 +412,7 @@ def sarif(data: dict) -> dict:
         for ev in a["evidence"]:
             path, _, line = ev.rpartition(":")
             if path and line.isdigit():
-                locations.append({"physicalLocation": {"artifactLocation": {"uri": path},
+                locations.append({"physicalLocation": {"artifactLocation": {"uri": path_uri(path), "uriBaseId": "%SRCROOT%"},
                                                        "region": {"startLine": int(line)}}})
         result = {"ruleId": a["id"], "level": level.get((a["rating"], a["gate"]), "note"),
                   "message": {"text": text},
@@ -385,8 +422,9 @@ def sarif(data: dict) -> dict:
         if locations:
             result["locations"] = locations[:10]
         results.append(result)
+    results = results[:MAX_SARIF_RESULTS]
     return {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0",
-            "runs": [{"tool": {"driver": {"name": "BRACE", "informationUri": "https://braceframework.org",
+            "runs": [{"tool": {"driver": {"name": "BRACE", "version": __version__, "informationUri": "https://braceframework.org",
                                           "rules": list(rules.values())}},
                       "results": results}]}
 
@@ -414,17 +452,17 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
         return 2
     nodes = topology.all_nodes(bom)
     actions, problems = actions_from(findings, nodes, a.repo)
-    a.output.write_text(report(findings, bom, actions, problems))
+    io.write_atomic(a.output, report(findings, bom, actions, problems))
     if a.csv:
         write_csv(a.csv, actions, nodes)
     data = plan_data(findings, bom, actions, problems)
     if a.json:
-        a.json.write_text(json.dumps(data, indent=2) + "\n")
+        io.write_atomic(a.json, json.dumps(data, indent=2) + "\n")
     if a.sarif:
-        a.sarif.write_text(json.dumps(sarif(data), indent=2) + "\n")
+        io.write_atomic(a.sarif, json.dumps(sarif(data), indent=2) + "\n")
     if a.html:
         from brace_tools.plan import html as report_html
-        a.html.write_text(report_html.render(data, bom))
+        io.write_atomic(a.html, report_html.render(data, bom))
     for p in problems:
         print(f"note: {p}", file=sys.stderr)
     print(f"wrote {a.output} ({len(actions)} actions, {len(problems)} input notes)")

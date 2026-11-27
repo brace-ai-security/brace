@@ -74,3 +74,24 @@ def test_cli_reports_unreadable_input_without_traceback(tmp_path, capsys):
     assert topology.main(["validate", str(tmp_path / "bad.json")]) == 1
     err = capsys.readouterr().err
     assert "not valid JSON" in err and "Traceback" not in err
+
+
+def test_plan_markdown_escapes_untrusted_text_but_keeps_code_spans():
+    from brace_tools.plan.core import cell, code, fence, md_inline
+    assert md_inline("see `neg:<tenant>` ok") == "see `neg:<tenant>` ok"
+    assert md_inline("![x](https://t.example/p.png) <img src=x>\n# H") == \
+        "!\\[x\\](https://t.example/p.png) \\<img src=x\\> # H"
+    assert cell("a | b") == "a \\| b"
+    assert code("a`b") == "`` a`b ``"
+    assert fence("x ```` y") == "`````"
+
+
+def test_plan_sarif_has_driver_version_and_srcroot():
+    from brace_tools import __version__
+    from brace_tools.plan.core import sarif
+    action = {"id": "B01", "title": "T", "steps": [], "problem": "p", "lead": "l", "priority": "p", "done_when": "",
+              "evidence": ["a b/c.py:3"], "rating": "gap", "gate": "Blocker", "components": [], "lead_role": "x"}
+    run = sarif({"actions": [action]})["runs"][0]
+    assert run["tool"]["driver"]["version"] == __version__
+    loc = run["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
+    assert loc == {"uri": "a%20b/c.py", "uriBaseId": "%SRCROOT%"}
