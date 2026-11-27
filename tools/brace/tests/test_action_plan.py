@@ -198,7 +198,8 @@ def test_html_escapes_untrusted_text(example):
     page = report_html.render(action_plan.plan_data(evil, bom, actions, problems), bom)
     assert "<script>alert" not in page and "<img src=x" not in page
     assert "&lt;script&gt;alert(1)" in page
-    assert page.count("<script") == 1  # only the Mermaid loader
+    assert page.count("<script") == 2  # only the Mermaid library (pinned by SRI) and its start-up call
+    assert page.count("<script src=") == 1 and 'integrity="sha384-' in page
     assert "securityLevel:'strict'" in page
 
 
