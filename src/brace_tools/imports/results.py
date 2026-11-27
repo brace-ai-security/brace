@@ -35,6 +35,8 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+
+from open_agent_security import output
 from pathlib import Path
 
 TOOLS = ("garak", "pyrit", "promptfoo", "inspect")
@@ -145,8 +147,7 @@ _SAFE_NAME = re.compile(r"[^A-Za-z0-9_.:/@+ -]")
 def clean(value, limit: int = 80) -> str:
     """Make an untrusted value safe to print and store: no control or bidi
     characters, no newlines, bounded length."""
-    s = _CTRL.sub("", str(value)).strip()
-    return s if len(s) <= limit else s[: limit - 1] + "…"
+    return output.clean(_CTRL.sub("", str(value)).strip(), limit)  # the scanner's: printable, redacted, cut
 
 
 def clean_name(value, limit: int = 80) -> str:

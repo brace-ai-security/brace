@@ -26,6 +26,7 @@ import html
 import json
 from pathlib import Path
 
+from brace_tools import io
 from brace_tools.plan import core as action_plan
 from brace_tools.topology import core as topology
 
@@ -1134,8 +1135,8 @@ def render(m: dict) -> str:
 
 
 def write(bom_path: Path, findings_path: Path | None, out: Path) -> dict:
-    bom = json.loads(bom_path.read_text())
-    findings = json.loads(findings_path.read_text()) if findings_path else None
+    bom = io.read_json_object(bom_path, follow=True)
+    findings = io.read_json_object(findings_path, follow=True) if findings_path else None
     m = build_model(bom, findings)
-    out.write_text(render(m))
+    io.write_atomic(out, render(m))
     return m

@@ -95,3 +95,17 @@ def test_plan_sarif_has_driver_version_and_srcroot():
     assert run["tool"]["driver"]["version"] == __version__
     loc = run["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
     assert loc == {"uri": "a%20b/c.py", "uriBaseId": "%SRCROOT%"}
+
+
+def test_imported_result_text_is_redacted_by_the_scanner_cleaner():
+    from brace_tools.imports.results import clean
+    assert TOKEN not in clean(f"probe leaked {TOKEN}\n‮", 200) and "\n" not in clean("a\nb")
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink") or os.name == "nt", reason="needs symlinks")
+def test_record_yaml_symlink_is_refused(tmp_path):
+    from brace_tools.record import core
+    (tmp_path / "real.yaml").write_text("a: 1\n")
+    (tmp_path / "link.yaml").symlink_to(tmp_path / "real.yaml")
+    with pytest.raises(core.InputError, match="symlink"):
+        core.load_yaml(tmp_path / "link.yaml")

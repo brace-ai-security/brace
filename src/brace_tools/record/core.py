@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import functools
 import hashlib
 import json
 import os
@@ -34,7 +35,7 @@ from pathlib import Path
 
 import yaml  # the [record] extra; brace_tools.cli turns a missing module into exit 2 with a hint
 
-from brace_tools import data
+from brace_tools import data, io
 
 try:  # optional
     from jsonschema import Draft202012Validator as _JSValidator
@@ -69,9 +70,14 @@ class InputError(Exception):
 # Item data
 # --------------------------------------------------------------------------
 
+@functools.lru_cache(maxsize=1)
+def _items() -> tuple:
+    return tuple(json.loads(ITEMS_FILE.read_text(encoding="utf-8")))
+
+
 def load_items() -> list[dict]:
     try:
-        return json.loads(ITEMS_FILE.read_text(encoding="utf-8"))
+        return [dict(i) for i in _items()]
     except (OSError, ValueError) as exc:
         raise InputError(f"Can't read the item list {ITEMS_FILE}: {exc}")
 
@@ -95,12 +101,12 @@ def _normalize(value):
 
 def load_yaml(path: Path):
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise InputError(f"{path}: can't read file ({exc.strerror or exc})")
+        text = io.read_text(path)  # bounded; a symlink in .brace/ is refused
+    except io.ReadError as exc:
+        raise InputError(f"{path}: can't read file ({str(exc).rsplit(': ', 1)[-1]})")
     try:
         return _normalize(yaml.safe_load(text))
-    except yaml.YAMLError as exc:
+    except (yaml.YAMLError, RecursionError) as exc:
         raise InputError(f"{path}: not valid YAML ({exc})")
 
 
@@ -960,7 +966,7 @@ def cmd_check(args) -> int:
         if args.json == "-":
             sys.stdout.write(text)
         else:
-            Path(args.json).write_text(text, encoding="utf-8")
+            io.write_atomic(Path(args.json), text)
     return EXIT_NOGO if res["reasons"] else EXIT_GO
 
 
@@ -972,7 +978,7 @@ def cmd_export(args) -> int:
     if args.output in (None, "-"):
         sys.stdout.write(text)
     else:
-        Path(args.output).write_text(text, encoding="utf-8", newline="")
+        io.write_atomic(Path(args.output), text, newline="")
     return EXIT_GO
 
 
