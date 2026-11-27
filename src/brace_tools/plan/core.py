@@ -255,7 +255,7 @@ def report(findings: dict, bom: dict, actions: list[dict], problems: list[str]) 
           "- **Thick border:** found by reading the code, not just the settings files.", "",
           "```mermaid", topology.mermaid(bom, status, counts, topology.focus_refs(bom, status)).rstrip(), "```", "",
           f"This map shows only the parts with actions or risky connections. The full map has "
-          f"{len(nodes)} parts; draw it with `topology.py mermaid`.", ""]
+          f"{len(nodes)} parts; draw it with `brace map mermaid`.", ""]
 
     L += ["## 2. Connections that matter", "",
           "These connections could cause harm if someone misused the agent. Check them first.", "",

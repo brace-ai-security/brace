@@ -31,7 +31,7 @@ To regenerate (the tests check these files are current), from this folder:
 
 ```sh
 python ../../../../skills/brace-review/scripts/review_coverage.py inventory repo
-python ../../topology.py build repo -o topology.cdx.json --agent-config repo/config/agent.yaml \
+brace map build repo -o topology.cdx.json --agent-config repo/config/agent.yaml \
     --overlay brace-topology.overlay.json
-python ../../topology.py report topology.cdx.json --findings sample-findings.json -o topology-report.html
+brace map report topology.cdx.json --findings sample-findings.json -o topology-report.html
 ```

@@ -17,6 +17,23 @@ open-agent-security . --fail-on high # exit 1 on a high or worse finding
 
 Each problem is reported with its file and line, why it matters and how to fix it.
 
+## The BRACE tools: `brace`
+
+The same package installs a second command, `brace`, for teams that keep a BRACE sign-off
+record. `brace scan` is the scanner above. The other commands need the `[record]` extra
+(PyYAML and jsonschema); without it they exit 2 and say so:
+
+```bash
+pip install "open-agent-security[record]"
+brace init                          # create the .brace/ record
+brace check --approvals off         # check it against the 53 BRACE items
+brace map build . -o brace-topology.cdx.json   # CycloneDX map of what the agent connects to
+brace plan brace-findings.json brace-topology.cdx.json -o brace-action-plan.md
+brace --help                        # every command
+```
+
+The scanner itself never imports PyYAML, jsonschema or the `brace` tools.
+
 ## Rules
 
 | ID | Severity | Problem |

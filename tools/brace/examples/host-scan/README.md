@@ -1,6 +1,6 @@
 # Example: host settings and scanner output
 
-**Illustrative only.** Small made-up files for `topology.py build --host-file` and
+**Illustrative only.** Small made-up files for `brace map build --host-file` and
 `--import-scan`. The keys in them are fake. The tests check that no `env` value,
 header value, URL query or secret-looking argument reaches the map.
 
@@ -14,7 +14,7 @@ header value, URL query or secret-looking argument reaches the map.
 From the repository root:
 
 ```sh
-python tools/brace/topology.py build tools/brace/examples/travel-agent/repo -o /tmp/t.cdx.json \
+brace map build tools/brace/examples/travel-agent/repo -o /tmp/t.cdx.json \
     --agent-config tools/brace/examples/travel-agent/repo/config/agent.yaml \
     --overlay tools/brace/examples/travel-agent/brace-topology.overlay.json \
     --host-file tools/brace/examples/host-scan/claude_desktop_config.json \

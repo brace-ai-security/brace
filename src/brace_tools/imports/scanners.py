@@ -1,4 +1,4 @@
-"""Import MCP scanner output as host evidence for topology.py (`--import-scan FILE`).
+"""Import MCP scanner output as host evidence for `brace map build --import-scan FILE`.
 
 Reads Snyk Agent Scan (`--json`, v0.5 path-keyed or v0.6 `scan_path_responses`) and Cisco
 mcp-scanner (`--format raw`) JSON. It sits beside results_import.py, outside the

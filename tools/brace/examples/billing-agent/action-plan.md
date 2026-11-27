@@ -72,7 +72,7 @@ flowchart LR
   linkStyle 2,11,12,13,14,15,16,17,18,19,20 stroke:#b42318,stroke-width:3px
 ```
 
-This map shows only the parts with actions or risky connections. The full map has 24 parts; draw it with `topology.py mermaid`.
+This map shows only the parts with actions or risky connections. The full map has 24 parts; draw it with `brace map mermaid`.
 
 ## 2. Connections that matter
 

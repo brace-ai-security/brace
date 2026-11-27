@@ -5,13 +5,13 @@ Builds a first-pass component topology for one agent repository from files that
 already exist, writes it as a CycloneDX 1.7 BOM, validates it against the vendored
 official schema, and renders it as a Mermaid flowchart.
 
-    python tools/brace/topology.py build <repo> -o topology.cdx.json \
+    brace map build <repo> -o topology.cdx.json \
         [--inventory <repo>/brace-inventory.json] [--agent-config <repo>/config/agent.yaml]
-    python tools/brace/topology.py validate topology.cdx.json
-    python tools/brace/topology.py mermaid topology.cdx.json [-o topology.mmd]
-    python tools/brace/topology.py report topology.cdx.json [--findings brace-findings.json] -o topology.html
-    python tools/brace/topology.py add-node|add-edge|set-zone|add-tag <repo> --evidence path:line --quote "..." ...
-    python tools/brace/topology.py record topology.cdx.json [--record .brace/topology.cdx.json] [--apply]
+    brace map validate topology.cdx.json
+    brace map mermaid topology.cdx.json [-o topology.mmd]
+    brace map report topology.cdx.json [--findings brace-findings.json] -o topology.html
+    brace map add-node|add-edge|set-zone|add-tag <repo> --evidence path:line --quote "..." ...
+    brace map record topology.cdx.json [--record .brace/topology.cdx.json] [--apply]
 
 Workflow: `build` seeds what files declare; the reviewer records code-traced nodes,
 edges and trust zones with `add-node`/`add-edge`/`set-zone` into an overlay file

@@ -1,24 +1,38 @@
-# brace.py — the BRACE sign-off checker
+# brace — the BRACE sign-off checker, security map and action plan
 
-`brace.py` checks the supplied `.brace/` evidence record against the [BRACE checklist](../../CHECKLIST.md). High-stakes, high-autonomy or unrated deployments return **FINDINGS**; lower-risk deployments keep GO/NO-GO record results. How results are worded, and why exit code 0 never authorizes deployment, is stated once in [TOOLS.md](../../TOOLS.md#how-results-are-worded).
+`brace check` checks the supplied `.brace/` evidence record against the [BRACE checklist](../../CHECKLIST.md). High-stakes, high-autonomy or unrated deployments return **FINDINGS**; lower-risk deployments keep GO/NO-GO record results. How results are worded, and why exit code 0 never authorizes deployment, is stated once in [TOOLS.md](../../TOOLS.md#how-results-are-worded).
 
 It checks the record. It does not test your agent. The evidence links in the record
 point to the tests you ran (see the [verification guide](../../CHECKLIST-VERIFICATION.md)).
 
 ## Install
 
-You need Python 3.10 or newer and PyYAML (3.11 or newer for `brace.py scan`, the
-open-agent-security scanner). `jsonschema` is optional; without it, `brace.py` uses a small
-built-in validator.
+The tools ship in the `open-agent-security` package with the scanner. You need Python 3.11
+or newer.
 
-    pip install pyyaml jsonschema
+    pip install "open-agent-security[record]"
 
-Copy (vendor) this whole `tools/brace/` folder into your repository at `tools/brace/`.
-Keeping the checker in your repository means it is reviewed and versioned with your code.
+The `[record]` extra adds PyYAML and jsonschema, which every `brace` command except
+`brace scan` needs; without it, those commands exit 2 and name the extra. Pin the version in
+your requirements (with hashes, for CI) so the checker your release is judged by is the one
+your pull request names. `brace --help` lists the commands:
+
+| Command | What it does |
+|---|---|
+| `brace scan [path]` | The open-agent-security scanner (standard library only). |
+| `brace init`, `items`, `hash`, `check`, `export`, `import-results` | The `.brace/` record. |
+| `brace map build\|validate\|mermaid\|report\|record\|add-node\|add-edge\|set-zone\|add-tag` | The CycloneDX security map. |
+| `brace plan FINDINGS TOPOLOGY -o FILE` | The action plan (Markdown, CSV, JSON, SARIF, HTML; `--github-output`). |
+
+**Deprecated:** vendoring `tools/brace/` and running `python tools/brace/brace.py <command>`
+still works for this release (copy `src/` too); it runs the same commands. The old
+`tools/brace/topology.py` and `action_plan.py` scripts are gone: use `brace map` and
+`brace plan`. Without jsonschema, `brace check` falls back to a small built-in validator;
+that fallback is deprecated and will be removed, so install the `[record]` extra.
 
 ## Start a record
 
-    python tools/brace/brace.py init
+    brace init
 
 This creates `.brace/` with:
 
@@ -48,7 +62,7 @@ re-review rules in the checklist decide when to look again.
 
 ## Check
 
-    python tools/brace/brace.py check
+    brace check
 
 Options:
 
@@ -71,9 +85,9 @@ The checker reports unresolved record conditions (exit 1) when:
 
 ## Export for auditors and questionnaires
 
-    python tools/brace/brace.py export --format html --output brace-record.html
-    python tools/brace/brace.py export --format csv  --output brace-record.csv
-    python tools/brace/brace.py export --format json --output brace-record.json
+    brace export --format html --output brace-record.html
+    brace export --format csv  --output brace-record.csv
+    brace export --format json --output brace-record.json
 
 One row per checklist item: ID, title, gate, outcome, the check's status and problems, lead,
 evidence links with dates, the latest evidence date, and for a risk acceptance or N/A decision
@@ -98,7 +112,7 @@ entry.
 
 ## Approval model
 
-A name typed into a file doesn't prove anyone approved it. So `brace.py` doesn't trust
+A name typed into a file doesn't prove anyone approved it. So `brace check` doesn't trust
 `accepted_by` or `reviewer`. Instead, an exception or N/A file counts as approved only if:
 
 - the **latest commit that changed the file** is part of a **merged pull request**;
@@ -125,7 +139,7 @@ With `--strict`, "not verified" is an unresolved record finding.
 
 ## Agent-type-id
 
-    python tools/brace/brace.py hash
+    brace hash
 
 prints the fingerprint of the inputs in `.brace/manifest.yaml`. Paths are relative to
 the repository root. Copy the value into `agent_type_id.value` in `deployment.yaml`, and
@@ -153,7 +167,7 @@ Input names must be unique.
    (`read:org`) and save it as the repository secret `BRACE_GITHUB_TOKEN`.
 4. Make the "BRACE check" job a required status check before release.
 
-The workflow runs `brace.py check --approvals github --strict` on pull requests,
+The workflow runs `brace check --approvals github --strict` on pull requests,
 on reviews, and on pushes to `main`.
 
 ## Security map and action plan
@@ -161,17 +175,17 @@ on reviews, and on pushes to `main`.
 Two more scripts turn a review into something people can act on. `brace-review`
 runs them; you can also run them yourself.
 
-`topology.py` builds a map of what the agent connects to: models, tools, MCP
+`brace map build` builds a map of what the agent connects to: models, tools, MCP
 servers, databases and outside APIs. It is saved as a [CycloneDX 1.7](https://cyclonedx.org/)
-file (`schemas/cyclonedx-1.7/`, Apache-2.0).
+file (the schemas ship in the package under `brace_tools/data/schemas/cyclonedx-1.7/`, Apache-2.0).
 
-    python tools/brace/topology.py build . -o brace-topology.cdx.json --agent-config config/agent.yaml
-    python tools/brace/topology.py add-edge . --from tool:issue_refund --to api:payments \
+    brace map build . -o brace-topology.cdx.json --agent-config config/agent.yaml
+    brace map add-edge . --from tool:issue_refund --to api:payments \
         --label "sends refunds" --risk writes,money --evidence src/tools/payments.py:56 --quote "r = httpx.post("
-    python tools/brace/topology.py validate brace-topology.cdx.json
-    python tools/brace/topology.py mermaid brace-topology.cdx.json
-    python tools/brace/topology.py record brace-topology.cdx.json            # create/update .brace/topology.cdx.json?
-    python tools/brace/topology.py record brace-topology.cdx.json --apply    # only after a person says yes
+    brace map validate brace-topology.cdx.json
+    brace map mermaid brace-topology.cdx.json
+    brace map record brace-topology.cdx.json            # create/update .brace/topology.cdx.json?
+    brace map record brace-topology.cdx.json --apply    # only after a person says yes
 
 `build` reads `.mcp.json`, the review inventory and the agent config. Parts that
 only the code reveals are added with `add-node`, `add-edge` and `set-zone`. Each
@@ -181,9 +195,9 @@ whose code changed is left off the map and listed as stale. `record` compares
 the new map with `.brace/topology.cdx.json`, proposes creating or updating it, and
 writes only with `--apply` (exit 3 means "a change is proposed").
 
-`action_plan.py` joins the map with `brace-findings.json`:
+`brace plan` joins the map with `brace-findings.json`:
 
-    python tools/brace/action_plan.py brace-findings.json brace-topology.cdx.json \
+    brace plan brace-findings.json brace-topology.cdx.json \
         -o brace-action-plan.md --csv brace-actions.csv --strict
 
 The report has the map coloured by what needs fixing, the risky connections in
@@ -194,7 +208,7 @@ most issue trackers.
 
 More outputs from the same data:
 
-    python tools/brace/action_plan.py brace-findings.json brace-topology.cdx.json -o brace-action-plan.md \
+    brace plan brace-findings.json brace-topology.cdx.json -o brace-action-plan.md \
         --html brace-action-plan.html --json brace-action-plan.json --sarif brace.sarif --fail-on blocker
 
 | Option | What you get |
@@ -210,10 +224,10 @@ See [examples/billing-agent/](examples/billing-agent/) for a full example, inclu
 
 ### Topology report: declared vs found in code
 
-`topology.py report` writes one web page that shows what the agent connects to.
+`brace map report` writes one web page that shows what the agent connects to.
 It needs no internet connection.
 
-    python tools/brace/topology.py report brace-topology.cdx.json --findings brace-findings.json -o topology.html
+    brace map report brace-topology.cdx.json --findings brace-findings.json -o topology.html
 
 The page compares two things:
 
@@ -264,7 +278,7 @@ outside, all in one context. The map records this as capability tags on parts:
 Tags come from three places, and the page shows which one:
 
 - **declared**: `capabilities: {tool:send_itinerary: [external_send]}` in the agent config;
-- **reviewer**: `topology.py add-tag . --ref api:analytics --tag external_send --evidence src/x.py:17 --quote "..."`.
+- **reviewer**: `brace map add-tag . --ref api:analytics --tag external_send --evidence src/x.py:17 --quote "..."`.
   The quote must be on that line, as for other overlay entries. `--tag none` records that a part has none of the four;
 - **inferred**: only where it is obvious. A data store has private data. A connection
   marked `money` makes its target destructive, and one marked `untrusted_input` tags the outside end.
@@ -291,9 +305,9 @@ that in the B05 finding.
 `build` can also read MCP server settings from the machine where the agent runs,
 and the output of two MCP scanners. These count as "found", like traced code:
 
-    python tools/brace/topology.py build . -o map.cdx.json --host-config          # this machine's client settings
-    python tools/brace/topology.py build . -o map.cdx.json --host-file ~/.cursor/mcp.json
-    python tools/brace/topology.py build . -o map.cdx.json --import-scan agent-scan.json --import-scan cisco.json
+    brace map build . -o map.cdx.json --host-config          # this machine's client settings
+    brace map build . -o map.cdx.json --host-file ~/.cursor/mcp.json
+    brace map build . -o map.cdx.json --import-scan agent-scan.json --import-scan cisco.json
 
 `--host-config` reads Claude Desktop, Claude Code (`~/.claude.json`, managed
 `managed-mcp.json`), Cursor, VS Code and Windsurf settings for the current operating
@@ -329,12 +343,17 @@ SPDX 3 export only if a buyer or regulator asks for SPDX by name.
 
 ## Run it as a GitHub Action
 
-[`action/action.yml`](action/action.yml) is a composite GitHub Action. It builds the
+[`actions/plan/action.yml`](../../actions/plan/action.yml) is a composite GitHub Action. It builds the
 map (optional), writes the plan in every format, puts it in the job summary (the
 map renders there), uploads the report folder and the SARIF, compares the map with
 `.brace/topology.cdx.json`, and fails on your threshold. It runs no model and needs
-no secrets. Copy [`templates/brace-action-plan.yml`](templates/brace-action-plan.yml)
-to `.github/workflows/`; it uses the vendored copy with `uses: ./tools/brace/action`.
+no secrets. It runs BRACE from its own checkout with `python -I` (nothing in your
+repository can be imported), installs hash-pinned PyYAML and jsonschema into a private
+virtual environment, pins every action it uses by commit SHA, and stops the runner from
+reading workflow commands in output that carries repository text. Copy
+[`templates/brace-action-plan.yml`](templates/brace-action-plan.yml) to `.github/workflows/`;
+it uses `brace-ai-security/open-agent-security/actions/plan@v3.3.0` (pin the commit SHA if your
+policy requires it). Outputs: `actions`, `gaps`, `blocker-gaps`, `record-status`, `report-dir`.
 
 | Input | Default | Meaning |
 |---|---|---|
@@ -343,7 +362,7 @@ to `.github/workflows/`; it uses the vendored copy with `uses: ./tools/brace/act
 | `build-topology`, `agent-config`, `tools-config` | `false`, empty | Rebuild the map from `.mcp.json`, config and the reviewer's overlay. |
 | `fail-on` | `blocker` | `blocker`, `gap`, `any` or `none`. |
 | `strict` | `true` | Fail on input notes. |
-| `record`, `record-drift` | `.brace/topology.cdx.json`, `warn` | Compare the map with the record: `warn`, `fail` or `off`. The Action never writes the record; a person runs `topology.py record --apply`. |
+| `record`, `record-drift` | `.brace/topology.cdx.json`, `warn` | Compare the map with the record: `warn`, `fail` or `off`. The Action never writes the record; a person runs `brace map record --apply`. |
 | `upload-sarif`, `upload-artifact` | `true`, `true` | SARIF upload needs `permissions: security-events: write`; it is skipped with a warning if code scanning is not available. |
 
 Outputs: `actions`, `gaps`, `blocker-gaps`, `record-status`, `report-dir`.
@@ -355,8 +374,8 @@ Some items need test results, such as R02 (prompt injection) or B05 (destructive
 actions). If you test your agent with an attack tool, `import-results` can read the
 tool's results file and add it as evidence in `record.yaml`.
 
-    python tools/brace/brace.py import-results garak results/garak.report.jsonl
-    python tools/brace/brace.py import-results garak results/garak.report.jsonl --item R02 --item B05
+    brace import-results garak results/garak.report.jsonl
+    brace import-results garak results/garak.report.jsonl --item R02 --item B05
 
 The first command only reads the file. It prints the tool and version, the run date,
 how many tests passed and failed, the attack types it found, and the items those
@@ -412,9 +431,9 @@ the test matched the checklist recipe. Check the test against
 
 ## Other commands
 
-    python tools/brace/brace.py items          # the 53 items, gates, and lead roles
-    python tools/brace/brace.py items --json
-    python tools/brace/brace.py export --format html|csv|json   # see "Export for auditors"
+    brace items          # the 53 items, gates, and lead roles
+    brace items --json
+    brace export --format html|csv|json   # see "Export for auditors"
 
 ## Exit codes
 
@@ -423,15 +442,33 @@ the test matched the checklist recipe. Check the test against
 | 0 | Record conditions met (or command succeeded); not deployment authorization |
 | 1 | Unresolved record findings; not a high-risk deployment verdict |
 | 2 | Invalid input or usage error: a file is missing, isn't valid YAML, doesn't match its schema, or the GitHub API couldn't be read |
+| 3 | `brace map record`: the map differs from the record (nothing written without `--apply`); `brace plan`: an action matches `--fail-on` |
+
+For `brace map` and `brace plan`, 1 means an invalid map, a rejected overlay entry, unreadable input or (with `--strict`) plan input notes. `brace scan` uses the scanner's codes (see [SCAN.md](SCAN.md)).
 
 ## For BRACE maintainers
 
-`brace_items.json` and `templates/.brace/record.yaml` are generated from
-`CHECKLIST.md` and `ROLES.md`:
+Layout: one distribution, `open-agent-security`, with two import packages in `src/`:
+`open_agent_security` (the scanner: standard library only, safe under `python -I`) and
+`brace_tools` (record, map, plan, importers; data in `brace_tools/data/`). The dependency rule:
+`brace_tools` may import `open_agent_security`, never the reverse; a test imports every
+scanner module under `python -I` and fails if `yaml`, `jsonschema` or `brace_tools` is loaded.
+Repository-only tooling stays out of the wheel: `tools/dev/gen_items.py`, `tools/site/`,
+`skills/gen_references.py`. `tools/brace/scan.py` (the root Action and CI) and the deprecated
+`tools/brace/brace.py` launch the packages from a checkout.
 
-    python tools/brace/gen_items.py          # regenerate
-    python tools/brace/gen_items.py --check  # exit 1 if out of date
+`brace_tools/data/brace_items.json` and `brace_tools/data/templates/.brace/record.yaml` are
+generated from `CHECKLIST.md` and `ROLES.md`:
 
-Run the tests with:
+    python tools/dev/gen_items.py          # regenerate
+    python tools/dev/gen_items.py --check  # exit 1 if out of date
 
-    python -m pytest tools/brace/tests -q
+Run the whole suite from the repository root (the command in CLAUDE.md and AGENTS.md):
+
+    uvx --python 3.11 --with pyyaml==6.0.4 --with jsonschema==4.26.0 --with pytest==9.2.0 \
+        --with pytest-xdist==3.8.0 --with pytest-timeout==2.4.0 pytest -q
+
+`-m slow` runs the stress tests kept out of the default run. Characterisation goldens for the
+plan and map live in `tests/fixtures/char_golden/`; a change there must be reviewed and
+explained. Regenerate them with `BRACE_REGEN_GOLDEN=1 pytest tests/plan/test_char_golden.py -n 0`.
+Exit codes of every command are listed in `src/brace_tools/cli.py`.

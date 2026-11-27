@@ -107,8 +107,18 @@ def test_the_wheel_installs_and_runs(tmp_path):
     p = subprocess.run([exe, str(tmp_path / "repo"), "--fail-on", "none", "--output", f"gitlab-sast={gl}",
                         "--output", f"junit={junit}"], capture_output=True, timeout=60)
     assert p.returncode == 0 and json.loads(gl.read_text())["vulnerabilities"] and "<failure" in junit.read_text()
-    with zipfile.ZipFile(wheel) as z:  # the JSON report schema ships in the wheel
-        assert "open_agent_security/report/schema/report-1.schema.json" in z.namelist()
+    with zipfile.ZipFile(wheel) as z:  # the JSON report schema and the BRACE data ship in the wheel
+        names = z.namelist()
+        assert "open_agent_security/report/schema/report-1.schema.json" in names
+        assert {"brace_tools/data/brace_items.json", "brace_tools/data/templates/.brace/record.yaml",
+                "brace_tools/data/templates/.brace/na/.gitkeep",
+                "brace_tools/data/schemas/cyclonedx-1.7/LICENSE"} <= set(names)
+    brace = str(bindir / "brace")  # installed without the [record] extra
+    assert subprocess.run([brace, "--version"], capture_output=True, timeout=60).returncode == 0
+    p = subprocess.run([brace, "scan", str(tmp_path / "repo"), "--fail-on", "none"], capture_output=True, timeout=60)
+    assert p.returncode == 0
+    p = subprocess.run([brace, "check"], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert p.returncode == 2 and 'open-agent-security[record]' in p.stderr
 
 
 def test_python_311_is_required_everywhere():
@@ -119,9 +129,13 @@ def test_python_311_is_required_everywhere():
 
 def test_pre_commit_hook_runs_the_whole_repository():
     hooks = yaml.safe_load((ROOT / ".pre-commit-hooks.yaml").read_text(encoding="utf-8"))
-    assert hooks == [{"id": "open-agent-security", "name": "open-agent-security", "description": hooks[0]["description"],
-                      "entry": "open-agent-security", "language": "python", "pass_filenames": False,
-                      "always_run": True}]
+    assert hooks[0] == {"id": "open-agent-security", "name": "open-agent-security", "description": hooks[0]["description"],
+                        "entry": "open-agent-security", "language": "python", "pass_filenames": False,
+                        "always_run": True}
+    assert [h["id"] for h in hooks] == ["open-agent-security", "brace-check"]
+    check = hooks[1]
+    assert check["entry"] == "brace check --approvals off" and check["files"] == "^\\.brace/"
+    assert any(d.startswith("PyYAML") for d in check["additional_dependencies"])
 
 
 def test_every_module_run_in_the_docs_is_isolated():

@@ -23,8 +23,8 @@ tmp=$(mktemp -d) && cp -R evals/fixtures/billing-agent "$tmp/" && r="$tmp/billin
 cp tools/brace/examples/billing-agent/brace-topology.overlay.json "$r/"
 python skills/brace-review/scripts/review_coverage.py inventory "$r"
 cd tools/brace/examples/billing-agent
-python ../../topology.py build "$r" -o topology.cdx.json --agent-config "$r/config/agent.yaml"
-python ../../action_plan.py sample-findings.json topology.cdx.json -o action-plan.md --csv actions.csv \
+brace map build "$r" -o topology.cdx.json --agent-config "$r/config/agent.yaml"
+brace plan sample-findings.json topology.cdx.json -o action-plan.md --csv actions.csv \
     --json action-plan.json --sarif brace.sarif --html action-plan.html --strict
-python ../../topology.py report topology.cdx.json --findings sample-findings.json -o topology-report.html
+brace map report topology.cdx.json --findings sample-findings.json -o topology-report.html
 ```

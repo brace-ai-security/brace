@@ -35,7 +35,7 @@ opa eval --fail-defined -d examples/policy/rego -i report.json 'data.main.deny[_
 opa test examples/policy/rego
 ```
 
-`tools/brace/tests/test_rego_policies.py` runs the unit tests and both example inputs when
+`tests/packaging/test_rego_policies.py` runs the unit tests and both example inputs when
 `opa` or `conftest` is installed, and skips otherwise.
 
 ## Gateway policy languages for B01, B05 and E06

@@ -1,6 +1,6 @@
 """Render a BRACE topology as one self-contained, interactive web page.
 
-    python tools/brace/topology.py report topology.cdx.json [--findings brace-findings.json] -o topology.html
+    brace map report topology.cdx.json [--findings brace-findings.json] -o topology.html
 
 The page shows what the agent connects to: its sub-agents, tools, MCP servers and
 their tools, the APIs, data stores and models behind them, grouped by trust zone.

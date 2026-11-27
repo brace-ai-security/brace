@@ -64,6 +64,28 @@ cp -rf source dest          # NOT: cp -r source dest
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->
+## Build & Test
+
+One distribution, `open-agent-security` (version from `VERSION`), with two packages in `src/`:
+`open_agent_security` (the scanner: standard library only, safe under `python -I`) and
+`brace_tools` (the `brace` command: record, map, plan, importers; needs the `[record]` extra).
+`brace_tools` may import the scanner, never the reverse (tests/packaging/test_dependency_rule.py).
+
+```bash
+# The whole default suite, from the repository root (budget: under 5 minutes):
+uvx --python 3.11 --with pyyaml==6.0.4 --with jsonschema==4.26.0 --with pytest==9.2.0 \
+    --with pytest-xdist==3.8.0 --with pytest-timeout==2.4.0 pytest -q
+
+python3 -I tools/brace/scan.py . --fail-on low   # this repository scans clean
+uv build -o /tmp/dist                            # one wheel and sdist; remove src/*.egg-info after
+python tools/dev/gen_items.py --check            # item data; also skills/gen_references.py and
+                                                 # tools/site/gen_{checklist_page,doc_pages,mappings_json}.py --check
+```
+
+Scanner goldens (`tests/fixtures/oas_golden/`) must stay byte-identical unless a scanner change
+is intended. Plan and map goldens (`tests/fixtures/char_golden/`) change only with a reviewed,
+explained diff (`BRACE_REGEN_GOLDEN=1 pytest tests/plan/test_char_golden.py -n 0`).
+
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.

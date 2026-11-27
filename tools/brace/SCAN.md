@@ -6,7 +6,11 @@ Find known-dangerous AI agent setups in a repository, in seconds. Part of the
 ```bash
 uvx open-agent-security .            # or: pipx run open-agent-security .
 uvx open-agent-security . --host     # also check the agent settings on this machine
+pip install open-agent-security      # installs open-agent-security and brace (brace scan = this scanner)
 ```
+
+The package's other tools (the BRACE record checker, map and action plan) need
+`pip install "open-agent-security[record]"`; the scanner needs nothing beyond Python 3.11.
 
 It reports each problem with its file and line, why it matters and how to fix it:
 
@@ -176,7 +180,7 @@ SAST or JUnit) found in the scanned folder are not scanned, and a note counts th
   that runs. The serial number is derived from the content. At most 5,000 entries are listed.
   Tests validate it offline against the bundled CycloneDX 1.7 schema. For the richer map of
   tools, data stores, trust zones and flows, use
-  [`topology.py`](README.md#security-map-and-action-plan), which writes the same CycloneDX version.
+  [`brace map build`](README.md#security-map-and-action-plan), which writes the same CycloneDX version.
 
 Skipped files are listed as notes: files over 1 MB, binary or unreadable files (including
 bytes that start like UTF-16 but are not), symlinks and special files, and agent config
