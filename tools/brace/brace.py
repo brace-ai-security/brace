@@ -8,6 +8,7 @@ deployments receive FINDINGS, never a GO/NO-GO deployment verdict.
   brace.py items [--json]
   brace.py hash  [--dir .] [--manifest .brace/manifest.yaml]
   brace.py check [--dir .] [--approvals github|git|off] [--strict] [--json out.json]
+  brace.py export --format html|csv|json [--dir .] [--output FILE] [--approvals off|git|github]
   brace.py import-results garak|pyrit|promptfoo|inspect FILE [--item R02 ...] [--dir .]
 
 Exit codes: 0 record conditions met, 1 unresolved findings, 2 invalid input/usage.
@@ -959,6 +960,17 @@ def cmd_check(args) -> int:
     return EXIT_NOGO if res["reasons"] else EXIT_GO
 
 
+def cmd_export(args) -> int:
+    import record_export
+    checker = Checker(Path(args.dir), args.approvals, False)
+    res = checker.run()
+    text = record_export.RENDER[args.format](record_export.document(checker, res))
+    if args.output in (None, "-"):
+        sys.stdout.write(text)
+    else:
+        Path(args.output).write_text(text, encoding="utf-8", newline="")
+    return EXIT_GO
+
 
 # --------------------------------------------------------------------------
 # import-results
@@ -1083,6 +1095,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--strict", action="store_true", help="treat unverified approvals as blocking")
     s.add_argument("--json", metavar="FILE", help="also write the result as JSON to FILE ('-' for stdout)")
     s.set_defaults(func=cmd_check)
+
+    s = sub.add_parser("export", help="export the record, one row per item, for auditors and questionnaires")
+    s.add_argument("--format", choices=["html", "csv", "json"], required=True, help="output format")
+    s.add_argument("--dir", default=".", help="repository root holding .brace/ (default: .)")
+    s.add_argument("--output", metavar="FILE", help="write to FILE instead of stdout")
+    s.add_argument("--approvals", choices=["github", "git", "off"], default="off",
+                   help="how check verifies approvals for the status column (default: off; the export says so)")
+    s.set_defaults(func=cmd_export)
 
     s = sub.add_parser("import-results", help="add red-team or eval results as evidence for items")
     s.add_argument("tool", choices=["garak", "pyrit", "promptfoo", "inspect"], help="the tool that made the file")

@@ -71,6 +71,33 @@ The checker reports unresolved record conditions (exit 1) when:
 7. any exception file exists for a Blocker item, or for a Detection item on a high-stakes or high-autonomy deployment;
 8. the agent-type-id in `deployment.yaml` no longer matches `manifest.yaml`.
 
+## Export for auditors and questionnaires
+
+    python tools/brace/brace.py export --format html --output brace-record.html
+    python tools/brace/brace.py export --format csv  --output brace-record.csv
+    python tools/brace/brace.py export --format json --output brace-record.json
+
+One row per checklist item: ID, title, gate, outcome, the check's status and problems, lead,
+evidence links with dates, the latest evidence date, and for a risk acceptance or N/A decision
+its file, approver (`accepted_by` or `reviewer`), date, tracking link and reason. Exception and
+N/A files have no expiry field, so the `expires` column stays empty unless a file adds one. The
+deployment's name, environment, release, checklist date, stakes and autonomy rating and
+agent-type-id head the export, with the check's decision and notice.
+
+- `--format html` is one self-contained, print-friendly page: inline CSS, no scripts and no
+  external resources (its Content-Security-Policy allows none). Every value is HTML-escaped
+  and only `http(s)` links become links.
+- `--format csv` joins lists with ` | ` and prefixes a cell that a spreadsheet would run as a
+  formula with `'`.
+- `--approvals` (default `off`) sets how the status column verifies approvals, as in `check`;
+  the export records which mode it used. Exit code 2 when the record is invalid; otherwise 0,
+  whatever the outcomes (run `check` to gate).
+
+Framework mappings are published as JSON next to their pages (`mappings/*.json`, generated
+from the Markdown tables by `tools/site/gen_mappings_json.py`), so a questionnaire or GRC tool
+can import which BRACE items address each OWASP, NIST AI RMF, ISO/IEC 42001 or MITRE ATLAS
+entry.
+
 ## Approval model
 
 A name typed into a file doesn't prove anyone approved it. So `brace.py` doesn't trust
@@ -389,6 +416,7 @@ the test matched the checklist recipe. Check the test against
 
     python tools/brace/brace.py items          # the 53 items, gates, and lead roles
     python tools/brace/brace.py items --json
+    python tools/brace/brace.py export --format html|csv|json   # see "Export for auditors"
 
 ## Exit codes
 
