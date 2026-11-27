@@ -6,7 +6,7 @@ Some checks are hard to prove. For those, read the **"Why this is hard" and "If 
 
 The [source review](SOURCE-REVIEW.md) separates outside guidance, BRACE's own policy choices, and product claims that still need testing in your deployment.
 
-For high-stakes or high-autonomy deployments, report what was tested, found and left unknown without a BRACE GO/NO-GO deployment verdict. Accountable people own any gradual, closely monitored rollout, with bounded exposure, stop conditions, tested recovery and review before expansion. Passing recipes does not authorize deployment.
+Passing recipes does not authorize deployment. For how BRACE words results for high-risk and lower-risk deployments, see [How results are worded](TOOLS.md#how-results-are-worded).
 
 ## Prepare a verification run
 

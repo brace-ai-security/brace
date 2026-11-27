@@ -4,7 +4,7 @@ Use this worksheet to score the same **53 items** as the [BRACE sign-off checkli
 
 Part of the BRACE Project. License: CC BY 4.0.
 
-For high-stakes or high-autonomy deployments, report findings and evidence limits without a BRACE GO/NO-GO verdict. Accountable people own any deployment decision and a gradual, closely monitored rollout with bounded exposure, stop conditions, tested recovery and review before expansion. Scores and completed controls do not establish safety.
+Scores and completed controls do not establish safety. For how BRACE words results for high-risk and lower-risk deployments, see [How results are worded](TOOLS.md#how-results-are-worded).
 
 ## How to use this
 
