@@ -214,7 +214,7 @@ Companion frameworks and platform docs for human approval, guardrails, and overs
 
 ## Managed platforms
 
-Commercial runtimes that ship some controls out of the box. For per-control evidence requirements, see the [vendor worksheet](VENDOR-MATRIX.md).
+Commercial runtimes that ship some controls out of the box. For per-control evidence requirements, see the [vendor worksheet](SELF-ASSESSMENT.md#assessing-a-vendor).
 
 | Resource | What it is | BRACE | Status |
 |---|---|---|---|

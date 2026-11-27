@@ -52,7 +52,7 @@ pre-commit hook, and in GitLab CI with GitLab SAST and JUnit reports.
 |---|---|---|
 | Building your first agent, or a small team | **[Anti-patterns](ANTI-PATTERNS.md)** and **[BRACE Starter](STARTER.md)**: ten checks before an agent touches anything real | ~1 hour |
 | Approving an agent for production | **[Sign-off checklist](CHECKLIST.md)**: 53 evidence-backed items with release gates | days |
-| Assessing a running deployment or a vendor | **[Self-assessment](SELF-ASSESSMENT.md)** and the [vendor matrix](VENDOR-MATRIX.md) | hours |
+| Assessing a running deployment or a vendor | **[Self-assessment](SELF-ASSESSMENT.md)**, including [assessing a vendor](SELF-ASSESSMENT.md#assessing-a-vendor) | hours |
 | Wiring BRACE into code review and CI | **[BRACE in your codebase](TOOLS.md)**: AI review skills, `.brace/` records and evidence checks | |
 
 Also: the [role map](ROLES.md) (who leads each item) and the [source review](SOURCE-REVIEW.md) (evidence and its limits).
@@ -190,7 +190,6 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 | [TOOLS.md](TOOLS.md) | Use BRACE inside an agent's codebase: AI skills that review code and write tests, a `.brace/` record for outcomes, exceptions, and approvals, and a CI evidence check with findings-only output for high-risk deployments. |
 | [evals/README.md](evals/README.md) | Model-review evaluations, including failures, repeated-run variance, exact configurations, answer-key corrections, and saved evidence. |
 | [ROLES.md](ROLES.md) | Which role leads or shares each checklist item and sign-off duty, from the agent team to vendors and independent audit. |
-| [VENDOR-MATRIX.md](VENDOR-MATRIX.md) | Evidence to request when evaluating vendor and platform support for each control. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose changes, report a real-world incident, or map a vendor product. |
 | [GOVERNANCE.md](GOVERNANCE.md) | How the project is run, and how to become a co-maintainer. |
 | [ROADMAP.md](ROADMAP.md) | What's planned, and how priorities are set. |

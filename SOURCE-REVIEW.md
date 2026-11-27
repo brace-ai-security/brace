@@ -101,7 +101,7 @@ The targeted source set is listed in the [MCP resource catalog](RESOURCES.md#mcp
 ### Evidence still unavailable
 
 - Public metadata for [ISO/IEC 42001](https://www.iso.org/standard/81230.html) and [ISO/IEC 23894](https://www.iso.org/standard/77304.html) was inspected, but the full paywalled standards were not. No clause-level completeness or compliance conclusion is claimed.
-- Vendor feature coverage, configuration defaults, deployment performance, and security effectiveness require version-specific evidence and testing. The [vendor worksheet](VENDOR-MATRIX.md) records what to request rather than assigning unsupported passes.
+- Vendor feature coverage, configuration defaults, deployment performance, and security effectiveness require version-specific evidence and testing. The [vendor worksheet](SELF-ASSESSMENT.md#assessing-a-vendor) records what to request rather than assigning unsupported passes.
 - Historical outreach drafts are marked as historical; their novelty statements are not current verified claims.
 
 ## Primary control references
