@@ -424,7 +424,7 @@ breaking change would be called out in the release notes. A plugin reporter is c
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: brace-ai-security/open-agent-security@v3.4.0   # or pin a commit SHA
+- uses: brace-ai-security/open-agent-security@v3.4.1   # or pin a commit SHA
   with:
     fail-on: high          # critical | high | medium | low | none
     upload-sarif: "false"  # "true" needs permissions: security-events: write
@@ -447,7 +447,7 @@ suppressed findings are never uploaded to code scanning, whatever the config fil
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/brace-ai-security/open-agent-security
-    rev: v3.4.0   # or a commit SHA
+    rev: v3.4.1   # or a commit SHA
     hooks:
       - id: open-agent-security
 ```

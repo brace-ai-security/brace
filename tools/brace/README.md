@@ -352,7 +352,7 @@ repository can be imported), installs hash-pinned PyYAML and jsonschema into a p
 virtual environment, pins every action it uses by commit SHA, and stops the runner from
 reading workflow commands in output that carries repository text. Copy
 [`templates/brace-action-plan.yml`](templates/brace-action-plan.yml) to `.github/workflows/`;
-it uses `brace-ai-security/open-agent-security/actions/plan@v3.4.0` (pin the commit SHA if your
+it uses `brace-ai-security/open-agent-security/actions/plan@v3.4.1` (pin the commit SHA if your
 policy requires it). Outputs: `actions`, `gaps`, `blocker-gaps`, `record-status`, `report-dir`.
 
 | Input | Default | Meaning |
