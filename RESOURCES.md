@@ -44,7 +44,7 @@ Use these references to understand threats and governance requirements alongside
 
 ## Security reference refresh: 2026-10-22
 
-Re-researched all 53 recommendations for BRACE **2.0.1**. The [dated review](RESEARCH-2026-10-22.md) records per-item assessments, precise package ranges, required configuration/migration and evidence limits. Dates below are publication dates unless labeled otherwise. Advisories predating October 16 are historical omissions discovered now. Fixed versions address the named issue, not every vulnerability. None establishes that a BRACE deployment is affected without checking its dependencies and exposed features.
+Re-researched all 53 recommendations for BRACE **2.0.1**. The [dated review](docs/RESEARCH-2026-10-22.md) records per-item assessments, precise package ranges, required configuration/migration and evidence limits. Dates below are publication dates unless labeled otherwise. Advisories predating October 16 are historical omissions discovered now. Fixed versions address the named issue, not every vulnerability. None establishes that a BRACE deployment is affected without checking its dependencies and exposed features.
 
 High-risk reports describe evidence, gaps and unknowns without a BRACE release verdict. Accountable people own any gradual, closely monitored rollout. Proposed technical refinements remain discussion inputs.
 

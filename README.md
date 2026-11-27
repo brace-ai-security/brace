@@ -194,7 +194,7 @@ To cite BRACE, use [`CITATION.cff`](CITATION.cff), or reference this repository 
 | [GOVERNANCE.md](GOVERNANCE.md) | How the project is run, and how to become a co-maintainer. |
 | [ROADMAP.md](ROADMAP.md) | What's planned, and how priorities are set. |
 | [ADOPTERS.md](ADOPTERS.md) | Teams, assessors, and products using BRACE — and how to get listed. |
-| [outreach/](outreach/) | Proposals to OWASP, NIST CAISI, CoSAI, CSA, and the OpenTelemetry GenAI SIG, plus the launch write-up. Drafts marked historical are not current evidence. |
+| [docs/outreach/](docs/outreach/) | Proposals to OWASP, NIST CAISI, CoSAI, CSA, and the OpenTelemetry GenAI SIG, plus the launch write-up. Drafts marked historical are not current evidence. |
 | [CITATION.cff](CITATION.cff) | How to cite BRACE. |
 
 ## License

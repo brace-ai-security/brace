@@ -1,6 +1,6 @@
 # MCP control and research map
 
-Baseline: BRACE's [2026-10-22 review](https://braceframework.org/RESEARCH-2026-10-22.md)
+Baseline: BRACE's [2026-10-22 review](https://braceframework.org/docs/RESEARCH-2026-10-22.md)
 and [checklist](https://braceframework.org/CHECKLIST.md). These links provide context;
 the direct primary sources below remain usable when only this skill folder is installed.
 BRACE IDs map findings to existing controls; the topic names here are not new checklist IDs.

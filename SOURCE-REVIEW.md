@@ -16,7 +16,7 @@ Follow-ups from the 2026-11-26 reference refresh. No checklist requirement chang
 
 ## Latest review: 2026-10-22
 
-The [full dated evidence review](RESEARCH-2026-10-22.md) rechecks all 53 items and recipes, with a row for every item, original advisory links, affected/fixed versions, configuration prerequisites and source limits. Newly published October 19–21 advisories are distinguished from older omissions found now. This is a source review, not a dependency audit, exploit reproduction, model requalification or deployment test.
+The [full dated evidence review](docs/RESEARCH-2026-10-22.md) rechecks all 53 items and recipes, with a row for every item, original advisory links, affected/fixed versions, configuration prerequisites and source limits. Newly published October 19–21 advisories are distinguished from older omissions found now. This is a source review, not a dependency audit, exploit reproduction, model requalification or deployment test.
 
 **Approved policy clarification:** high-stakes or high-autonomy deployments receive evidence, gaps and unknowns, without a BRACE GO/NO-GO deployment verdict. Unrated deployments also receive findings only. Accountable people own any deployment decision and a gradual, closely monitored rollout with bounded exposure, stop conditions, tested recovery and review before expansion. Lower-risk GO/NO-GO results describe checklist record conditions, not deployment authorization. This supersedes earlier release-approval wording below; government guidance recommends low-risk, non-sensitive uses and does not endorse a high-risk release after BRACE gates pass.
 
