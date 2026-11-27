@@ -14,8 +14,9 @@ from datetime import datetime, timezone
 from .agents import AGENT_SIGNAL, SHARED_SETTINGS
 from .catalog import SEVERITY_ORDER, RuleMeta
 from .config import Config
+from .inventory import record as record_inventory
 from .ignore import IGNORE_FILE, IGNORE_MARK, Ignores, load_ignores, marked_lines
-from .limits import MAX_PER_FILE, MAX_SUPPRESSED, NOTE_CHARS, NOTE_PATH_CHARS
+from .limits import MAX_INVENTORY, MAX_PER_FILE, MAX_SUPPRESSED, NOTE_CHARS, NOTE_PATH_CHARS
 from .model import (CheckContext, Document, Finding, ParseError, Project, Report, Skipped, SourceFile, Suppression,
                     Tally)
 from .output import clean, path_bytes, plural
@@ -41,6 +42,7 @@ class ScanContext:
     capped: set[str] = field(default_factory=set)             # files already noted as over MAX_PER_FILE
     capped_suppressed: bool = False                           # past MAX_SUPPRESSED, noted once
     agent_repo: bool = False                                  # an agent runs in the scanned folder
+    inventory_full: bool = False                              # past MAX_INVENTORY, noted once
 
 
 def run_scan(config: Config, registry: Registry) -> Report:
@@ -141,6 +143,7 @@ def scan_file(ctx: ScanContext, src: SourceFile) -> None:
         return
     if src.origin == "repo" and not ctx.agent_repo:
         ctx.agent_repo = agent_evidence(src, doc)
+    take_inventory(ctx, doc, shown)
     for check in enabled_checks(ctx, "file"):
         for f in filter_and_cap(ctx, checked(ctx, check, doc, shown), src.origin):
             f.host = src.origin == "host"
@@ -148,6 +151,19 @@ def scan_file(ctx: ScanContext, src: SourceFile) -> None:
     collect_facts(ctx, src, doc, shown)
     if src.display not in ctx.origins:  # only project checks' findings need a file's marks later
         ctx.marks.pop(src.display, None)
+
+
+def take_inventory(ctx: ScanContext, doc: Document, shown: str) -> None:
+    """List the file's agent config and MCP servers for the inventory outputs. A failure here
+    loses only the inventory entry, never findings, and is noted."""
+    if ctx.inventory_full:
+        return
+    try:
+        if not record_inventory(doc, ctx.config.display_prefix, ctx.report.inventory):
+            ctx.inventory_full = True
+            ctx.report.note(f"inventory: stopped listing at {MAX_INVENTORY} agent config files and MCP servers")
+    except Exception as e:
+        ctx.report.note(f"inventory: could not list {shown}: {type(e).__name__}")
 
 
 def checked(ctx: ScanContext, check, doc: Document, shown: str):

@@ -197,6 +197,7 @@ class Report:
     rules_off: tuple = ()        # RuleMeta of the rules turned off, for their suppressed findings
     tally: Tally = field(default_factory=Tally)
     secrets: Secrets = DEFAULT   # what note() redacts: built-in token formats plus the config's
+    inventory: list = field(default_factory=list)  # agent config files and MCP servers seen (inventory.py)
     started: datetime | None = None   # UTC, set by the engine
     finished: datetime | None = None
 

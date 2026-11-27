@@ -34,7 +34,7 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
                    help="exit 1 when a finding is this severe or worse, or the scan is incomplete (default: high)")
     p.add_argument("--output", metavar="NAME=FILE", action="append", default=[], type=output_arg,
                    help="also write the NAME report to FILE (repeatable): text, json, sarif, markdown, gitlab-sast, "
-                        "junit, or a plugin's; FILE - replaces the report on stdout")
+                        "junit, cyclonedx (an inventory of agent config and MCP servers), or a plugin's; FILE - replaces the report on stdout")
     p.add_argument("--sarif", metavar="FILE",
                    help="also write SARIF (GitHub code scanning) to FILE (--output sarif=FILE)")
     p.add_argument("--markdown", metavar="FILE",
