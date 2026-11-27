@@ -16,7 +16,10 @@ import json
 
 from brace_tools.topology import core as topology
 
-MERMAID = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs"
+# The single-file build, pinned by Subresource Integrity: the browser refuses any other bytes.
+# (The ES-module build imports further chunks that SRI on the entry file would not cover.)
+MERMAID = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"
+MERMAID_SRI = "sha384-rbtjAdnIQE/aQJGEgXrVUlMibdfTSa4PQju4HDhN3sR2PmaKFzhEafuePsl9H/9I"
 
 CSS = """
 :root{--bg:#f7f7f5;--surface:#fff;--ink:#1d1d1b;--muted:#5f5f5a;--line:#e2e2dc;--accent:#2f5bd3;
@@ -202,8 +205,8 @@ def render(data: dict, bom: dict) -> str:
     if data["notes"]:
         out.append(f"<li>{len(data['notes'])} input note(s) were reported when this page was made.</li>")
     out.append("</ul></main>")
-    out.append("<script type=module>"
-               f"import mermaid from {json.dumps(MERMAID)};"
+    out.append(f"<script src={json.dumps(MERMAID)} integrity={json.dumps(MERMAID_SRI)} crossorigin=anonymous "
+               "referrerpolicy=no-referrer></script><script>"
                "const dark=matchMedia('(prefers-color-scheme: dark)').matches;"
                "mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:dark?'dark':'default',"
                "flowchart:{htmlLabels:true}});"
