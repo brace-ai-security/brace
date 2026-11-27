@@ -25,11 +25,31 @@ It reports each problem with its file and line, why it matters and how to fix it
 
 Details and fixes: https://braceframework.org/anti-patterns/
 
-AP01 and AP02 count a bare `--yolo`, and Copilot CLI's `--allow-all-tools` and `--allow-all`,
-only as arguments of an agent CLI that takes them (Gemini CLI, Qwen Code, Codex, Crush,
-Copilot), because object-detection tools and Deno use the same flags. Such a flag counts when
-the CLI (`gemini`, `qwen`, `codex`, `copilot`, `crush`, `@google/gemini-cli`, `@qwen-code/...`)
-is a word anywhere in the same simple command (split at `&&`, `||`, `;`, `|` and line breaks
+AP01 and AP02 cover these agent CLIs and flags, and no others:
+
+| CLI | Bypass flags and settings | Counted |
+| --- | --- | --- |
+| Claude Code (CLI, SDKs, VS Code extension) | `--dangerously-skip-permissions`, `--permission-mode bypassPermissions`, a `bypassPermissions` value under any key or in any variable, settings' `defaultMode: bypassPermissions` | anywhere |
+| Codex | `--dangerously-bypass-approvals-and-sandbox`, `--sandbox`/`-s danger-full-access`, a `danger-full-access` value under any key (`sandbox_mode`, `sandboxMode`, `sandbox:`), `--yolo` | the first three anywhere; `--yolo` beside the CLI |
+| Gemini CLI, Qwen Code | `--yolo`, `-y`, `--approval-mode yolo`, settings' `approvalMode: "yolo"` (any `approval_mode`/`approvalMode` key set to yolo) | `--yolo` and `-y` beside the CLI; the rest anywhere |
+| Crush | `--yolo`, `-y` | beside the CLI |
+| Copilot CLI | `--allow-all-tools`, `--allow-all-paths`, `--allow-all` | beside the CLI |
+| Amp | `--dangerously-allow-all` | anywhere |
+| Aider | `--yes-always` | beside `aider` |
+| Cursor's agent CLI | `--force`, `-f` | after `cursor-agent`, in a command that also has `-p`/`--print` |
+
+A bypass value on its own (`CLAUDE_PERMISSION_MODE=bypassPermissions`,
+`q.setPermissionMode("bypassPermissions")`, `MODE = "bypassPermissions"` then
+`permission_mode=MODE`) is reported once per line, and not again on a line where the flag
+that takes it was reported.
+
+AP01 and AP02 count a bare `--yolo`, and Copilot CLI's `--allow-all-tools`,
+`--allow-all-paths` and `--allow-all`, only as arguments of an agent CLI that takes them
+(Gemini CLI, Qwen Code, Codex, Crush, Copilot), because object-detection tools and Deno use the
+same flags. Such a flag counts when the CLI (`gemini`, `qwen`, `codex`, `copilot`, `crush`,
+`gemini-cli`, `qwen-code`, also inside a URL or image such as
+`npx https://github.com/google-gemini/gemini-cli` or `gemini-cli/sandbox:0.1.1`,
+`@google/gemini-cli`, `@qwen-code/...`) is a word anywhere in the same simple command (split at `&&`, `||`, `;`, `|` and line breaks
 not continued with `\`; in a JSON file also at string quotes), so wrappers such as `op run --`,
 `docker run img`, `ssh box`, `find -exec`, `parallel` or `xvfb-run` do not hide it, unless that
 word is an argument of an install command (`npm`/`pnpm`/`yarn`/`bun install|add|i`,
@@ -38,7 +58,9 @@ counts as an item of a list whose earlier quoted item is the CLI, or of a list p
 that names it (`spawn("gemini", [` then `"--yolo"` on the next line); in a JSON object or YAML
 mapping whose `command:`, `cmd:` or `entrypoint:` is the CLI (compose, Kubernetes, Zed
 `agent_servers`); when pushed onto a list (`args.push("--yolo")`, `.append`, `+= [...]`) that a
-later spawn, exec or subprocess call passes with the CLI; and, in YAML, under a key that names
+later spawn, exec or subprocess call passes with the CLI; when assigned (shell, Make, an env
+file or YAML) to a variable or key whose name holds a gated CLI's name (`GEMINI_FLAGS="--yolo"`,
+`GEMINI_ARGS := --yolo`, `QWEN_OPTS: --yolo`); and, in YAML, under a key that names
 the CLI (`codex-args:`, `gemini_cli_args:`) or in a step that uses an agent action. So
 `npm install -g @google/gemini-cli && apt-get install -y jq` and `deno run --allow-all x.ts &&
 codex exec ...` count nothing. The short `-y` (Gemini CLI, Qwen Code, Crush) counts only after
@@ -67,7 +89,21 @@ innermost open `(` or `[`) names an agent CLI or agent package:
   looking for block comments: template literals with their `${...}`, Groovy and Kotlin, Java
   and Scala triple-quoted strings, Go and Rust raw strings); a block comment never hides a
   line whose command is an agent CLI;
-- in Markdown files, which are not read for these rules;
+- in documentation, which is prose and not read for these rules: Markdown (`.md`, `.mdx`,
+  `.markdown`, `.mkd`), `.rst`, `.adoc`, `.asciidoc`, `.org`, `.txt` and `.tex` files;
+  extensionless README, CHANGELOG, CHANGES, CONTRIBUTING, SECURITY, HISTORY, NEWS, AUTHORS,
+  CONTRIBUTORS, LICENSE, COPYING, NOTICE, CODE_OF_CONDUCT, MAINTAINERS and TODO files (also
+  with a suffix such as `LICENSE-MIT` or `README.txt`); HTML (`.html`, `.htm`) outside
+  `<script>` bodies; `<!-- -->` comments in `.vue`, `.svelte`, `.xml` and `.xhtml`; a
+  notebook's Markdown and raw cells (only code cells are read); and docs search indexes
+  (`search-index.json`, `search_index.json`, `*.search.json`, anything under a `lunr*` or
+  `pagefind*` folder, and a JSON file over 64 KB shaped like an MkDocs, Lunr or elasticlunr
+  index). The exception: in Markdown files under `.claude/agents`, `.claude/commands`,
+  `.claude/skills`, `.gemini/commands`, `.qwen/commands`, `.codex`, `.agents`,
+  `.cursor/commands` and `.cursor/rules`, the YAML frontmatter (between a first line `---`
+  and the next, within 64 KB) is read as YAML config: a bypass value
+  (`permissionMode: bypassPermissions`) is AP01, and an `allowed-tools` entry that allows
+  every shell command (`Bash`, `Bash(*)`) is AP06;
 - as a quoted literal compared or searched for: `== "--flag"`, `!= "--flag"`, `"--flag" in x`,
   `"--flag" not in x`, `x in ("--a", "--flag")` (not `for x in`), `.includes(`, `.contains(`,
   `.has(`, `.indexOf(`, `.startsWith(`, `.endsWith(`, a `re.*(` or `RegExp(` pattern, a
@@ -97,7 +133,16 @@ Everything else counts: help text, prompts, error messages and descriptions that
 (`expect(validate("--flag"))`), a `"name": "--flag"` entry in a flags catalog, lists named
 `BLOCKED_FLAGS`, `ask` or `UNSAFE_ARGS`, a lone quoted flag in an argument list and an item of
 a `for` loop's list. Trailing comments are removed before a value is examined, so a comment
-after a YAML value does not change how the value is read.
+after a YAML value does not change how the value is read. Comment markers are found outside
+quotes by the file kind's quoting rules: in shell (scripts, Makefiles, env files, Dockerfiles)
+a backslash escapes outside quotes and in double quotes, and single quotes have no escapes
+(`'\''` is a literal quote); in YAML, TOML, PowerShell and batch files single quotes have no
+escapes; elsewhere a backslash escapes in single and double quotes, and in JavaScript,
+TypeScript, Go and Kotlin backticks quote too. A trailing comment after code whose logical
+command names an agent CLI or package is not removed (`claude -p hi # --flag` is reported); a
+whole-line comment is. A deny-list's name is followed through the file with one identifier
+index per file, for at most 200 distinct names (list names and pushed-to argument lists); past
+that, a flag is reported rather than judged a mention.
 
 Bypass mode written as JSON counts anywhere: nested under another key, inside a JSON string
 (a devcontainer command that writes settings), or as the VS Code extension's
@@ -119,7 +164,11 @@ value the server checks already report (env, headers, arguments, URL) is reporte
 
 AP04 also covers MCP servers run from a container: a `docker` or `podman` `run`/`create`
 whose image has no `@sha256:` digest (`ghcr.io/org/server:latest`, or no tag at all) is
-unpinned, and the finding names the image.
+unpinned, and the finding names the image. The image is the first argument shaped like an
+image reference that is neither a known flag's value (`docker run --help`'s value flags and
+Podman's common ones) nor purely numeric (`--memory-swappiness 0`). A local image name with no
+registry, namespace or tag (`postgres`) is still AP04, with the detail "local image; pin a
+digest or build in CI".
 
 MCP servers are read from these formats:
 
@@ -152,18 +201,24 @@ An agent config file that does not parse makes the scan incomplete.
   `.zsh`, `.fish`, `.ps1`, `.bat`, `.cmd`, `.go`, `.rs`, `.rb`, `.java`, `.kt`, `.scala`,
   `.groovy`, `.php`, `.cs`, `.swift`, `.lua`, `.pl`, `.c`, `.h`, `.cpp`, `.ex`, `.exs`,
   `.dart`, `.vue`, `.svelte`, `.html`, `.nix`, `.tf`, `.hcl`, `.ipynb`, `.code-workspace`,
-  `.service`, `.j2`, `.jinja`, `.tpl`, `.txt`, `.md` and `.mk`; also Makefiles (`Makefile`,
+  `.service`, `.j2`, `.jinja`, `.tpl`, `.txt`, `.md` and `.mk` (documentation among them is
+  prose for AP01 and AP02; see above); also Makefiles (`Makefile`,
   `GNUmakefile`), justfiles, `Procfile`, Dockerfiles (`Dockerfile`, `Containerfile`,
   `Dockerfile.<tag>`, `*.dockerfile`, `*.containerfile`), `.env` files, shell start-up files
   (`.zshrc`, `.bashrc`, `.bash_aliases`, `.bash_profile`, `.zprofile`, `.profile`, `.envrc`,
   `.zshenv`, with `#` comments) and extensionless scripts that start with `#!`; names are
-  compared without regard to case. Any other regular file up to the size limit is searched
-  for bypass markers (`--dangerously-skip-permissions`,
+  compared without regard to case. Any other regular file up to the size limit, except
+  documentation, is searched for bypass markers (`--dangerously-skip-permissions`,
   `--dangerously-bypass-approvals-and-sandbox`, `bypassPermissions`, `danger-full-access`,
-  `sandbox_mode`, `--allow-all-tools`, `--yolo`, `--approval-mode`) as bytes, and read as text
-  when it holds one, so no file kind hides a bypass. `.pytest_cache`, `.mypy_cache` and
+  `sandbox_mode`, `--allow-all-tools`, `--allow-all-paths`, `--yolo`, `--approval-mode`,
+  `--dangerously-allow-all`, `--yes-always`) as bytes, and read as text when it holds one, so
+  no file kind hides a bypass. An oversized documentation file holding a marker does not make
+  the scan incomplete. `.pytest_cache`, `.mypy_cache` and
   `.ruff_cache` folders are not entered, like `__pycache__`.
-  It never follows symlinks and never opens FIFOs or other special files; it lists them in
+  It never follows symlinks and never opens FIFOs or other special files (each file is checked
+  with `lstat` right before it is opened and with `fstat` after, and refused if the two differ,
+  so this holds on Windows too, where `O_NOFOLLOW` and `O_NONBLOCK` do not exist; a file
+  swapped for a symlink between the two calls is caught by the comparison); it lists them in
   a note, and the headline then says some files could not be read. A symlink to a path
   inside the scanned folder that the walk reads anyway (`CLAUDE.md -> AGENTS.md`,
   `.claude/skills -> ../.agents/skills`) hides nothing: it is counted in a note only. A
@@ -202,8 +257,16 @@ An agent config file that does not parse makes the scan incomplete.
   (`YOUR-TOKEN`, `ghp_xxxx…`), references to a secret kept elsewhere (`${VAR}`, `$VAR`,
   `%VAR%`, `{{...}}`, `env:...`, `op://...`), URLs, file paths, numbers and booleans are not
   reported, nor are names that end by saying what else the value is (`TOKEN_FILE`,
-  `AUTH_URL`, `KEY_ID`, `PRIMARY_KEY_COLUMN`). Treat redaction as a safeguard, not a guarantee
-  for every secret format.
+  `AUTH_URL`, `KEY_ID`, `PRIMARY_KEY_COLUMN`). In agent configuration outside server entries
+  (every other value of the file is walked), the test is stricter, since most keys there are
+  not about credentials: a known token format counts anywhere; `Bearer ` or `Basic `
+  (case-sensitive) only under a header-like key (`authorization`, `*auth*`, `headers`) or as
+  the whole value; a name whose last word is `key` only with a qualifying word (`api`,
+  `secret`, `access`, `private`, `signing`, `auth`, `client`, `service`, `master`,
+  `encryption`), so `projectKey`, `cacheKey`, `sortKey`, `primaryKey`, `apiKeyHelper` and
+  `keybindings` are not secrets; and a value that reads as a lower-case path
+  (`scripts/get-key-v2`) or as prose (three or more words) is never reported unless it holds a
+  known token format. Treat redaction as a safeguard, not a guarantee for every secret format.
 - `--host` reads the MCP config files of Claude Desktop, Claude Code, Cursor, VS Code,
   Windsurf and Devin Desktop, and `~/.claude/settings.json`, following symlinks and up to
   5 MB each. It shows paths under your home folder as `~/`.

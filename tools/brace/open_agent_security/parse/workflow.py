@@ -33,7 +33,7 @@ PRT_LINE = re.compile(r"^(?:-\s*)?[\"']?pull_request_target[\"']?\s*(?::\s*)?(?:
                       r"^[\"']?on[\"']?\s*:.*\bpull_request_target\b|^\[.*\bpull_request_target\b")
 WORKFLOW_FILE = re.compile(r"(?:^|/)\.github/workflows/[^/]+\.ya?ml$", re.I)
 ACTION_FILE = re.compile(r"(?:^|/)action\.ya?ml$", re.I)
-LOCAL_USES = re.compile(r"^[ \t]*(?:-[ \t]+)?uses[ \t]*:[ \t]*[\"']?\./([^\s\"'#@]{1,300})", re.M)
+LOCAL_USES = re.compile(r"^[ \t]*(?:-[ \t]+)?uses[ \t]*:[ \t]*[\"']?\./([^\s\"'#@]{0,300})", re.M)  # `./`: the repository's own action
 MAX_LOCAL_USES = 50  # local actions and reusable workflows kept per file
 
 

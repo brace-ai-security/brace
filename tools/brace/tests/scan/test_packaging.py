@@ -134,7 +134,8 @@ def test_the_docs_say_which_outputs_are_capped_and_which_rules_span_files():
 def test_round11_ci_runs_the_wheel_and_history_tests_on_every_supported_python():
     flow = yaml.safe_load((ROOT / ".github/workflows/tooling.yml").read_text(encoding="utf-8"))
     job = flow["jobs"]["check"]
-    assert job["strategy"]["matrix"]["python-version"] == ["3.11", "3.12"] and job["timeout-minutes"] == 10
+    assert job["strategy"]["matrix"]["python-version"] == ["3.11", "3.12", "3.13", "3.14"] \
+        and job["timeout-minutes"] == 10
     checkout = next(s for s in job["steps"] if s.get("uses", "").startswith("actions/checkout@"))
     assert checkout["with"]["fetch-depth"] == 0
     runs = " ".join(s.get("run", "") for s in job["steps"])
@@ -150,3 +151,13 @@ def test_round11_the_must_run_tests_fail_instead_of_skipping_in_ci(monkeypatch):
     monkeypatch.setenv("CI", "")
     with pytest.raises(pytest.skip.Exception):
         skip_unless_ci("no tool")
+
+
+def test_round12_ci_smoke_tests_the_action_command_on_macos_and_windows():
+    """Finding 10: one macOS and one Windows leg scan a small fixture as the Action does."""
+    flow = yaml.safe_load((ROOT / ".github/workflows/tooling.yml").read_text(encoding="utf-8"))
+    job = flow["jobs"]["scan-smoke"]
+    assert job["strategy"]["matrix"]["os"] == ["macos-latest", "windows-latest"] and job["timeout-minutes"] <= 10
+    runs = " ".join(s.get("run", "") for s in job["steps"])
+    assert "python -I tools/brace/scan.py --fail-on low --sarif" in runs and "--github-output" in runs
+    assert "pytest" not in runs

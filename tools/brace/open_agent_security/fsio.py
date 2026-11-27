@@ -13,8 +13,27 @@ from pathlib import Path
 
 from .limits import MB
 
-# Open flags that refuse a symlink at the path and never block on a FIFO.
-NOFOLLOW = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+# Open flags that refuse a symlink at the path and never block on a FIFO. Windows has neither
+# flag (both are 0 there), so open_regular() also checks the path with lstat right before
+# opening it and the opened file with fstat after: a symlink or special file swapped in between
+# is caught by comparing the two (same device and file id, still a regular file).
+NOFOLLOW = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+
+
+def open_regular(p: Path) -> int:
+    """A read-only descriptor for the regular file at p, never through a symlink; OSError otherwise."""
+    before = os.lstat(p)
+    if not stat.S_ISREG(before.st_mode):
+        raise OSError(f"not a regular file: {p}")
+    fd = os.open(p, NOFOLLOW)
+    try:
+        after = os.fstat(fd)
+        if not stat.S_ISREG(after.st_mode) or (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+            raise OSError(f"changed while opening: {p}")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 @dataclass
@@ -37,7 +56,7 @@ def read(p: Path, follow: bool = False, limit: int = MB, display: str = "") -> s
             return ReadFailure("not a regular file", display)
         if st.st_size > limit:
             return ReadFailure("oversized", display)
-        with open(p, "rb") as fh:
+        with (open(p, "rb") if follow else os.fdopen(open_regular(p), "rb")) as fh:
             data = fh.read(limit + 1)
     except OSError:
         return ReadFailure("unreadable", display)
@@ -53,8 +72,7 @@ def contains(p: Path, needles: tuple[bytes, ...], cap: int = 16 * MB) -> bool:
     (for files too large to read as text). Symlinks are not followed."""
     overlap, tail, seen = max(map(len, needles)) - 1, b"", 0
     try:
-        fd = os.open(p, NOFOLLOW)
-        with os.fdopen(fd, "rb") as fh:
+        with os.fdopen(open_regular(p), "rb") as fh:
             while seen < cap:
                 chunk = fh.read(MB)
                 if not chunk:
@@ -104,9 +122,7 @@ def starts_with(p: Path, prefix: bytes) -> bool:
     """Whether a regular file starts with `prefix`. FIFOs, devices and symlinks are never opened,
     so they cannot hang the scan or lead out of the folder."""
     try:
-        if not stat.S_ISREG(os.lstat(p).st_mode):
-            return False
-        with os.fdopen(os.open(p, NOFOLLOW), "rb") as fh:
+        with os.fdopen(open_regular(p), "rb") as fh:
             return fh.read(len(prefix)) == prefix
     except OSError:
         return False

@@ -463,3 +463,26 @@ def test_round11_new_passes_grow_linearly(tmp_path, rel, unit):
     t_small = min(scan_cpu(tmp_path, rel, small) for _ in range(2))
     t_large = min(scan_cpu(tmp_path, rel, large) for _ in range(2))
     assert t_large < 10 * t_small + 0.1, (t_small, t_large)
+
+
+@pytest.mark.parametrize("rel,unit", [
+    # deny-list names: each followed its uses with a whole-file search (1 MB took 35 s, clean)
+    ("a.py", lambda i: f'n{i}_deny = ["{FLAG_TEXT}"]\n'),
+    # pushed-to argument lists: each name searched the rest of the file (1 MB took 40 s)
+    ("a.js", lambda i: f"a{i}.push('--yolo')\n"),
+])
+def test_round12_distinct_names_grow_linearly_and_are_reported(tmp_path, rel, unit):
+    """Finding 1: one identifier index per file, and at most MAX_NAMES names followed; past the
+    cap a flag is reported, not judged a mention."""
+    n = 3000
+    small, large = ("".join(unit(i) for i in range(k)) for k in (n, 4 * n))
+    t_small = min(scan_cpu(tmp_path, rel, small) for _ in range(2))
+    t_large = min(scan_cpu(tmp_path, rel, large) for _ in range(2))
+    assert t_large < 10 * t_small + 0.1, (t_small, t_large)
+    if rel == "a.py":
+        assert "AP01" in rules(tmp_path)  # names past the cap are not deny-lists
+
+
+def test_round12_a_deny_list_within_the_name_cap_is_still_a_mention(tmp_path):
+    write(tmp_path, "a.py", f'BLOCKED = ["{FLAG_TEXT}"]\nif arg in BLOCKED:\n    exit(2)\n')
+    assert rules(tmp_path) == []

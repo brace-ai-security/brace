@@ -530,3 +530,43 @@ def test_round11_an_mcp_container_image_without_a_digest_is_unpinned(tmp_path, a
 def test_round11_a_digest_pinned_or_absent_image_is_not_reported(tmp_path, args):
     write(tmp_path, ".mcp.json", json.dumps({"mcpServers": {"s": {"command": "podman", "args": args}}}))
     assert rules(tmp_path) == []
+
+
+@pytest.mark.parametrize("rel,data", [
+    (".vscode/settings.json", {"mcp": {"servers": {"a": {"command": "node"}}},
+                               "sonarlint.connectedMode.project": {"projectKey": "my-org_backend-service-2"}}),
+    (".mcp.json", {"mcpServers": {"a": {"command": "node", "description": "A basic documentation/getting-started.md server"}}}),
+    (".claude/settings.json", {"apiKeyHelper": "scripts/get-key-v2"}),
+    (".claude/settings.json", {"cacheKey": "build-cache-v2-linux-x64", "keybindings": {"run": "ctrl+shift+r2"}}),
+    (".mcp.json", {"mcpServers": {"a": {"command": "node", "note": "Bearer tokens go in the env file"}}}),
+])
+def test_round12_config_values_that_are_not_secrets(tmp_path, rel, data):
+    """Finding 8: identifier keys, prose and paths, and lower-case `basic`/`bearer` are not secrets."""
+    write(tmp_path, rel, json.dumps(data))
+    assert "AP05" not in rules(tmp_path)
+
+
+@pytest.mark.parametrize("data", [
+    {"apiKey": "Zq9fPqLmZtRvWbNcHdJs1234"},
+    {"provider": {"signingKey": "Zq9fPqLmZtRvWbNcHdJs1234"}},
+    {"requestInit": {"headers": {"Authorization": "Bearer Zq9fPqLmZtRvWbNcHdJs1234"}}},
+    {"auth": "Basic dXNlcjpwYXNzd29yZDEyMzQ1Njc4OTA="},
+    {"note": TOKEN},
+])
+def test_round12_config_secrets_still_found(tmp_path, data):
+    write(tmp_path, "opencode.json", json.dumps(data))
+    assert rules(tmp_path) == ["AP05"]
+
+
+def test_round12_a_numeric_flag_value_is_not_the_image(tmp_path):
+    """Finding 11: `--memory-swappiness 0` made `0` the image; a pinned image after it is fine."""
+    mcp(tmp_path, {"command": "docker", "args": ["run", "-i", "--rm", "--memory-swappiness", "0",
+                                                 "mcp/postgres@sha256:" + "a" * 64]})
+    assert rules(tmp_path) == []
+    mcp(tmp_path, {"command": "docker", "args": ["run", "-i", "--rm", "--some-new-flag", "512", "mcp/postgres:1"]})
+    assert found(tmp_path) == [("AP04", "s0: docker image mcp/postgres:1 (no @sha256 digest)")]
+
+
+def test_round12_a_local_image_says_so(tmp_path):
+    mcp(tmp_path, {"command": "docker", "args": ["run", "-i", "--rm", "postgres"]})
+    assert found(tmp_path) == [("AP04", "s0: docker image postgres (local image; pin a digest or build in CI)")]

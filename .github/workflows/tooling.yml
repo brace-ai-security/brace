@@ -18,7 +18,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]  # requires-python is >=3.11
+        # requires-python is >=3.11; setup-python resolves 3.14 from the runner's version manifest
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -62,6 +63,44 @@ jobs:
         run: python -m pytest skills/brace-review/scripts evals/test_repeat.py -q
       - name: Dedicated MCP qualification harness tests
         run: python -m unittest discover -s evals/mcp -p 'test_*.py'
+
+  scan-smoke:
+    # The scanner on macOS and Windows (where O_NOFOLLOW and O_NONBLOCK do not exist and
+    # fsio.open_regular checks files with lstat and fstat instead): one small fixture scanned
+    # with the command the Action runs. Not the full suite.
+    if: github.event_name != 'schedule'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Scan a small fixture as the Action does
+        shell: bash
+        env:
+          OPEN_AGENT_SECURITY_PLUGINS: ""
+        run: |
+          FIXTURE="$RUNNER_TEMP/oas-smoke"
+          mkdir -p "$FIXTURE/.claude" "$FIXTURE/docs"
+          BYPASS="--dangerously-skip"-permissions  # split so this repository's own scan does not report it
+          printf '#!/bin/sh\nclaude %s -p "fix"\n' "$BYPASS" > "$FIXTURE/run.sh"
+          printf '{"permissions": {"allow": ["Bash(*)"]}}\n' > "$FIXTURE/.claude/settings.json"
+          printf 'claude %s\n' "$BYPASS" > "$FIXTURE/docs/guide.rst"  # prose: not reported
+          SARIF="$RUNNER_TEMP/oas-smoke.sarif"
+          set +e
+          python -I tools/brace/scan.py --fail-on low --sarif "$SARIF" --markdown "$RUNNER_TEMP/summary.md" \
+            --github-output "$RUNNER_TEMP/output.txt" -- "$FIXTURE"
+          code=$?
+          set -e
+          test "$code" = "1"
+          python -I -c 'import json, sys; ids = sorted(r["ruleId"] for r in json.load(open(sys.argv[1], encoding="utf-8"))["runs"][0]["results"]); print(ids); assert ids == ["AP01", "AP06"], ids' "$SARIF"
 
   slow-tests:
     if: github.event_name == 'schedule'

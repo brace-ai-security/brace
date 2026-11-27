@@ -44,7 +44,7 @@ found. It doesn't mean the agent is secure; for that, use the
 
 ### AP01: Agent runs with all permission checks turned off
 
-**Looks like:** `claude --dangerously-skip-permissions`, `--permission-mode bypassPermissions`, `"defaultMode": "bypassPermissions"`, `permission_mode="bypassPermissions"` in SDK code, `codex --dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access`, `sandbox_mode = "danger-full-access"` (`sandboxMode` in the Codex SDK, `sandbox: danger-full-access` in openai/codex-action), `gemini --yolo`, `gemini -y`, `--approval-mode yolo`, `crush -y` or `copilot --allow-all-tools`.
+**Looks like:** `claude --dangerously-skip-permissions`, `--permission-mode bypassPermissions`, `"defaultMode": "bypassPermissions"`, `permission_mode="bypassPermissions"` in SDK code, `codex --dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access`, `sandbox_mode = "danger-full-access"` (`sandboxMode` in the Codex SDK, `sandbox: danger-full-access` in openai/codex-action), `gemini --yolo`, `gemini -y`, `--approval-mode yolo` (`approvalMode: "yolo"` in Gemini CLI or Qwen Code settings), `crush -y`, `copilot --allow-all-tools` or `--allow-all-paths`, `amp --dangerously-allow-all`, `aider --yes-always`, `cursor-agent -p --force`, or `permissionMode: bypassPermissions` in a Claude Code subagent's frontmatter.
 
 **Why it's dangerous:** Every tool call runs without anyone approving it, including shell commands, file deletes and network requests. One injected instruction in a README, issue, dependency or web page can then run any command as you, with your SSH keys, cloud credentials and browser cookies within reach.
 
@@ -98,7 +98,7 @@ found. It doesn't mean the agent is secure; for that, use the
 
 ### AP06: Agent allowed to run any shell command
 
-**Looks like:** `"allow": ["Bash"]` or `"Bash(*)"` in Claude Code settings (detected), or a `run_shell` tool with no command filter in your own harness (review by hand).
+**Looks like:** `"allow": ["Bash"]` or `"Bash(*)"` in Claude Code settings, or `allowed-tools: Bash(*)` in a command's or skill's frontmatter (detected), or a `run_shell` tool with no command filter in your own harness (review by hand).
 
 **Why it's dangerous:** A shell can do anything: `curl` your files to a server, `rm -rf`, `git push --force`, install a backdoor. An allowlist that contains "any command" isn't an allowlist.
 

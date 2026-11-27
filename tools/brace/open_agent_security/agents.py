@@ -34,8 +34,15 @@ CLI_NAME = re.compile(rf"(?<![\w-])(?:{alternation(CLIS)})(?![\w-])")
 # (`claude`, `claude.exe`, `/usr/local/bin/claude`) or package (`claude-code`, `gemini-cli`).
 AGENT_COMMAND = re.compile(rf"{alternation(PACKAGES)}|{alternation(ACTIONS)}|"
                            rf"(?<![\w.])(?:{alternation(CLIS)})(?:-[a-z]{{1,20}}){{0,2}}(?:\.exe|\.cmd)?(?![\w.])")
-GATED_CLI = re.compile(rf"(?<![\w-])(?:{alternation(GATED_FLAG_CLIS)})(?![\w-])|@google/gemini-cli|@qwen-code/|"
-                       r"@github/copilot|@charmland/crush", re.I)
+# A gated CLI as a word (`gemini`), as its package's bare name (`gemini-cli`, `qwen-code`, also
+# inside a URL or image such as `github.com/google-gemini/gemini-cli` or `gemini-cli/sandbox:0.1`)
+# or as an npm package.
+GATED_CLI = re.compile(rf"(?<![\w-])(?:{alternation(GATED_FLAG_CLIS)})(?![\w-])|(?<![\w-])(?:gemini-cli|qwen-code)(?![\w-])|"
+                       r"@google/gemini-cli|@qwen-code/|@github/copilot|@charmland/crush", re.I)
+# A variable or key named after a gated CLI (`GEMINI_FLAGS`, `QWEN_ARGS`, `codex_opts`): a gated
+# flag assigned to it is meant for that CLI (`GEMINI_FLAGS="--yolo"`, then `gemini $GEMINI_FLAGS`).
+GATED_NAME = re.compile(rf"(?:{alternation(GATED_FLAG_CLIS)})", re.I)
+GATED_ASSIGN = re.compile(r"^[ \t]*(?:export[ \t]+|-[ \t]+)?[\"']?([A-Za-z_][\w.-]{0,80})[\"']?[ \t]*(?::=|\?=|\+=|::=|=|:)", re.M)
 
 AGENT_SIGNAL = re.compile("|".join(SDKS) + "|" + alternation(ACTIONS) + "|" + alternation(PACKAGES), re.M)
 
@@ -53,6 +60,7 @@ BYPASS = re.compile(
     r"(?:--sandbox|(?<![\w-])-s)" + GAP + "danger-full-access" + END + "|"
     # The SDKs' permission_mode / permissionMode, and the VS Code extension's initialPermissionMode
     r"\b(?:initial_?)?permission_?mode[\"']?[ \t]*[:=][ \t]*[\"']?bypassPermissions" + END + r"[\"']?|"
+    r"--dangerously-allow-all" + END + "|"  # Amp: every tool call runs without asking
     # Codex's sandbox setting by any spelling: config.toml's sandbox_mode, the TypeScript SDK's
     # sandboxMode, and openai/codex-action's `sandbox:` input.
     # The value may be quoted once, three times (a TOML multi-line string) or with escaped quotes
@@ -60,7 +68,22 @@ BYPASS = re.compile(
     r"\bsandbox(?:_?mode)?[\"']?[ \t]*[:=][ \t]*\\?[\"']{0,3}danger-full-access" + END + r"[\"']?", re.I)
 # Bypasses only next to an agent CLI that takes them: Gemini/Qwen/Codex/Crush --yolo, and
 # Copilot CLI's --allow-all-tools ("allow every tool without asking") and --allow-all.
-GATED_BYPASS = re.compile(r"--(?:yolo|allow-all-tools|allow-all)" + END)
+GATED_BYPASS = re.compile(r"--(?:yolo|allow-all-tools|allow-all-paths|allow-all)" + END)
+# A bypass written as a value on its own, whatever its key or variable is called
+# (`CLAUDE_PERMISSION_MODE=bypassPermissions`, `setPermissionMode("bypassPermissions")`,
+# `MODE = "bypassPermissions"`), and Gemini CLI's and Qwen Code's approval mode setting set to
+# yolo. Reported only on lines no other bypass match reported.
+BYPASS_VALUE = re.compile(r"(?<![\w-])(?:bypassPermissions|danger-full-access)" + END + "|"
+                          r"\bapproval_?mode[\"']?[ \t]*[:=][ \t]*[\"']?yolo" + END, re.I)
+# Bypass flags of other agent CLIs, each only next to its own CLI: Aider's --yes-always and
+# Cursor's agent CLI's --force / -f (which runs every command unless denied; with -p).
+AIDER_BYPASS = re.compile(r"--yes-always" + END)
+AIDER_CLI = re.compile(r"(?<![\w-])aider(?:-chat)?(?![\w-])", re.I)
+QUOTED_AIDER_CLI = re.compile(r"[\"'](?:[\w.~-]{0,100}/)?aider(?:\.exe|\.cmd)?[\"']", re.I)
+CURSOR_BYPASS = re.compile(r"(?<![\w-])(?:--force|-f)" + END)
+CURSOR_CLI = re.compile(r"(?<![\w-])cursor-agent(?![\w-])", re.I)
+QUOTED_CURSOR_CLI = re.compile(r"[\"'](?:[\w.~-]{0,100}/)?cursor-agent(?:\.exe|\.cmd)?[\"']", re.I)
+PRINT_FLAG = re.compile(r"(?<![\w-])(?:-p|--print)(?![\w-])")  # cursor-agent's headless mode
 # Gemini CLI's, Qwen Code's and Crush's short -y (--yolo), only as an argument of one of them:
 # after the CLI in the same command, so `npx -y @google/gemini-cli -p hi` (npx's own -y) does not count.
 SHORT_YOLO = re.compile(r"(?<![\w-])-y(?![\w-])")
@@ -109,7 +132,7 @@ def command_position(before: str) -> bool:
 # incomplete), and in files of kinds the walk does not read (which are then read as text).
 BYPASS_BYTES = (b"--dangerously-skip-permissions", b"--dangerously-bypass-approvals-and-sandbox",
                 b"bypassPermissions", b"danger-full-access", b"sandbox_mode", b"--allow-all-tools", b"--yolo",
-                b"--approval-mode")
+                b"--approval-mode", b"--dangerously-allow-all", b"--allow-all-paths", b"--yes-always")
 
 # Files that configure an agent or its MCP servers, as paths ending a repository path.
 CONFIG_FILES = (".mcp.json", "mcp.json", "mcp.jsonc", "mcp_config.json", "mcp-config.json",
@@ -131,3 +154,29 @@ CONFIG_DIRS = frozenset({".claude", ".github", ".gemini", ".qwen", ".codex", ".c
 def config_dir(rel: str) -> bool:
     """A folder (repo-relative) that is, or is inside, a folder that holds agent config or CI."""
     return any(part.lower() in CONFIG_DIRS for part in rel.split("/"))
+
+
+# Documentation: prose that names flags to explain them, never read for bypass flags (and never
+# read because a byte search found one). Markdown, reStructuredText, AsciiDoc, Org, plain text
+# and TeX, extensionless documents such as README or CHANGELOG, and the search indexes docs
+# sites generate.
+PROSE_EXT = frozenset((".md", ".mdx", ".markdown", ".mkd", ".rst", ".adoc", ".asciidoc", ".org", ".txt", ".tex"))
+PROSE_NAME = re.compile(r"^(?:readme|changelog|changes|contributing|security|history|news|authors|contributors|"
+                        r"license|licence|copying|notice|code_of_conduct|maintainers|todo)(?:[.-][\w.-]*)?$", re.I)
+SEARCH_INDEX = re.compile(r"(?:^|/)(?:[\w.-]*search[_-]?index[\w.-]*\.(?:json|js)|[\w.-]+\.search\.json|"
+                          r"(?:lunr|pagefind)[\w.-]*/[^\n]*)$", re.I)
+
+
+def prose(display: str) -> bool:
+    """A documentation file (see PROSE_EXT) or a docs site's search index, by its path."""
+    name = display.rsplit("/", 1)[-1]
+    low = name.lower()
+    ext = low[low.rfind("."):] if "." in low.lstrip(".") else ""
+    return ext in PROSE_EXT or (PROSE_NAME.match(name) is not None and ext in ("", *PROSE_EXT)) \
+        or SEARCH_INDEX.search(display) is not None
+
+
+# Markdown files whose YAML frontmatter configures an agent: Claude Code subagents, commands and
+# skills, Gemini CLI commands, Codex prompts and shared agent folders.
+AGENT_MARKDOWN = re.compile(r"(?:^|/)(?:\.claude/(?:agents|commands|skills)|\.gemini/commands|\.qwen/commands|\.codex|"
+                            r"\.agents|\.cursor/(?:commands|rules))/(?:[^/\n]+/)*[^/\n]+\.md$", re.I)

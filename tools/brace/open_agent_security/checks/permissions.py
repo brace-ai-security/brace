@@ -2,19 +2,22 @@
 from __future__ import annotations
 
 import bisect
+import json
 import re
 from pathlib import Path
 from typing import Iterator
 
-from ..agents import ACTIONS, BYPASS, GATED_BYPASS, GATED_CLI, GATED_FLAG_CLIS, QUOTED_GATED_CLI, QUOTED_SHORT_YOLO_CLI, \
-    SHORT_YOLO, SHORT_YOLO_CLI, alternation
+from ..agents import ACTIONS, AGENT_COMMAND, AGENT_MARKDOWN, AIDER_BYPASS, AIDER_CLI, BYPASS, BYPASS_VALUE, \
+    CURSOR_BYPASS, CURSOR_CLI, GATED_ASSIGN, GATED_BYPASS, GATED_CLI, GATED_FLAG_CLIS, GATED_NAME, PRINT_FLAG, \
+    QUOTED_AIDER_CLI, QUOTED_CURSOR_CLI, QUOTED_GATED_CLI, QUOTED_SHORT_YOLO_CLI, SHORT_YOLO, SHORT_YOLO_CLI, \
+    alternation, prose
 from ..jsonc import Lines
 from ..limits import MAX_OPEN_BRACKETS, MAX_PER_COMMAND, MAX_PER_LINE
 from ..model import CheckContext, Document, Finding
 from ..parse.dockerfile import is_dockerfile
 from ..secrets import secret_kind
 from ..agents import command_position
-from .mentions import Mentions, yaml_blocks
+from .mentions import SHELL_KINDS, Mentions, NameIndex, yaml_blocks
 
 # The same setting written as JSON anywhere: inside another file (a workflow passing Claude Code
 # settings), inside a JSON string (a devcontainer command writing settings) or nested under
@@ -36,8 +39,12 @@ COMMENT_MARKERS = {**dict.fromkeys((".yml", ".yaml", ".sh", ".bash", ".zsh", ".f
 LINE_COMMENTS = {".ini": ";", ".cfg": ";", ".service": ";"}  # comment markers only at the start of a line (after whitespace)
 MAKE_NAMES = {"makefile", "gnumakefile", "justfile", ".justfile"}
 # Flags that count only next to a CLI that takes them: the CLI as a word, the CLI as a quoted
-# item, and whether the CLI must come before the flag (`npx -y @google/gemini-cli` is npx's -y).
-GATES = {GATED_BYPASS: (GATED_CLI, QUOTED_GATED_CLI, False), SHORT_YOLO: (SHORT_YOLO_CLI, QUOTED_SHORT_YOLO_CLI, True)}
+# item, whether the CLI must come before the flag (`npx -y @google/gemini-cli` is npx's -y), and
+# a flag the logical command must also hold, if any (cursor-agent's -f counts only with -p).
+GATES = {GATED_BYPASS: (GATED_CLI, QUOTED_GATED_CLI, False, None),
+         SHORT_YOLO: (SHORT_YOLO_CLI, QUOTED_SHORT_YOLO_CLI, True, None),
+         AIDER_BYPASS: (AIDER_CLI, QUOTED_AIDER_CLI, False, None),
+         CURSOR_BYPASS: (CURSOR_CLI, QUOTED_CURSOR_CLI, True, PRINT_FLAG)}
 CONTINUATION = ("\\", "^", "`")  # a line continued on the next (shell, cmd.exe, PowerShell)
 SEPARATOR = re.compile(r"&&|\|\||[;|]")  # ends a simple command, as does a line break that is not continued
 JSON_SEPARATOR = re.compile(r"&&|\|\||[;|]|(?<!\\)\"")  # in JSON a string's quotes end one too (minified package.json)
@@ -119,9 +126,9 @@ class Gate:
     takes it. Everything is computed once per file and looked up per flag: line continuations,
     separators, CLI positions, the objects and YAML mappings whose command is the CLI."""
 
-    def __init__(self, text: str, lines: Lines, kind: str, cli, quoted, cli_first: bool):
-        self.text, self.lines, self.kind = text, lines, kind
-        self.cli_first = cli_first
+    def __init__(self, text: str, lines: Lines, kind: str, names: NameIndex, cli, quoted, cli_first: bool, needs):
+        self.text, self.lines, self.kind, self.names = text, lines, kind, names
+        self.cli_first, self.needs, self.gated = cli_first, needs, cli is GATED_CLI
         sep = JSON_SEPARATOR if kind == ".json" else SEPARATOR
         self.seps = [(m.start(), m.end()) for m in sep.finditer(text)]
         self.sep_starts = [s for s, _ in self.seps]
@@ -151,8 +158,21 @@ class Gate:
         return self.first[n], self.last[n]
 
     def counts(self, n: int, start: int, end: int) -> bool:
+        if self.needs is not None:
+            first, last = self.logical(n)
+            if not self.needs.search(self.text, self.lines.span(first)[0], self.lines.span(last)[1]):
+                return False
         return self.in_command(n, start, end) or self.listed(start) or self.in_object(start) \
-            or self.in_mapping(n) or self.pushed(start)
+            or self.in_mapping(n) or self.pushed(start) or self.assigned(n, start)
+
+    def assigned(self, n: int, start: int) -> bool:
+        """A gated flag assigned to a variable or key named after a gated CLI, in shell, Make, an
+        env file or YAML (`GEMINI_FLAGS="--yolo"`, `GEMINI_ARGS := --yolo`, `QWEN_OPTS: --yolo`)."""
+        if not self.gated:
+            return False
+        lo = self.lines.span(self.logical(n)[0])[0]
+        m = GATED_ASSIGN.match(self.text, lo, start)
+        return bool(m) and GATED_NAME.search(m.group(1)) is not None
 
     def in_command(self, n: int, start: int, end: int) -> bool:
         """The CLI is a word of the simple command that holds the flag (split at &&, ||, ;, | and
@@ -186,7 +206,7 @@ class Gate:
         a path in command position (`/usr/local/bin/gemini`). For -y the CLI must be in command
         position. A package (`@google/gemini-cli`) is judged by install_argument alone."""
         text = self.text
-        if text[c] == "@":
+        if text[c] == "@" or "-" in text[c:ce] and self.gated:  # a package: `@google/gemini-cli`, `gemini-cli`
             return not self.cli_first or command_position(text[begin:c])
         before, after = text[c - 1:c] if c else "", text[ce:ce + 8]
         if after[:1] in ("/", "=") or before == "=" or (FILE_EXT.match(after) and not PROGRAM_EXT.match(after)):
@@ -274,15 +294,14 @@ class Gate:
         return self._pushed[name]
 
     def spawned(self, name: str, after: int) -> bool:
-        text, pos = self.text, after
-        for _ in range(NAME_USES):
-            at = text.find(name, pos)
-            if at < 0:
-                return False
-            pos = at + len(name)
-            if (at and (text[at - 1].isalnum() or text[at - 1] in "_$")) or (pos < len(text) and (text[pos].isalnum()
-                                                                                                or text[pos] in "_$")):
-                continue
+        """Whether one of the next NAME_USES uses of `name` after the flag sits near a spawn call
+        and a gated CLI. Uses come from the file's identifier index; past its cap on names the
+        flag counts (erring toward reporting)."""
+        text, uses = self.text, self.names.uses(name)
+        if uses is None:
+            return True
+        k = bisect.bisect_left(uses, after)
+        for at in uses[k:k + NAME_USES]:
             window = text[max(0, at - SPAWN_WINDOW):at + SPAWN_WINDOW]
             if SPAWN.search(window) and GATED_CLI.search(window):
                 return True
@@ -325,18 +344,31 @@ def in_steps(steps: list[tuple[int, int]], n: int) -> bool:
     return k >= 0 and steps[k][0] <= n <= steps[k][1]
 
 
-def comment_start(line: str, markers: tuple[str, ...]) -> int:
-    """Index where a trailing comment starts (outside quotes), or len(line). In double quotes
-    a backslash escapes the next character; single quotes have no escapes."""
+BACKTICK_KINDS = frozenset((".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".go", ".kt", ".kts"))
+SHELL_QUOTING = SHELL_KINDS | {".fish", ".env", ".dockerfile"}  # shell's quoting rules
+LITERAL_SINGLE = frozenset((".yml", ".yaml", ".toml", ".ps1", ".bat", ".cmd"))  # no escapes in single quotes
+
+
+def comment_start(line: str, markers: tuple[str, ...], kind: str = "") -> int:
+    """Index where a trailing comment starts (outside quotes), or len(line), by the quoting rules
+    of the file's kind. In shell a backslash escapes the next character outside quotes and in
+    double quotes, and single quotes have no escapes (so `'\\''` is a literal quote); elsewhere a
+    backslash escapes the next character inside single and double quotes, and in JavaScript,
+    TypeScript, Go and Kotlin backticks quote too."""
+    shell = kind in SHELL_QUOTING
+    literal_single = shell or kind in LITERAL_SINGLE  # single quotes without escapes
+    quotes = "\"'`" if kind in BACKTICK_KINDS else "\"'"
     quote, i = "", 0
     while i < len(line):
         ch = line[i]
         if quote:
-            if ch == "\\" and quote == '"':
+            if ch == "\\" and (quote != "'" or not literal_single):
                 i += 1
             elif ch == quote:
                 quote = ""
-        elif ch in "\"'":
+        elif ch == "\\" and shell:
+            i += 1
+        elif ch in quotes:
             quote = ch
         else:
             for m in markers:
@@ -346,15 +378,165 @@ def comment_start(line: str, markers: tuple[str, ...]) -> int:
     return len(line)
 
 
+# What of a file is read for bypass flags, by kind: documentation is prose and not read (see
+# agents.prose); in HTML only <script> bodies; in Vue, Svelte and XML everything outside
+# <!-- --> comments; in a notebook only code cells; in an agent's Markdown file (agents.
+# AGENT_MARKDOWN) only its YAML frontmatter, read as YAML.
+MARKUP_COMMENTS = frozenset((".vue", ".svelte", ".xml", ".xhtml"))
+HTML = frozenset((".html", ".htm"))
+FRONTMATTER = 64 * 1024  # characters of a Markdown file searched for its frontmatter's closing ---
+FRONTMATTER_END = re.compile(r"^---[ \t]*$", re.M)
+JSON_TOKEN = re.compile(r'"(?:\\.|[^"\\\n])*"?|[\[\]{}]')  # an unclosed string runs to the line's end
+DOCS_INDEX_BYTES = 64 * 1024  # a JSON file larger than this may be a docs site's search index
+DOCS_INDEX_KEYS = (frozenset(("config", "docs")), frozenset(("fields", "fieldVectors", "invertedIndex")),
+                   frozenset(("documentStore",)))
+ALLOWED_TOOLS = re.compile(r"^[ \t]*[\"']?allowed[-_]?tools[\"']?[ \t]*:[ \t]*(.*)$", re.I)
+TOOL_SPLIT = re.compile(r",(?![^(]*\))")  # commas between tools, not inside `Bash(a, b)`
+
+
+NOT_NEWLINE = re.compile(r"[^\n]")
+
+
+def blank(text: str, spans) -> str:
+    """text with the characters of each (start, end) span, except line breaks, made spaces, so
+    offsets and line numbers stay the same."""
+    out, pos = [], 0
+    for lo, hi in spans:
+        if hi <= pos:
+            continue
+        lo = max(lo, pos)
+        out.append(text[pos:lo])
+        out.append(NOT_NEWLINE.sub(" ", text[lo:hi]))
+        pos = hi
+    out.append(text[pos:])
+    return "".join(out)
+
+
+def outside_scripts(text: str) -> list[tuple[int, int]]:
+    """Spans of an HTML file outside <script> bodies (an unclosed one runs to the end)."""
+    low, spans, pos = text.lower(), [], 0
+    while True:
+        at = low.find("<script", pos)
+        body = low.find(">", at) + 1 if at >= 0 else 0
+        if at < 0 or body <= 0:
+            spans.append((pos, len(text)))
+            return spans
+        spans.append((pos, body))
+        close = low.find("</script", body)
+        if close < 0:
+            return spans
+        pos = close
+
+
+def markup_comments(text: str) -> list[tuple[int, int]]:
+    """Spans of <!-- --> comments (an unclosed one hides nothing)."""
+    spans, pos = [], 0
+    while True:
+        at = text.find("<!--", pos)
+        close = text.find("-->", at + 4) if at >= 0 else -1
+        if close < 0:
+            return spans
+        spans.append((at, close + 3))
+        pos = close + 3
+
+
+def notebook_prose(text: str) -> list[tuple[int, int]]:
+    """Spans of a notebook's cells that are not code (Markdown, raw), found with one pass over
+    its JSON tokens. If the cells found do not match the parsed notebook, nothing is hidden."""
+    try:
+        data = json.loads(text)
+        types = [c.get("cell_type") if isinstance(c, dict) else None for c in data["cells"]]
+    except (ValueError, RecursionError, TypeError, KeyError, AttributeError):
+        return []
+    depth, key, in_cells, cells, start = 0, "", False, [], 0
+    for m in JSON_TOKEN.finditer(text):
+        tok = m.group(0)
+        if tok[0] == '"':
+            if depth == 1:
+                key = tok
+            continue
+        if tok in "[{":
+            depth += 1
+            if depth == 2 and tok == "[" and key == '"cells"':
+                in_cells = True
+            elif depth == 3 and in_cells and tok == "{":
+                start = m.start()
+        else:
+            if depth == 3 and in_cells and tok == "}":
+                cells.append((start, m.end()))
+            elif depth == 2 and in_cells:
+                in_cells = False
+            depth -= 1
+    if len(cells) != len(types):
+        return []
+    return [span for span, kind in zip(cells, types) if kind != "code"]
+
+
+def docs_index(text: str) -> bool:
+    """A large JSON file shaped like a docs site's search index (MkDocs, Lunr, elasticlunr)."""
+    if len(text) <= DOCS_INDEX_BYTES:
+        return False
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError):
+        return False
+    return isinstance(data, dict) and any(keys <= data.keys() for keys in DOCS_INDEX_KEYS)
+
+
+def frontmatter(text: str) -> str:
+    """A Markdown file's YAML frontmatter (between a first line `---` and the next), or ""."""
+    if not text.startswith("---\n"):
+        return ""
+    m = FRONTMATTER_END.search(text, 4, FRONTMATTER)
+    return text[:m.start()] if m else ""
+
+
+def scanned_text(display: str, kind: str, text: str) -> tuple[str, str] | None:
+    """The text read for bypass flags and the kind it is read as, or None for prose."""
+    if AGENT_MARKDOWN.search(display):
+        head = frontmatter(text)
+        return (head, ".yaml") if head else None
+    if prose(display) or kind == ".md":
+        return None
+    if kind in HTML:
+        return blank(text, outside_scripts(text)), ".js"
+    if kind in MARKUP_COMMENTS:
+        return blank(text, markup_comments(text)), kind
+    if kind == ".ipynb":
+        return blank(text, notebook_prose(text)), kind
+    if kind == ".json" and docs_index(text):
+        return None
+    return text, kind
+
+
+def allowed_tools(head: str) -> Iterator[tuple[int, str]]:
+    """(line, tool) for each entry of a frontmatter's allowed-tools: inline (`Bash(*), Read`,
+    `[Bash, Read]`) or a YAML list under the key."""
+    rows = head.split("\n")
+    for n, row in enumerate(rows, 1):
+        m = ALLOWED_TOOLS.match(row)
+        if not m:
+            continue
+        value = m.group(1).split(" #", 1)[0].strip().strip("[]")
+        for tool in TOOL_SPLIT.split(value) if value else ():
+            yield n, tool.strip().strip("\"'")
+        if not value:
+            for k in range(n, len(rows)):
+                item = rows[k].strip()
+                if not item.startswith("- "):
+                    break
+                yield k + 1, item[2:].strip().strip("\"'")
+
+
 class PermissionFlags:
-    """Bypass flags and settings written as text in any file in the folder, except Markdown.
+    """Bypass flags and settings written as text in any file in the folder, except documentation.
 
     Raw text, not parsed facts: these flags appear in shell scripts, workflows, code and
     config of every kind. A flag that is only mentioned (see mentions.py for the few structural
-    cases) is not reported; anything else is, erring toward reporting.
-    Files on this machine are read structurally only."""
+    cases) is not reported; anything else is, erring toward reporting. Documentation is prose
+    (see scanned_text). Files on this machine are read structurally only."""
     name = "permission-flags"
-    emits = ("AP01", "AP02")
+    emits = ("AP01", "AP02", "AP06")
     scope = "file"
 
     def run(self, doc: Document, ctx: CheckContext) -> Iterator[Finding]:
@@ -364,23 +546,35 @@ class PermissionFlags:
         for path, detail in doc.full_access:
             settled.add(doc.line_of(path))
             yield Finding("AP02" if src.is_ci else "AP01", src.display, doc.line_of(path), detail)
-        if src.origin != "repo" or kind == ".md":
+        if src.origin != "repo":
             return
-        text = src.text
+        scanned = scanned_text(src.display, kind, src.text)
+        if scanned is None:
+            return
+        text, kind = scanned
+        if kind == ".yaml" and AGENT_MARKDOWN.search(src.display):
+            for n, tool in allowed_tools(text):
+                if SPACES.sub("", tool) in SHELL_ALLOW_ALL:
+                    yield Finding("AP06", src.display, n, f'allowed-tools "{tool}"')
         lines = Lines(text)
         markers = COMMENT_MARKERS.get(kind, ())
-        patterns = [BYPASS, GATED_BYPASS, SHORT_YOLO, INLINE_DEFAULT_MODE]
+        patterns = [BYPASS, GATED_BYPASS, SHORT_YOLO, AIDER_BYPASS, CURSOR_BYPASS, INLINE_DEFAULT_MODE, BYPASS_VALUE]
         perms = doc.permissions
         structural = doc.line_of(("permissions", "defaultMode")) \
             if perms is not None and perms.default_mode == "bypassPermissions" else 0
-        mentions = Mentions(text, kind, settings="settings" in src.display.rsplit("/", 1)[-1].lower())
+        names = NameIndex(text)
+        mentions = Mentions(text, kind, settings="settings" in src.display.rsplit("/", 1)[-1].lower(), names=names)
         steps: list[tuple[int, int]] | None = None
         owners: list[str] = []
+        reported: set[int] = set()  # lines with a finding; a bare value (BYPASS_VALUE) adds none to them
+        matched: list[tuple[int, int]] = []  # spans of the other patterns' matches, which hold their values
+        comment_at: dict[int, int] = {}  # computed once per line, not per match
         for rx in patterns:
+            if rx is BYPASS_VALUE:
+                matched.sort()
             gate_args = GATES.get(rx)
             gate: Gate | None = None
             per_line: dict[int, int] = {}
-            comment_at: dict[int, int] = {}  # computed once per line, not per match
             for m in rx.finditer(text):
                 n = lines.number(m.start())
                 per_line[n] = per_line.get(n, 0) + 1
@@ -388,19 +582,24 @@ class PermissionFlags:
                     continue
                 start, end = lines.span(n)
                 if n not in comment_at:
-                    line = text[start:end]
-                    lead = LINE_COMMENTS.get(kind)
-                    comment_at[n] = start + (len(line) - len(line.lstrip()) if lead and line.lstrip().startswith(lead)
-                                             else comment_start(line, markers) if markers else len(line))
-                if m.start() >= comment_at[n] or (rx is INLINE_DEFAULT_MODE and n == structural) or n in settled:
+                    comment_at[n] = self.comment_at(text, kind, markers, mentions, n, start, end)
+                if rx is BYPASS_VALUE:
+                    k = bisect.bisect_right(matched, (m.start(), float("inf"))) - 1
+                    if k >= 0 and matched[k][1] >= m.end():
+                        continue  # the value of a flag matched whole (`--permission-mode` then the value)
+                else:
+                    matched.append(m.span())
+                if m.start() >= comment_at[n] or n in settled or \
+                        (rx in (INLINE_DEFAULT_MODE, BYPASS_VALUE) and n == structural) or \
+                        (rx is BYPASS_VALUE and n in reported):
                     continue
                 if gate_args:
                     if gate is None:
-                        gate = Gate(text, lines, kind, *gate_args)
+                        gate = Gate(text, lines, kind, names, *gate_args)
                     if not gate.counts(n, m.start(), m.end()):
                         # -y counts only beside its CLI; --yolo and --allow-all-tools also as the
                         # value of an agent action's args key (`gemini_cli_args: --yolo`).
-                        if kind not in (".yml", ".yaml") or rx is SHORT_YOLO:
+                        if kind not in (".yml", ".yaml") or rx is not GATED_BYPASS:
                             continue
                         if steps is None:
                             steps, owners = agent_action_steps(text), yaml_blocks(text)[0]
@@ -409,8 +608,28 @@ class PermissionFlags:
                 if mentions.is_mention(start, text[start:comment_at[n]], n, m.start(), m.end()):
                     continue
                 detail = "defaultMode: bypassPermissions" if rx is INLINE_DEFAULT_MODE else \
-                    "-y (--yolo)" if rx is SHORT_YOLO else " ".join(m.group(0).split())
+                    "-y (--yolo)" if rx is SHORT_YOLO else \
+                    " ".join(m.group(0).replace('"', "").replace("'", "").split()) if rx is BYPASS_VALUE else \
+                    " ".join(m.group(0).split())
+                reported.add(n)
                 yield Finding("AP02" if src.is_ci else "AP01", src.display, n, detail)
+
+    @staticmethod
+    def comment_at(text: str, kind: str, markers, mentions: Mentions, n: int, start: int, end: int) -> int:
+        """Where line n's trailing comment starts (offset), or its end. A trailing comment after
+        code whose logical command names an agent CLI is not stripped: a misread quote must not
+        hide a bypass passed to an agent (`claude -p 'it\\'s' --flag`). A whole-line comment is."""
+        line = text[start:end]
+        lead = LINE_COMMENTS.get(kind)
+        body = line.lstrip()
+        if lead and body.startswith(lead):
+            return start + len(line) - len(body)
+        at = comment_start(line, markers, kind) if markers else len(line)
+        if at < len(line) and line[:at].strip():
+            first = mentions.logical_first(n)[0]
+            if AGENT_COMMAND.search(text, mentions.line_starts()[first - 1], start + at):
+                return end
+        return start + at
 
 
 class ClaudeSettings:

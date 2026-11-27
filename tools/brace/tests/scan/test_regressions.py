@@ -414,8 +414,10 @@ REVIEW_CASES: dict[str, tuple[dict[str, str], list[str]]] = {
     # 6: files of kinds the walk did not read.
     **{f"r11-unread-{name}": ({name: f"claude {FLAG} -p hi\n"}, ["AP01"]) for name in (
         "Procfile", "agent.service", "supervisord.conf", "x.code-workspace", "main.tf", "n.ipynb", "a.php", "a.cs",
-        "a.swift", "a.lua", "a.pl", "a.c", "a.exs", "a.dart", "a.vue", "a.html", "flake.nix", "a.j2", "a.tpl",
-        "a.properties", "a.json5", "notes.txt", "runagent", "odd.xyz")},
+        "a.swift", "a.lua", "a.pl", "a.c", "a.exs", "a.dart", "a.vue", "flake.nix", "a.j2", "a.tpl",
+        "a.properties", "a.json5", "runagent", "odd.xyz")},
+    # round 12 made HTML prose outside <script> and plain text prose (notes.txt is no longer a case)
+    "r11-unread-a.html": ({"a.html": f"<script>run('claude {FLAG} -p hi')</script>\n"}, ["AP01"]),
     # 7: an Ansible `block:` read as a deny-list.
     "r11-ansible-block": ({"play.yml": '- hosts: all\n  tasks:\n    - block:\n        - shell: "{{ agent_bin }} '
                                        + FLAG + ' -p hi"\n'}, ["AP01"]),
@@ -439,6 +441,46 @@ REVIEW_CASES: dict[str, tuple[dict[str, str], list[str]]] = {
                              ["AP04"]),
     "r11-mcp-image-untagged": ({".mcp.json": server(command="docker", args=["run", "-i", "--rm", "-e", "TOK", "ghcr.io/a/b"])},
                                ["AP04"]),
+    # --- round 12: every input that produced a clean result ---
+    # 1: many distinct names (a few here; test_bounds has the 1 MB shapes)
+    "r12-many-deny-names": ({"a.py": "".join(f'n{i}_deny = ["{FLAG}"]\n' for i in range(300))}, ["AP01"]),
+    "r12-many-pushed-names": ({"a.js": "".join(f"a{i}.push('--yolo')\n" for i in range(300))
+                               + "spawn('gemini', a299)\n"}, ["AP01"]),
+    # 2: a bypass value under any key, and through a variable
+    "r12-env-mode": ({".env": "CLAUDE_PERMISSION_MODE=bypassPermissions\n"}, ["AP01"]),
+    "r12-claude-mode-key": ({"a.ts": 'const o = { claudePermissionMode: "bypassPermissions" };\n'}, ["AP01"]),
+    "r12-default-mode-kwarg": ({"a.py": 'run(default_permission_mode="bypassPermissions")\n'}, ["AP01"]),
+    "r12-workflow-input": ({".github/workflows/w.yml": wf("      - uses: x/y@v1\n        with:\n"
+                                                          "          permission-mode: bypassPermissions\n", "on: push\n")},
+                           ["AP02"]),
+    "r12-set-permission-mode": ({"a.ts": 'q.setPermissionMode("bypassPermissions");\n'}, ["AP01"]),
+    "r12-mode-variable": ({"a.py": 'MODE = "bypassPermissions"\nopts = Options(permission_mode=MODE)\n'}, ["AP01"]),
+    "r12-env-mode-variable": ({".github/workflows/w.yml": "on: push\njobs:\n  a:\n    env:\n      MODE: bypassPermissions\n"
+                                                          '    steps:\n      - run: claude --permission-mode "$MODE" -p hi\n'},
+                              ["AP02"]),
+    # 3: escapes and backticks
+    "r12-py-escaped-quote": ({"a.py": f"subprocess.run('claude -p \\'fix #12\\' {FLAG}', shell=True)\n"}, ["AP01"]),
+    "r12-sh-quote-dance": ({"run.sh": f"ssh box 'claude -p '\\''fix #1'\\'' {FLAG}'\n"}, ["AP01"]),
+    "r12-js-template": ({"a.js": f'execSync(`claude -p "x" // {FLAG}`)\n'}, ["AP01"]),
+    # 5: gemini-cli forms and variables named after a gated CLI
+    "r12-gemini-url": ({"run.sh": 'npx https://github.com/google-gemini/gemini-cli --yolo -p "fix it"\n'}, ["AP01"]),
+    "r12-gemini-flags-var": ({"run.sh": 'GEMINI_FLAGS="--yolo"\ngemini $GEMINI_FLAGS -p go\n'}, ["AP01"]),
+    "r12-make-gemini-args": ({"Makefile": "GEMINI_ARGS := --yolo\nfix:\n\tgemini $(GEMINI_ARGS)\n"}, ["AP01"]),
+    "r12-gemini-sandbox-image": ({"run.sh": "docker run --rm gemini-cli/sandbox:0.1.1 --yolo\n"}, ["AP01"]),
+    # 6: agent Markdown frontmatter
+    "r12-subagent-mode": ({".claude/agents/deployer.md": "---\nname: deployer\npermissionMode: bypassPermissions\n---\n"},
+                          ["AP01"]),
+    "r12-command-allowed-tools": ({".claude/commands/x.md": "---\nallowed-tools: Bash(*)\n---\n"}, ["AP06"]),
+    # 7: `uses: ./`
+    "r12-uses-dot": ({".github/workflows/w.yml": wf("      - uses: ./\n"),
+                      "action.yml": "runs:\n  using: composite\n  steps:\n    - uses: anthropics/claude-code-action@v1\n"},
+                     ["AP03"]),
+    # 9: other CLIs' bypass flags
+    "r12-amp": ({"run.sh": "amp --dangerously-allow-all -x hi\n"}, ["AP01"]),
+    "r12-cursor-agent": ({"run.sh": "cursor-agent -p --force 'fix'\n"}, ["AP01"]),
+    "r12-aider": ({"run.sh": "aider --yes-always --message hi\n"}, ["AP01"]),
+    "r12-copilot-paths": ({"run.sh": "copilot --allow-all-paths -p hi\n"}, ["AP01"]),
+    "r12-qwen-approval-mode": ({".qwen/settings.json": json.dumps({"tools": {"approvalMode": "yolo"}})}, ["AP01"]),
     # 13: a truncated wsl command raised and lost every server in the file.
     "r8-truncated-wsl": ({".mcp.json": json.dumps({"mcpServers": {
         "w": {"command": "wsl", "args": ["-d"]}, "s": {"command": "npx", "args": ["-y", "evil-mcp"]}}})}, ["AP04"]),

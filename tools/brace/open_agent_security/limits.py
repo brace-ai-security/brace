@@ -40,6 +40,8 @@ MAX_LINE = 2000                      # characters of a workflow line the line he
 WORD_PART_CHARS = 200                # characters of each name, package, image or host AP09 reads words from
 WRAPPER_DEPTH = 6                    # wrappers looked through to find a server's program (env exec sh -c ...)
 MAX_OPEN_BRACKETS = 1000             # brackets tracked when deciding whether a flag sits in a deny-list
+MAX_NAMES = 200                      # distinct names whose uses are followed in one file (deny-lists, pushed
+                                     # argument lists); past it a flag is reported, not judged a mention
 MAX_PER_COMMAND = 200                # gated flags examined in one logical command (a line and its continuations)
 JSON_INDEX_KEYS = 200_000            # object keys indexed for line numbers in one JSON file
 WALK_DEPTH = 32                      # nesting followed when every value of an agent config is checked for secrets

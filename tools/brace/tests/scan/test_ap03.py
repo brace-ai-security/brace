@@ -172,3 +172,11 @@ def test_round11_a_direct_agent_step_is_reported_once(tmp_path):
     write(tmp_path, ".github/workflows/w.yml", PRT + "      - run: claude -p hi\n      - uses: ./.github/actions/r\n")
     write(tmp_path, ".github/actions/r/action.yml", ACTION)
     assert rules(tmp_path) == ["AP03"]
+
+
+def test_round12_uses_dot_follows_the_root_action(tmp_path):
+    """Finding 7: `uses: ./` (an action repository running itself) names the root action.yml."""
+    write(tmp_path, ".github/workflows/w.yml", "on: pull_request_target\njobs:\n  a:\n    runs-on: x\n"
+                                               "    steps:\n      - uses: ./\n")
+    write(tmp_path, "action.yml", "runs:\n  using: composite\n  steps:\n    - uses: anthropics/claude-code-action@v1\n")
+    assert found(tmp_path) == [("AP03", "pull_request_target + agent step in ./action.yml")]

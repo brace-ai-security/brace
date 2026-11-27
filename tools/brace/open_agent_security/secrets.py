@@ -136,6 +136,11 @@ class Secrets:
         return any(self.secret_in(a) for a in args) or any(
             a.startswith("-") and "=" not in a and named_secret(a, b) for a, b in zip(args, args[1:]))
 
+    def token_format(self, v) -> bool:
+        """A known token format (`ghp_...`, `sk-ant-...`) inside v, excluding obvious placeholders."""
+        m = self.any.search(str(v)[:MAX_VALUE])
+        return bool(m) and not placeholder_token(m.group(0))
+
     def known_format(self, v) -> bool:
         """A known token format or a bearer credential, alone or inside a longer value (a headers
         JSON string, `Authorization=Bearer ...`, a curl command), excluding obvious placeholders."""

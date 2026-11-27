@@ -9,7 +9,8 @@ from urllib.parse import urlsplit
 from ..limits import MAX_VALUE, WALK_DEPTH, WALK_VALUES
 from ..model import CheckContext, Document, Finding, ParseError
 from ..parse.mcp_json import CONTAINERS, RUNNERS, URL_KEYS, is_json
-from ..secrets import opaque, random_token, secret_kind, secret_name, url_path_secret
+from ..secrets import CREDENTIAL, FLAG_ASSIGN, NAME_ASSIGN, name_words, named_secret, opaque, placeholder_token, \
+    random_token, secret_kind, secret_name, url_password, url_path_secret
 
 LOOPBACK = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}
 # Flags whose next argument is a value, not the package, from the npm/npx, uv/uvx, bunx and
@@ -163,13 +164,28 @@ CONTAINER_VALUE_FLAGS = {
     "--memory-reservation", "--memory-swap", "--mount", "--name", "--network", "--net", "--network-alias",
     "--pid", "--pids-limit", "--platform", "-p", "--publish", "--pull", "--restart", "--runtime", "--security-opt",
     "--shm-size", "--stop-signal", "--stop-timeout", "--storage-opt", "--sysctl", "--tmpfs", "--ulimit", "-u",
-    "--user", "--userns", "--uts", "-v", "--volume", "--volumes-from", "-w", "--workdir", "--secret", "--pod"}
+    "--user", "--userns", "--uts", "-v", "--volume", "--volumes-from", "-w", "--workdir", "--secret", "--pod",
+    # the rest of `docker run --help` (Docker 27) and Podman's common extras
+    "--blkio-weight-device", "--cpu-period", "--cpu-quota", "--cpu-rt-period", "--cpu-rt-runtime", "--device-read-bps",
+    "--device-read-iops", "--device-write-bps", "--device-write-iops", "--detach-keys", "--kernel-memory",
+    "--link-local-ip", "--memory-swappiness", "--oom-score-adj", "--volume-driver", "--health-start-interval",
+    "--cpu-count", "--cpu-percent", "--io-maxbandwidth", "--io-maxiops", "--arch", "--os", "--variant",
+    "--cgroup-conf", "--cgroups", "--chrootdirs", "--conmon-pidfile", "--decryption-key", "--env-merge", "--gidmap",
+    "--uidmap", "--hostuser", "--image-volume", "--init-path", "--pidfile", "--preserve-fd", "--requires",
+    "--sdnotify", "--seccomp-policy", "--subgidname", "--subuidname", "--timeout", "--tz", "--umask", "--passwd-entry",
+    "--group-entry", "--personality", "--label-file", "--log-level"}
 IMAGE_SHAPE = re.compile(r"^[A-Za-z0-9][\w.\-/:@]{0,300}$")
 DIGEST = "@sha256:"
 
 
+NUMERIC = re.compile(r"^[\d.:]+[a-zA-Z]?$")  # `0`, `512m`, `1.5`: a flag's value, never an image
+LOCAL_IMAGE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,200}$")  # no registry, namespace, tag or digest
+
+
 def container_image(args) -> str:
-    """The image of a `docker run` (or `create`, `container run`) command line, or ''."""
+    """The image of a `docker run` (or `create`, `container run`) command line, or '': the first
+    argument shaped like an image (IMAGE_SHAPE) that is not a known flag's value and not purely
+    numeric (`--memory-swappiness 0`, a value of a flag missing from CONTAINER_VALUE_FLAGS)."""
     args = list(args)
     if args[:2] in (["container", "run"], ["container", "create"]):
         args = args[1:]
@@ -181,8 +197,9 @@ def container_image(args) -> str:
         if a == "--":
             return args[i + 1][:MAX_VALUE] if i + 1 < len(args) else ""
         if not a.startswith("-"):
-            return a
-        if "=" not in a and a in CONTAINER_VALUE_FLAGS:
+            if IMAGE_SHAPE.match(a) and not NUMERIC.match(a):
+                return a
+        elif "=" not in a and a in CONTAINER_VALUE_FLAGS:
             i += 1
         i += 1
     return ""
@@ -222,7 +239,8 @@ class McpServers:
             if s.command in CONTAINERS:
                 image = container_image(s.args)
                 if image and DIGEST not in image and not image.startswith("$"):
-                    yield Finding("AP04", where, line, f"{s.name}: {s.command} image {shown_image(image)} (no @sha256 digest)")
+                    why = "local image; pin a digest or build in CI" if LOCAL_IMAGE.match(image) else "no @sha256 digest"
+                    yield Finding("AP04", where, line, f"{s.name}: {s.command} image {shown_image(image)} ({why})")
                 hit = docker_escape(s.args)
                 if hit:
                     yield Finding("AP08", where, line, f"{s.name}: {hit}")
@@ -274,7 +292,7 @@ class ConfigSecrets:
         for keys, key, value in walk(data):
             if any(keys[:k] in skip for k in range(1, len(keys) + 1)):
                 continue
-            if ctx.secrets.known_format(value) or (key and ctx.secrets.secret_pair(key, value)):
+            if config_secret(ctx, keys, key, value):
                 shown = ".".join(keys)[:MAX_VALUE] or "value"
                 yield Finding("AP05", src.display, doc.line_of(keys), f"{shown} = <redacted>{secret_kind(value)}")
 
@@ -291,6 +309,57 @@ class ConfigSecrets:
         if doc.permissions is not None and doc.permissions.env:
             skip.append(("env",))
         return skip
+
+
+# Judging a value anywhere in agent configuration, where most keys are not about credentials:
+# a known token format anywhere; `Bearer `/`Basic ` (case-sensitive) only under a header-like
+# key or as the whole value; a secret-named key only when a word qualifies a bare `key`
+# (`apiKey`, not `projectKey` or `keybindings`); and never a value that reads as a path or prose.
+AUTH_CREDENTIAL = re.compile(rf"(?<![\w-])(?:Bearer|Basic) {CREDENTIAL}")
+WHOLE_CREDENTIAL = re.compile(rf"^(?:Bearer|Basic) {CREDENTIAL}$")
+HEADER_KEY = re.compile(r"authorization|auth|header", re.I)
+KEY_QUALIFIERS = frozenset(("api", "secret", "access", "private", "signing", "auth", "client", "service", "master",
+                            "encryption"))
+SECRET_KEY_NAMES = frozenset(("apikey", "api_key", "api-key", "secretkey", "secret_key", "accesskey", "access_key",
+                              "privatekey", "private_key", "authkey", "auth_key", "masterkey", "master_key"))
+IDENTIFIER_KEYS = frozenset(("projectkey", "cachekey", "sortkey", "partitionkey", "primarykey", "foreignkey",
+                             "keyhelper", "apikeyhelper", "keybinding", "keybindings", "shortcutkey", "hotkey",
+                             "hotkeys", "keymap", "keyboard"))
+PATH_LIKE = re.compile(r"^(?:\.{0,2}/|~/)?[a-z0-9_.~-]{1,200}(?:/[a-z0-9_.~-]{1,200}){1,30}/?$")
+PROSE_WORDS = 3  # words of two or more letters that make a value a description, not a credential
+
+
+def prose_value(value: str) -> bool:
+    return sum(1 for w in value.split()[:50] if len(w) > 1 and w.isalpha()) >= PROSE_WORDS
+
+
+def config_secret_name(key: str) -> bool:
+    """A key in agent configuration that names a credential (see the comment above)."""
+    low = key.lower()
+    if low in SECRET_KEY_NAMES:
+        return True
+    if low in IDENTIFIER_KEYS or low.endswith(("helper", "binding", "bindings")):
+        return False
+    words = name_words(key)
+    if words and words[-1] in ("key", "keys") and not KEY_QUALIFIERS.intersection(words):
+        return False
+    return secret_name(key)
+
+
+def config_secret(ctx: CheckContext, keys: tuple, key: str, value: str) -> bool:
+    """Whether a value of agent configuration (at `keys`, under `key`) is a literal secret."""
+    if ctx.secrets.token_format(value):
+        return True
+    if PATH_LIKE.match(value) or prose_value(value):
+        return False
+    bearer = WHOLE_CREDENTIAL.match(value) or \
+        (any(HEADER_KEY.search(str(k)) for k in keys) and AUTH_CREDENTIAL.search(value))
+    if bearer and not placeholder_token(bearer.group(0)):
+        return True
+    if url_password(value) or any(named_secret(m.group(1), m.group(2))
+                                  for rx in (FLAG_ASSIGN, NAME_ASSIGN) for m in rx.finditer(value)):
+        return True
+    return bool(key) and config_secret_name(key) and named_secret(key, value)
 
 
 def walk(data) -> Iterator[tuple[tuple, str, str]]:

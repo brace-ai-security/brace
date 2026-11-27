@@ -16,7 +16,7 @@ import stat
 from pathlib import Path
 from typing import Iterator
 
-from ..agents import BYPASS_BYTES, CONFIG_DIRS, CONFIG_FILE, config_dir
+from ..agents import BYPASS_BYTES, CONFIG_DIRS, CONFIG_FILE, config_dir, prose
 from ..fsio import ReadFailure, contains, read, starts_with
 from ..ignore import GlobSet
 from ..limits import LISTED_FILES, LISTED_PATH_CHARS
@@ -115,7 +115,8 @@ def gives_roles(rel: str) -> bool:
 def marked(p: Path, limit: int) -> bool:
     """A regular file of a kind the walk does not read, within the size limit, that holds a
     bypass marker (BYPASS_BYTES): it is read as text, so no file kind hides a bypass. A byte
-    search, cheap next to reading every file as text."""
+    search, cheap next to reading every file as text. Documentation (agents.prose) is never
+    searched: it is not read for bypass flags."""
     try:
         st = os.lstat(p)
     except OSError:
@@ -158,7 +159,7 @@ class RepoCollector:
                 agent = configured or bool(CONFIG_FILE.search(rel))
                 if not (wanted(name) or agent or include.match(rel)):
                     if ("." in name or not is_script(here / name)) and \
-                            not marked(here / name, limits.max_file_bytes):
+                            (prose(rel) or not marked(here / name, limits.max_file_bytes)):
                         continue
                 count += 1
                 if count > limits.max_files:
@@ -231,7 +232,7 @@ class RepoCollector:
         """The file as text, or why it was skipped; skipping one the rules need makes the scan incomplete."""
         text = read(path, limit=limit, display=rel)
         if isinstance(text, ReadFailure):
-            must = required(rel, agent) or (text.reason == "oversized" and contains(path, BYPASS_BYTES))
+            must = required(rel, agent) or (text.reason == "oversized" and not prose(rel) and contains(path, BYPASS_BYTES))
             return Skipped(text.display, text.reason, must, limit)
         return SourceFile(rel, "repo", text, is_ci=bool(CI_PATH.search(rel)), is_agent_config=agent,
                           server_keys=ALL_SERVER_KEYS if configured else None)

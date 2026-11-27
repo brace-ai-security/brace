@@ -89,7 +89,9 @@ def test_bare_yolo_needs_an_agent_cli(tmp_path):
 def test_escaped_double_quote_does_not_close_the_string(tmp_path):
     write(tmp_path, "run.sh", f'claude -p "say \\" #hi" {FLAG}\n')
     assert rules(tmp_path) == ["AP01"]
-    write(tmp_path, "run.sh", f"claude -p 'say \\' #{FLAG}\n")  # single quotes have no escapes
+    write(tmp_path, "run.sh", f"claude -p 'say \\' #{FLAG}\n")  # single quotes have no escapes, but
+    assert rules(tmp_path) == ["AP01"]  # round 12: a trailing comment after an agent command is not stripped
+    write(tmp_path, "run.sh", f"echo 'say \\' #{FLAG}\n")
     assert rules(tmp_path) == []
 
 
@@ -638,3 +640,108 @@ def test_round11_codex_full_access_is_read_from_the_parsed_toml(tmp_path):
     assert [(f.rule, f.line, f.detail) for f in found_] == [
         ("AP01", 2, 'sandbox_mode = "danger-full-access" + approval_policy = "never"'),
         ("AP01", 4, 'profiles.ci.sandbox_mode = "danger-full-access"')]
+
+
+@pytest.mark.parametrize("rel,text", [
+    (".env", "CLAUDE_PERMISSION_MODE=bypassPermissions\n"),
+    ("a.ts", 'const o = { claudePermissionMode: "bypassPermissions" };\n'),
+    ("a.py", 'run(default_permission_mode="bypassPermissions")\n'),
+    ("a.yml", "with:\n  permission-mode: bypassPermissions\n"),
+    ("a.ts", 'q.setPermissionMode("bypassPermissions");\n'),
+    ("a.py", 'MODE = "bypassPermissions"\nopts = Options(permission_mode=MODE)\n'),
+    ("a.yml", 'env:\n  MODE: bypassPermissions\nrun: claude --permission-mode "$MODE" -p hi\n'),
+    (".qwen/settings.json", json.dumps({"tools": {"approvalMode": "yolo"}})),
+    ("a.py", 'approval_mode = "yolo"\n'),
+    ("a.ts", 'const sandbox = "danger-full-access";\n'),
+])
+def test_round12_a_bypass_value_is_reported_whatever_its_key(tmp_path, rel, text):
+    """Finding 2: a bypassPermissions or danger-full-access value, or approval mode yolo, on its own."""
+    write(tmp_path, rel, text)
+    assert rules(tmp_path) == ["AP01"]
+
+
+def test_round12_a_bypass_value_is_reported_once_per_flag(tmp_path):
+    write(tmp_path, "a.py", '["claude", "--permission-mode", "bypassPermissions"]\nx = 1  # bypassPermissions\n')
+    assert found(tmp_path) == [("AP01", '--permission-mode", "bypassPermissions')]
+    write(tmp_path, ".claude/settings.json", json.dumps({"permissions": {"defaultMode": "bypassPermissions"}}))
+    assert [f for f in found(tmp_path) if f[1] == "defaultMode: bypassPermissions"] == \
+        [("AP01", "defaultMode: bypassPermissions")]
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("a.py", f"subprocess.run('claude -p \\'fix #12\\' {FLAG}', shell=True)\n"),
+    ("run.sh", f"ssh box 'claude -p '\\''fix #1'\\'' {FLAG}'\n"),
+    ("a.js", f'execSync(`claude -p "x" // {FLAG}`)\n'),
+    ("a.go", f'exec.Command("sh", "-c", `claude -p x // {FLAG}`)\n'),
+    ("run.sh", f"claude -p hi # {FLAG}\n"),  # the safety rule: an agent command's trailing comment is kept
+])
+def test_round12_quotes_and_escapes_do_not_open_a_comment(tmp_path, rel, text):
+    """Finding 3: escapes by file kind, backticks as quotes, and the agent-command safety rule."""
+    write(tmp_path, rel, text)
+    assert rules(tmp_path) == ["AP01"]
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("run.sh", f"# claude {FLAG}\n"),
+    ("run.sh", f"echo hi # claude {FLAG}\n"),
+    ("a.js", f"// claude {FLAG}\n"),
+])
+def test_round12_real_comments_still_hide_a_mention(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert rules(tmp_path) == []
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("run.sh", 'npx https://github.com/google-gemini/gemini-cli --yolo -p "fix it"\n'),
+    ("run.sh", 'GEMINI_FLAGS="--yolo"\ngemini $GEMINI_FLAGS -p go\n'),
+    ("Makefile", "GEMINI_ARGS := --yolo\nfix:\n\tgemini $(GEMINI_ARGS)\n"),
+    ("run.sh", "docker run --rm gemini-cli/sandbox:0.1.1 --yolo\n"),
+    ("a.yml", "env:\n  QWEN_FLAGS: --yolo\n"),
+    ("run.sh", "qwen-code --yolo -p hi\n"),
+])
+def test_round12_gemini_cli_forms_and_named_variables_gate_yolo(tmp_path, rel, text):
+    """Finding 5."""
+    write(tmp_path, rel, text)
+    assert rules(tmp_path) == ["AP01"]
+
+
+@pytest.mark.parametrize("text", ['FLAGS="--yolo"\n', "brew install gemini-cli && yolo --yolo\n",
+                                  "python detect.py --yolo\n"])
+def test_round12_yolo_without_a_gated_cli_stays_quiet(tmp_path, text):
+    write(tmp_path, "run.sh", text)
+    assert rules(tmp_path) == []
+
+
+@pytest.mark.parametrize("text,detail", [
+    ("amp --dangerously-allow-all -x hi\n", "--dangerously-allow-all"),
+    ("cursor-agent -p --force 'fix'\n", "--force"),
+    ("cursor-agent -p -f 'fix'\n", "-f"),
+    ("aider --yes-always --message hi\n", "--yes-always"),
+    ("copilot --allow-all-paths -p hi\n", "--allow-all-paths"),
+    ("copilot --allow-all-tools -p hi\n", "--allow-all-tools"),
+])
+def test_round12_other_clis_bypass_flags(tmp_path, text, detail):
+    """Finding 9: each flag beside its own CLI."""
+    write(tmp_path, "run.sh", text)
+    assert found(tmp_path) == [("AP01", detail)]
+
+
+@pytest.mark.parametrize("text", ["cursor-agent --force\n", "git push --force\n", "rm -f x\n", "pip --yes-always\n"])
+def test_round12_other_clis_flags_need_their_cli(tmp_path, text):
+    write(tmp_path, "run.sh", text)
+    assert rules(tmp_path) == []
+
+
+@pytest.mark.parametrize("rel", [".claude/agents/deployer.md", ".claude/commands/ship.md", ".claude/skills/x/SKILL.md",
+                                 ".gemini/commands/x.md"])
+def test_round12_agent_markdown_frontmatter_is_config(tmp_path, rel):
+    """Finding 6: the frontmatter of agent Markdown files is read; the body stays prose."""
+    write(tmp_path, rel, "---\nname: x\npermissionMode: bypassPermissions\n---\nbypassPermissions in prose\n")
+    assert found(tmp_path) == [("AP01", "permissionMode: bypassPermissions")]
+
+
+def test_round12_agent_markdown_allowed_tools_is_ap06(tmp_path):
+    write(tmp_path, ".claude/commands/a.md", "---\nallowed-tools: Bash(git add:*), Bash(*)\n---\nDo it\n")
+    write(tmp_path, ".claude/commands/b.md", "---\nallowed-tools:\n  - Read\n  - Bash\n---\n")
+    write(tmp_path, "docs/c.md", "---\nallowed-tools: Bash(*)\npermissionMode: bypassPermissions\n---\n")
+    assert sorted(found(tmp_path)) == [("AP06", 'allowed-tools "Bash"'), ("AP06", 'allowed-tools "Bash(*)"')]

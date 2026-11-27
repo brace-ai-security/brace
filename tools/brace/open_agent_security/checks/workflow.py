@@ -68,15 +68,17 @@ def agent_via(files: dict, root: str, uses: tuple[str, ...]) -> str:
                     seen.add(path)
                     _, direct, more = files[path]
                     if direct:
-                        return first
+                        return first or "action.yml"  # `uses: ./`: the root's action.yml
                     nxt += [(first, u) for u in more]
         level = nxt
     return ""
 
 
 def local_files(root: str, use: str) -> list[str]:
-    """The files a local `uses:` can name: a reusable workflow, or an action folder's action.yml."""
+    """The files a local `uses:` can name: a reusable workflow, or an action folder's action.yml
+    (`uses: ./` names the repository root's)."""
     path = root + use
     if path.lower().endswith((".yml", ".yaml")):
         return [path]
-    return [path + "/action.yml", path + "/action.yaml"]
+    path += "/" if use else ""
+    return [path + "action.yml", path + "action.yaml"]

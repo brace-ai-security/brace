@@ -36,7 +36,7 @@ import bisect
 import re
 
 from ..agents import AGENT_COMMAND, command_position
-from ..limits import MAX_OPEN_BRACKETS
+from ..limits import MAX_NAMES, MAX_OPEN_BRACKETS
 
 SHELL_KINDS = frozenset((".sh", ".bash", ".zsh", "", ".mk"))  # file kinds whose text is shell (see file_kind)
 # YAML keys whose value, or block scalar, is a shell script (GitHub Actions, GitLab CI and others).
@@ -446,33 +446,62 @@ def membership_use(text: str, at: int, end: int) -> bool:
     return not FOR_LOOP.search(line) or bool(ANY_ALL.search(line))
 
 
-def only_membership(text: str, name: str, assigned: int) -> bool:
+IDENTIFIER = re.compile(r"[\w$]+")
+NAME_CHARS = re.compile(r"^[^\W\d][\w$]*$|^\$[\w$]*$")
+
+
+class NameIndex:
+    """Where each identifier occurs in one file, from one regex pass made the first time a name
+    is looked up, so following a name's uses never searches the whole file again. At most
+    MAX_NAMES distinct names are looked up per file; past that, uses() returns None and the
+    caller errs toward reporting."""
+
+    def __init__(self, text: str):
+        self.text = text
+        self._index: dict[str, list[int]] | None = None
+        self._asked: set[str] = set()
+
+    def uses(self, name: str) -> list[int] | None:
+        """Offsets of `name` as a whole identifier (not inside a longer one), or None past the cap."""
+        if name not in self._asked:
+            if len(self._asked) >= MAX_NAMES:
+                return None
+            self._asked.add(name)
+        if self._index is None:
+            index: dict[str, list[int]] = {}
+            for m in IDENTIFIER.finditer(self.text):
+                index.setdefault(m.group(0), []).append(m.start())
+            self._index = index
+        return self._index.get(name, [])
+
+
+def only_membership(names: NameIndex, name: str, assigned: int) -> bool:
     """Every use of `name` in the file other than its assignment (the one ending near `assigned`)
-    is a membership test; a name used more than NAME_USES times is not checked and does not count."""
-    if not name or not (name[0].isalpha() or name[0] in "_$"):
+    is a membership test; a name used more than NAME_USES times, or looked up past the per-file
+    cap on names, is not checked and does not count."""
+    if not name or not NAME_CHARS.match(name):
         return False
-    pos, uses = 0, 0
-    while True:
-        at = text.find(name, pos)
-        if at < 0:
-            return True
-        end, pos = at + len(name), at + len(name)
-        if (at and (text[at - 1].isalnum() or text[at - 1] in "_$")) or (end < len(text) and
-                                                                         (text[end].isalnum() or text[end] in "_$")):
-            continue
+    found = names.uses(name)
+    if found is None:
+        return False
+    text, uses = names.text, 0
+    for at in found:
         if assigned - HEAD <= at < assigned:  # the assignment itself
             continue
         uses += 1
-        if uses > NAME_USES or not membership_use(text, at, end):
+        if uses > NAME_USES or not membership_use(text, at, at + len(name)):
             return False
+    return True
 
 
 class Mentions:
     """Answers is_mention() for the flags found in one file."""
 
-    def __init__(self, text: str, suffix: str, settings: bool = False):
-        """`settings`: the file is a settings file (rule (d) applies)."""
+    def __init__(self, text: str, suffix: str, settings: bool = False, names: NameIndex | None = None):
+        """`settings`: the file is a settings file (rule (d) applies); `names`: the file's
+        identifier index, shared with other checks of the same file."""
         self.text, self.suffix, self.settings = text, suffix, settings
+        self.names = names or NameIndex(text)
         self.yaml = suffix in (".yml", ".yaml")
         self.structured = suffix in STRUCTURED_EXT
         self._regions: Regions | None = None
@@ -701,7 +730,7 @@ class Mentions:
         close = list_end(text, at)
         if close < 0 or AGENT_COMMAND.search(text, at, close):
             return False
-        return self.structured or only_membership(text, name, at)  # (e)
+        return self.structured or only_membership(self.names, name, at)  # (e)
 
 
 def yaml_mention_items(text: str, settings: bool) -> dict[int, bool]:

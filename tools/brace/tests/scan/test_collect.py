@@ -5,7 +5,7 @@ import threading
 import time
 
 import pytest
-from support import AGENT, FLAG, UNPINNED, config, report, result, rules, scan, write
+from support import AGENT, FLAG, UNPINNED, config, limits, report, result, rules, run, scan, write
 
 from open_agent_security.collect.repo import is_script
 
@@ -211,8 +211,8 @@ def test_round9_shell_startup_files_are_read(tmp_path, name):
 
 @pytest.mark.parametrize("name", ["Procfile", "agent.service", "supervisord.conf", "w.code-workspace", "main.tf",
                                   "x.hcl", "n.ipynb", "a.php", "a.cs", "a.swift", "a.lua", "a.pl", "a.c", "a.h",
-                                  "a.cpp", "a.ex", "a.exs", "a.dart", "a.vue", "a.svelte", "a.html", "flake.nix",
-                                  "a.j2", "a.jinja", "a.tpl", "a.properties", "a.json5", "notes.txt"])
+                                  "a.cpp", "a.ex", "a.exs", "a.dart", "a.vue", "a.svelte", "flake.nix",
+                                  "a.j2", "a.jinja", "a.tpl", "a.properties", "a.json5"])
 def test_round11_more_file_kinds_are_read(tmp_path, name):
     write(tmp_path, name, "gemini -y -p fix\n")  # -y is not a bypass marker: the file is read for its kind
     assert rules(tmp_path) == ["AP01"]
@@ -242,3 +242,66 @@ def test_round11_cache_folders_are_not_entered(tmp_path):
     write(tmp_path, ".pytest_cache/v/cache/nodeids", f'["test_x.py::test[claude {FLAG}]"]\n')
     r = report(tmp_path)
     assert r["findings"] == [] and any(".pytest_cache" in n for n in r["notes"])
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("docs/security.mdx", f"claude {FLAG}\n"),
+    ("docs/guide.rst", f"claude {FLAG}\n"),
+    ("README", f"claude {FLAG}\n"),
+    ("CHANGELOG.markdown", f"claude {FLAG}\n"),
+    ("docs/notes.txt", f"claude {FLAG}\n"),
+    ("docs/a.adoc", f"claude {FLAG}\n"),
+    ("site/index.html", f"<pre>claude {FLAG}</pre>\n<!-- claude {FLAG} -->\n"),
+    ("a.vue", f"<template><!-- claude {FLAG} --></template>\n"),
+    ("n.ipynb", json.dumps({"cells": [{"cell_type": "markdown", "source": [f"claude {FLAG}"]},
+                                      {"cell_type": "code", "source": ["print(1)"]}]}, indent=1)),
+    ("site/search-index.json", json.dumps({"docs": [{"text": f"claude {FLAG}"}]})),
+    ("site/search/search_index.json", json.dumps({"config": {}, "docs": [{"text": f"claude {FLAG}"}]})),
+    ("site/data.json", json.dumps({"config": {}, "docs": [{"location": str(i), "text": f"claude {FLAG}"}
+                                                          for i in range(2000)]})),
+])
+def test_round12_documentation_is_prose(tmp_path, rel, text):
+    """Finding 4: documentation kinds, HTML outside <script>, markup comments, notebook Markdown
+    cells and docs search indexes are not read for bypass flags."""
+    write(tmp_path, rel, text)
+    assert rules(tmp_path) == []
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("site/index.html", f"<p>x</p>\n<script>run('claude {FLAG}')</script>\n"),
+    ("a.vue", f"<script>execSync('claude {FLAG}')</script>\n"),
+    ("n.ipynb", json.dumps({"cells": [{"cell_type": "markdown", "source": ["hi"]},
+                                      {"cell_type": "code", "source": [f"!claude {FLAG} -p x"]}]}, indent=1)),
+    ("README.sh", f"claude {FLAG}\n"),
+])
+def test_round12_code_inside_documents_is_still_read(tmp_path, rel, text):
+    write(tmp_path, rel, text)
+    assert rules(tmp_path) == ["AP01"]
+
+
+def test_round12_the_byte_search_skips_prose(tmp_path):
+    """A prose file over the size limit holding a bypass marker does not make the scan incomplete,
+    and an unread prose kind is not read because of one."""
+    write(tmp_path, "docs/notes.txt", f"claude {FLAG}\n" * 20)
+    write(tmp_path, "docs/guide.org", f"claude {FLAG}\n")
+    code, text = run(tmp_path, fail_on="low", args=limits(tmp_path, max_file_bytes=100))
+    assert code == 0, text
+
+
+def test_round12_symlinks_and_fifos_are_refused_without_o_nofollow(tmp_path, monkeypatch):
+    """Finding 10: on Windows O_NOFOLLOW and O_NONBLOCK are 0; lstat before open and fstat after
+    still refuse a symlink or special file."""
+    import os
+    from open_agent_security import fsio
+    monkeypatch.setattr(fsio, "NOFOLLOW", os.O_RDONLY)
+    target = tmp_path / "secret.txt"
+    target.write_bytes(b"--yolo\n")
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+    assert fsio.contains(target, (b"--yolo",)) and fsio.starts_with(target, b"--yolo")
+    assert not fsio.contains(link, (b"--yolo",)) and not fsio.starts_with(link, b"--yolo")
+    assert isinstance(fsio.read(link), fsio.ReadFailure)
+    if hasattr(os, "mkfifo"):
+        fifo = tmp_path / "fifo"
+        os.mkfifo(fifo)
+        assert not fsio.contains(fifo, (b"x",)) and not fsio.starts_with(fifo, b"x")
