@@ -87,7 +87,7 @@ Query every record from a controlled run with successful, denied, failed, async,
 Rate likely_pass only if every check below is true, with a file and line for each:
 
 - **A02.1** The audit record schema has all six fields: accountable party, operational owner, tenant, agent-type-id, agent-instance-id, and trace context.
-  - *How to verify:* 1) Find the audit record schema or the function that writes audit entries. 2) Check for each of the six: accountable party, operational owner, tenant, the type hash (`gen_ai.agent.version`), the run identity (`service.instance.id`, or the run's `invoke_agent` trace and span IDs), trace context (`traceparent` or trace and span IDs). 3) Answer no if any one is missing from the schema or never set.
+  - *How to verify:* 1) Find the audit record schema or the function that writes audit entries. 2) Check for each of the six: accountable party, operational owner, tenant, the type hash (`service.version`, or `gen_ai.agent.version` on a client `invoke_agent` span), the run identity (`service.instance.id`, or the run's `invoke_agent` trace and span IDs), trace context (`traceparent` or trace and span IDs). 3) Answer no if any one is missing from the schema or never set.
 - **A02.2** All six fields are written on denied, failed, async, and background actions too, not only on the successful main request path.
   - *How to verify:* 1) List every path that writes an audit record, or should: success, policy deny, `except`/`catch` blocks, retries, queue workers, cron jobs, webhooks, other endpoints such as approvals, and refusals of an authenticated caller before the run starts (quota, rate limit, permission) that return an error without logging. A rejected login (no caller identified, the agent never runs) is not an agent action; it belongs in ordinary access logs, so don't count it here. 2) For each, check all six fields are set, ideally by one shared wrapper. 3) Answer no if any deny, error, async, or background path writes records without them, or writes no record at all.
 - **A02.3** Trace context (trace and span IDs) is stored in the audit record itself, not only in separate tracing spans.
@@ -109,7 +109,7 @@ File these problems under their owning item, not this one, unless this item's ow
 **Provable from code:** partly
 
 **Look for:**
-- Telemetry or audit code sets all six fields on every action: accountable party, operational owner, tenant (all three in the audit record, from verified identity claims, joined to spans by trace ID), the type hash in `gen_ai.agent.version`, run identity (`service.instance.id`, or the run's own `invoke_agent` span), and W3C trace context (`traceparent`). The end user, if any, is `user.id`, not `enduser.*`.
+- Telemetry or audit code sets all six fields on every action: accountable party, operational owner, tenant (all three in the audit record, from verified identity claims, joined to spans by trace ID), the type hash in `service.version` (or `gen_ai.agent.version` on a client `invoke_agent` span), run identity (`service.instance.id`, or the run's own `invoke_agent` span), and W3C trace context (`traceparent`). The end user, if any, is `user.id`, not `enduser.*`.
 - Fields are set in one shared place (span processor, logging middleware, audit wrapper around tool dispatch) so every tool call inherits them.
 - Denied, failed, retried, async, and background paths (queue workers, cron jobs, webhooks) also emit the fields, not just the main request handler.
 - Tenant and owner values come from verified identity (token claims, IAM tags, SPIFFE path) in the trusted layer.
@@ -119,7 +119,7 @@ File these problems under their owning item, not this one, unless this item's ow
 - Identity attributes are added only on the success path; `except`/`catch` blocks and policy-denial branches log without them.
 - Background jobs or queue consumers start new traces with no tenant, instance, or type ID.
 - Tenant or owner is read from OTel baggage or `tracestate`, which have no integrity protection.
-- No content hash is emitted in `gen_ai.agent.version` and no run identity exists (`service.instance.id` or a per-run `invoke_agent` span), or a run ID is stuffed into `gen_ai.agent.id` or `gen_ai.conversation.id` instead.
+- No content hash is emitted in `service.version` (or `gen_ai.agent.version` on a client `invoke_agent` span) and no run identity exists (`service.instance.id` or a per-run `invoke_agent` span), or a run ID is stuffed into `gen_ai.agent.id` or `gen_ai.conversation.id` instead.
 - `gen_ai.agent.id` is overwritten with a per-run ID and used as the only agent identifier.
 
 **Where to look:**
@@ -157,7 +157,7 @@ Hash the same frozen manifest twice. The IDs must match. Change the container, h
 Rate likely_pass only if every check below is true, with a file and line for each:
 
 - **A03.1** The agent-type-id is a hash over a manifest that includes the container digest, harness, system prompt, model ID and version, and configuration.
-  - *How to verify:* 1) Find the code or CI step that computes the type hash emitted as `gen_ai.agent.version` (search `sha256`, `hashlib`, `createHash`, `gen_ai.agent.version`). 2) List its inputs. 3) Check each is there: container digest, harness, system prompt, model ID and version, configuration. 4) Answer no if the ID is a label, version string, or git tag, or any input is missing.
+  - *How to verify:* 1) Find the code or CI step that computes the type hash emitted as `service.version` (or `gen_ai.agent.version` on a client `invoke_agent` span) (search `sha256`, `hashlib`, `createHash`, `service.version`, `gen_ai.agent.version`). 2) List its inputs. 3) Check each is there: container digest, harness, system prompt, model ID and version, configuration. 4) Answer no if the ID is a label, version string, or git tag, or any input is missing.
 - **A03.2** The hash covers every file that defines the prompt, tools, and configuration, with no file or directory skipped or excluded.
   - *How to verify:* 1) Open the function that lists files to hash. 2) Write down every filter it applies: hidden files, names starting with '_' or '__', extensions, ignore lists, glob patterns. 3) For each filter, check whether a file that defines tools, prompts, or config would be skipped (for example `__init__.py`, `index.ts`, `.env`, `config/*.local.*`). 4) Answer no if any such file is skipped.
 - **A03.3** The model input is a pinned version or snapshot (plus checkpoint and adapter references where used), not an alias and not the app's release number.
@@ -182,13 +182,13 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **Look for:**
 - A manifest listing the hash inputs: container digest, harness version or files, system prompt, model ID and version, checkpoint/adapter references, and configuration.
-- Code or a CI step that computes the type hash emitted as `gen_ai.agent.version` as a hash (for example `sha256:`) over that manifest with documented, canonical serialization (sorted keys, fixed encoding).
+- Code or a CI step that computes the type hash emitted as `service.version` (or `gen_ai.agent.version` on a client `invoke_agent` span) as a hash (for example `sha256:`) over that manifest with documented, canonical serialization (sorted keys, fixed encoding).
 - Container images referenced by digest (`image@sha256:...`), not only by tag, in the manifest.
 - A test that the same manifest gives the same ID and that changing each input changes it.
 - Requested model ID and provider-reported served version recorded as separate fields.
 
 **Red flags:**
-- `gen_ai.agent.version` (the type hash) is a hand-picked label, app version string, or git tag, not a content hash.
+- The type hash (`service.version` or `gen_ai.agent.version`) is a hand-picked label, app version string, or git tag, not a content hash.
 - The hash covers only some inputs (for example code but not the system prompt or model ID).
 - Image referenced as `:latest` or a mutable tag, so the container input is not fixed.
 - Secret values (API keys, tokens) are fed into the hash input or written into the manifest.
@@ -289,7 +289,7 @@ Give an operator a test action or trace ID with no other context. Have them find
 Rate likely_pass only if every check below is true, with a file and line for each:
 
 - **A05.1** Each audit record carries the agent-type-id and agent-instance-id, which resolve to a stored deployment manifest and a live instance.
-  - *How to verify:* 1) Open the audit record writer. 2) Check the type hash (`gen_ai.agent.version`) and the run identity (`service.instance.id`, or the run's `invoke_agent` trace and span IDs) are written on every record. 3) Check the type ID can be looked up to a stored manifest (registry, manifest store, file keyed by hash). 4) Answer no if either field is missing or nothing stores manifests by that ID. Answer unknown if the lookup store is outside this repo.
+  - *How to verify:* 1) Open the audit record writer. 2) Check the type hash (`service.version`, or `gen_ai.agent.version` on a client `invoke_agent` span) and the run identity (`service.instance.id`, or the run's `invoke_agent` trace and span IDs) are written on every record. 3) Check the type ID can be looked up to a stored manifest (registry, manifest store, file keyed by hash). 4) Answer no if either field is missing or nothing stores manifests by that ID. Answer unknown if the lookup store is outside this repo.
 - **A05.2** An ownership record in code or config maps each agent type to a responsible team and a current operator or on-call rotation.
   - *How to verify:* 1) Look for CODEOWNERS, `catalog-info.yaml`, `.brace/deployment.yaml`, or another ownership file. 2) Check each agent type maps to a team and to a current operator or on-call rotation. 3) Answer no if an agent type has no owner, or owners exist only in prose with no link. Answer unknown if ownership lives in an outside catalog.
 - **A05.3** A containment control can disable a single instance or a single agent type (for example revoke its principal or scale it to zero) without touching the launching user's credentials.
@@ -309,7 +309,7 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **Look for:**
 - Telemetry links each action to type ID, instance ID, owner, and trace, so one action ID can be traced to a manifest and a live instance.
-- A registry or index mapping the type hash (`gen_ai.agent.version`) to manifest, owners, and running instances (service catalog entry, CODEOWNERS, `.brace/deployment.yaml` roles).
+- A registry or index mapping the type hash (`service.version`, or `gen_ai.agent.version` on a client `invoke_agent` span) to manifest, owners, and running instances (service catalog entry, CODEOWNERS, `.brace/deployment.yaml` roles).
 - A kill or quarantine control scoped to one instance or one agent type (per-instance token revocation, per-type feature flag, scaling one deployment to zero).
 - A runbook that starts from a trace or action ID and lists the lookup and containment steps.
 
@@ -348,7 +348,7 @@ Start a child and a grandchild agent, each with a test prompt you can tell apart
 Rate likely_pass only if every check below is true, with a file and line for each:
 
 - **A06.1** Each sub-agent gets its own type ID and instance ID, assigned by the harness when it is started.
-  - *How to verify:* 1) Find sub-agent spawn code (handoffs, subgraphs, subagents, A2A task creation). 2) Check the harness assigns the child its own run identity (a new `invoke_agent` span, or `service.instance.id`) and a type hash in `gen_ai.agent.version` at start. 3) Answer no if any spawn path reuses the parent's IDs, assigns none, or takes the IDs from the model's request.
+  - *How to verify:* 1) Find sub-agent spawn code (handoffs, subgraphs, subagents, A2A task creation). 2) Check the harness assigns the child its own run identity (a new `invoke_agent` span, or `service.instance.id`) and a type hash in `service.version` (or `gen_ai.agent.version` on a client `invoke_agent` span) at start. 3) Answer no if any spawn path reuses the parent's IDs, assigns none, or takes the IDs from the model's request.
 - **A06.2** Each sub-agent's records include its direct parent's instance ID and a trace link to the parent.
   - *How to verify:* 1) Open sub-agent spawn code and the child's record writer. 2) Look for the parent link: the agent-as-tool `execute_tool` span (`gen_ai.transfer.target.name`, `gen_ai.transfer.mode`) and trace propagation (span parent, span link, `traceparent` in queued payloads). 3) Answer no if any spawn path, including remote or queued, starts a fresh trace or loses the parent link.
 - **A06.3** The prompt the parent passed to the child is captured on this path, with prompt capture switched on in config rather than left at the default off.
@@ -369,7 +369,7 @@ File these problems under their owning item, not this one, unless this item's ow
 **Provable from code:** partly
 
 **Look for:**
-- Sub-agent spawn code assigns the child its own type hash (`gen_ai.agent.version`) and its own run identity (its own `invoke_agent` span, or `service.instance.id` if it runs as its own process), and the parent link is recorded through trace context (the child's spans descend from the parent's agent-as-tool `execute_tool` span, with `gen_ai.transfer.target.name` and `gen_ai.transfer.mode`) or span links for async handoffs.
+- Sub-agent spawn code assigns the child its own type hash (`service.version`, or `gen_ai.agent.version` on a client `invoke_agent` span) and its own run identity (its own `invoke_agent` span, or `service.instance.id` if it runs as its own process), and the parent link is recorded through trace context (the child's spans descend from the parent's agent-as-tool `execute_tool` span, with `gen_ai.transfer.target.name` and `gen_ai.transfer.mode`) or span links for async handoffs.
 - The prompt the parent passes is recorded as `gen_ai.input.messages` / `gen_ai.input.messages_ref` on the child's `invoke_agent` span (with the text in restricted storage for a ref), or as opt-in `gen_ai.tool.call.arguments` on the agent-as-tool span.
 - Trace context is passed into the child (span parent or span link), including for remote or queued sub-agents.
 - GenAI prompt capture is turned on for this path (for example a content-capture env var or SDK option) and a redaction policy is defined.

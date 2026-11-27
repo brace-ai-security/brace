@@ -132,6 +132,7 @@ BRACE does not address CBRN Information or Capabilities; Confabulation; Dangerou
 - BRACE covers security and control. It does not test accuracy, fairness, or social impact, so most GOVERN and MAP outcomes stay Partial or Out of scope.
 - Only items with a Pass result count. A Gap, an accepted risk, or an N/A supplies no evidence for an outcome.
 - The AI RMF Playbook's suggested actions and the AI 600-1 action tables (for example, GV-1.1-001) are not mapped.
+- NIST's SP 800-53 overlay project for AI systems was renamed Control Overlays for Super Intelligence Systems ([COSIS](https://csrc.nist.gov/projects/cosis), formerly COSAiS) on 2026-10-20, following [Executive Order 14434](https://www.whitehouse.gov/presidential-actions/2026/09/inaugurating-the-era-of-super-intelligence/) (2026-09-29). The scope is unchanged. Its agent overlays were still proposed use cases with no draft on 2026-11-26, so they are not mapped.
 - AI RMF 1.0 is under revision. Recheck this mapping when NIST publishes a new version. Subcategory text last checked 2026-10-01; version status last checked 2026-11-26.
 - 600-1 names one risk "Harmful Bias or Homogenization" in its list and "Harmful Bias and Homogenization" in its section heading. This page uses the list name.
 

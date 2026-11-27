@@ -2,6 +2,18 @@
 
 **Review dates: 2026-09-16 (full review); 2026-09-30 (update against current guidance); 2026-10-16 (targeted MCP revision); 2026-10-22 (all 53 recommendations re-researched, BRACE 2.0.1); 2026-11-26 (external references refreshed: incidents, OWASP, MITRE ATLAS, NIST, MCP, OpenTelemetry; no checklist change).** Scope: the [53-item checklist](CHECKLIST.md), [verification recipes](CHECKLIST-VERIFICATION.md), assessment, guides, resource catalog, vendor worksheet, and telemetry proposal.
 
+## Follow-up review: 2026-11-26
+
+Follow-ups from the 2026-11-26 reference refresh. No checklist requirement changed.
+
+| Finding | Result |
+|---|---|
+| OTel GenAI conventions v0.1.0 (published 2026-11-21) removed `gen_ai.agent.version` and `gen_ai.agent.id` from `gen_ai.invoke_agent.internal` ([release notes](https://github.com/open-telemetry/semantic-conventions-genai/releases/tag/v0.1.0), PRs #242 and #322). The client `gen_ai.client.invoke_agent` span still lists both. The new `gen_ai.main_agent` entity has no version attribute and requires a provider-assigned stable ID. | BRACE now records the in-process agent-type hash in the Stable `service.version` resource attribute, whose format is undefined, and keeps `gen_ai.agent.version` for the client span of an agent called out of process. The human release label moves to the release manifest. BRACE still defines no custom attributes. A02/A03 wording names no attribute and is unchanged. See [otel-conventions.md](otel-conventions.md#where-the-type-hash-goes). |
+| The NIST COSAiS project page showed a rename to COSIS. | Confirmed from NIST's [CSRC notice](https://csrc.nist.gov/si-note) and the [executive order](https://www.whitehouse.gov/presidential-actions/2026/09/inaugurating-the-era-of-super-intelligence/) (EO 14434, 2026-09-29). No NIST news release was found. Catalog and AI RMF mapping updated. |
+| EN ISO/IEC 42001:2026 was seen only in secondary listings. | Confirmed from BSI and the Estonian Centre for Standardisation as an identical adoption of ISO/IEC 42001:2023. Clause titles still not rechecked from a primary source (HTTP 403). |
+| New ATLAS v2026.10 rows were unreviewed. | Reviewed against the v2026.10 technique descriptions. Item picks changed for AML.T0142 and AML.T0138; no rating changed. |
+| Recent incidents were not linked to items. | S60 to S67 added below as incident evidence and cited in the coverage table. |
+
 ## Latest review: 2026-10-22
 
 The [full dated evidence review](RESEARCH-2026-10-22.md) rechecks all 53 items and recipes, with a row for every item, original advisory links, affected/fixed versions, configuration prerequisites and source limits. Newly published October 19–21 advisories are distinguished from older omissions found now. This is a source review, not a dependency audit, exploit reproduction, model requalification or deployment test.
@@ -157,6 +169,17 @@ References below support the related principle, not every BRACE-specific impleme
 - **S58:** [OWASP Top 10 for Agentic Applications for 2026](https://genai.owasp.org/top-10-for-agentic-applications-2026/) (released 9 December 2025), used for the [Agentic Top 10 mapping](mappings/owasp-agentic-top-10.md). Checked 2026-11-24.
 - **S59:** [OWASP MCP Top 10](https://github.com/OWASP/www-project-mcp-top-10), 2025 edition, beta (repository commit `165fe0f`, 29 July 2026), used for the [MCP Top 10 mapping](mappings/owasp-mcp-top-10.md). Checked 2026-11-24.
 
+Incident evidence added 2026-11-26 (brace-dgo.2). Each is vendor- or researcher-reported and was read at the source on 2026-11-26. They illustrate failure modes; they do not change any requirement.
+
+- **S60:** [Botpress security incident disclosure](https://botpress.com/blog/security-incident-disclosure-november-2026) (2026-11-06). A flawed sign-in proxy let an attacker read bot configurations in 16 workspaces; those can hold third-party credentials, including AI provider keys. Botpress asks customers to treat every stored credential as exposed.
+- **S61:** [Railway October security incident report](https://blog.railway.com/p/incident-report-october-security-incident) (2026-11-10). A build-isolation escape, a build credential trusted by an internal service, and a misconfigured OIDC binding led to a long-lived decryption credential. Environment variables were decrypted for at most 1.85% of workspaces.
+- **S62:** [Cursor security incident update](https://cursor.com/blog/security-incident-update) (2026-11-13). A storage key issued to an inference provider was exposed; stored coding-agent traces held some unredacted credentials, which reached internal SaaS tools. A stolen credential also placed a tampered extension on the marketplace cache.
+- **S63:** [LiteLLM attack-chain analysis](https://docs.litellm.ai/blog/security-incident-oct-21-2026-attack-chain) (2026-10-23). An admin key committed in May was never revoked. It exposed an owner's GitHub token, then CI secrets, a changed release workflow and a malicious `litellm==1.107.0`.
+- **S64:** [Cursor notice on the tampered Claude Code extension](https://cursor.com/blog/claude-code-extension-security-notice) (2026-10-29, updated 2026-10-30). Versions 2.1.312 and 2.1.313, not built by Anthropic, were in the Cursor marketplace for about 11 hours. The notice gives no user count.
+- **S65:** [Symantec, unauthorized relays for Codex and Claude Code](https://www.security.com/threat-intelligence/openai-claude-unauthorized-relays) (2026-10-29). A setup script rewrites the CLIs' config files: Codex sandbox set to full access, base URLs and keys pointed at a relay. Not a product vulnerability; abuse not observed.
+- **S66:** [Pillar Security, opencode RCE via MCP OAuth](https://www.pillar.security/blog/open-and-shut-remote-code-execution-in-opencode-via-mcp-oauth) (byline 2026-10-19). A remote MCP server's `authorization_endpoint` reached an unescaped launcher on Windows and WSL. Fixed in opencode 1.18.33; no CVE published.
+- **S67:** [Straiker, session inception](https://straiker.ai/blog/session-inception-spawning-a-child-claude-session-to-bypass-parent-guardrails) (2026-10-08). A child CLI session started in an untrusted repository ran the repository's hook without the parent's confirmation. The vendor closed the report as Informative.
+
 ## Review coverage: all 53 items
 
 Each row records the practical issue checked or clarified. An unchanged item means no design correction was identified in this review; it does not mean an implementation has passed. Use the linked verification guide for procedures and expected evidence.
@@ -165,21 +188,21 @@ Each row records the practical issue checked or clarified. An unchanged item mea
 |---|---|---|
 | B05 | S1 S6 S34 S21 S22 | Authorize operation, target, and arguments at execution; command-name filtering is insufficient. |
 | B02 | S1 S3 S27 S41 S42 | Check destination permissions and tenant isolation with actual issued credentials. |
-| B01 | S1 S19 | Inventory every callable path; a model refusing a tool is not enforcement. |
-| B03 | S3 S5 S25 S28 S41 S42 | Measure expiry and rotation overlap; do not demand invalidation before an explicitly permitted overlap ends. |
+| B01 | S1 S19 S65 S67 | Inventory every callable path; a model refusing a tool is not enforcement. |
+| B03 | S3 S5 S25 S28 S41 S42 S60 S61 S62 | Measure expiry and rotation overlap; do not demand invalidation before an explicitly permitted overlap ends. |
 | B04 | S5 S26 | Measure the revocation budget, including cached tokens and existing sessions; refresh-token revocation alone is insufficient. |
 | B06 | S6 S27 | Bind approval to the action, check current state, and exercise concurrent replay. |
 | B07 | S1 S24 | Include children and in-flight overshoot in a declared budget; no universal safe numerical limit. |
 | B08 | S1 S10 | Inspect effective isolation policy as well as probe results; an unavailable endpoint proves little. |
 | B09 | S7 | Cover redirects, DNS, IPv6, and unauthorized resources on otherwise allowed services. |
-| B10 | S8 S9 S29 | Verify an approved signer and digest; a valid signature is not evidence the artifact is safe. |
-| B11 | S10 S30 | Choose isolation for the threat model; ordinary containers and a few access probes do not establish escape resistance. |
-| B12 | S1 S9 S31 | Version and review harness/instruction artifacts alongside code and runtime permissions. |
+| B10 | S8 S9 S29 S63 | Verify an approved signer and digest; a valid signature is not evidence the artifact is safe. |
+| B11 | S10 S30 S61 S65 | Choose isolation for the threat model; ordinary containers and a few access probes do not establish escape resistance. |
+| B12 | S1 S9 S31 S64 S67 | Version and review harness/instruction artifacts alongside code and runtime permissions. |
 | R11 | S1 S34 | Measure stop time with work in flight; committed external effects require reconciliation. |
 | R13 | S11 S13 S34 | Compare audit reconstruction to independent destination state; make unknown outcomes explicit. |
 | R01 | S1 S2 | Exercise malformed, oversized, streamed, error, and callback responses at each integration. |
 | R02 | S2 S23 | Schema-valid text can still inject instructions; enforce prohibited actions outside the model. |
-| R03 | S1 S11 S24 | Test secrets through all output paths and generated content through its downstream interpreter. |
+| R03 | S1 S11 S24 S62 | Test secrets through all output paths and generated content through its downstream interpreter. |
 | R04 | S1 S2 | Test ingestion rights, tenant filtering, revocation, derived chunks, and cache propagation. |
 | R05 | S1 S2 S24 | Memory is an input boundary; validate writes and scope access across later sessions. |
 | R06 | S1 | Retain lineage and test cleanup of derived memory; incomplete lineage limits the cleanup claim. |
@@ -198,9 +221,9 @@ Each row records the practical issue checked or clarified. An unchanged item mea
 | A07 | S1 S14 | Inventory auxiliary and routing models too; declare provider-hidden details as unknown. |
 | C01 | S9 S17 S33 | Manifest must explicitly name model/checkpoint/adapter and training provenance where available; do not invent unavailable provider internals. |
 | C03 | S9 S32 | Compare deployment evidence to the manifest; managed aliases limit proof of immutable model identity. |
-| C04 | S1 S9 S32 | Exercise drift detection and its response; versioned storage alone does not prove the running state. |
+| C04 | S1 S9 S32 S65 | Exercise drift detection and its response; versioned storage alone does not prove the running state. |
 | C02 | S1 S9 | Require review for changes that affect authority, inputs, models, or behavior. |
-| C05 | S1 S9 S31 S32 S33 | Explicitly track model, adapter, training-run, and data-reference changes as well as software dependencies. |
+| C05 | S1 S9 S31 S32 S33 S63 | Explicitly track model, adapter, training-run, and data-reference changes as well as software dependencies. |
 | C06 | S1 S2 S34 | Use deployment-specific regression and injection cases; a passing finite suite is bounded evidence. |
 | C07 | S1 S9 S12 S33 | Test restart and rollback with state compatibility; a code rollback cannot undo committed external effects. |
 | C08 | S11 S14 | Verify retained trace-to-release and prompt references; the exact BRACE join is custom instrumentation. |
@@ -208,13 +231,13 @@ Each row records the practical issue checked or clarified. An unchanged item mea
 | E08 | S1 S3 S27 | Exercise privilege escalation through a peer; delegation must not bypass the caller’s authorization. |
 | E09 | S1 | Prove the stop reaches remote descendants, queues, credentials, and retries within the chosen budget. |
 | E01 | S1 S15 | Assign platform and team responsibilities; an upstream product claim is not implementation evidence. |
-| E02 | S1 S8 S9 S20 S31 | Pin observable artifacts, assess maintenance, and record remote implementation limitations. |
-| E03 | S4 S16 S19 S20 S46 | Metadata fingerprints detect metadata changes; they cannot attest hidden remote code. |
+| E02 | S1 S8 S9 S20 S31 S63 S64 S66 | Pin observable artifacts, assess maintenance, and record remote implementation limitations. |
+| E03 | S4 S16 S19 S20 S46 S66 | Metadata fingerprints detect metadata changes; they cannot attest hidden remote code. |
 | E04 | S2 S4 S19 S20 S49 S53 | Scan metadata with a failure policy; scanners have false positives and evasion limits. |
 | E05 | S3 S4 S19 | Bind server identity plus tool name; names alone do not establish provenance. |
 | E07 | S1 S6 S20 | Authenticate, authorize, validate, and prevent replay of action-bearing peer messages. |
 | E10 | S11 S13 S14 S34 | Verify cross-service propagation and protected evidence; standards do not guarantee instrumentation completeness. |
-| E11 | S11 S1 S35 | Test retention, access, export, loss detection, and safe behavior when audit capture fails. |
+| E11 | S11 S1 S35 S62 | Test retention, access, export, loss detection, and safe behavior when audit capture fails. |
 | E12 | S1 S15 S34 S36 S37 | Run a shared-dependency incident drill with affected-instance discovery and accountable responders. |
 
 ## Original external-source inventory

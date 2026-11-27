@@ -164,7 +164,7 @@ Rate likely_pass only if every check below is true, with a file and line for eac
 - **C03.2** A process outside the agent observes the running artifacts (image digest, prompt, model, tool setup) and compares them with the approved manifest, rather than trusting what the agent reports.
   - *How to verify:* 1) Find a process outside the agent (admission controller, CI check, sidecar, scheduled job) that reads running artifacts. 2) Check it observes image digest, prompt, model, and tool setup itself and compares each with the approved manifest. 3) Answer no if it trusts values the agent reports, or compares a value with itself. Answer unknown if it would run in a platform outside this repo.
 - **C03.3** The emitted agent-type-id is computed from the observed running artifacts, so a changed prompt, model, weights file, or tool setup produces a different ID instead of the approved one.
-  - *How to verify:* 1) Find where the type hash emitted in `gen_ai.agent.version` comes from. 2) Check it is computed from the observed running artifacts at start or deploy. 3) Answer no if it is a constant, an env var or config value set at build, or copied from the approved manifest, so a changed prompt, model, weights file, or tool setup would still emit the approved ID.
+  - *How to verify:* 1) Find where the type hash emitted in `service.version` (or `gen_ai.agent.version` on a client `invoke_agent` span) comes from. 2) Check it is computed from the observed running artifacts at start or deploy. 3) Answer no if it is a constant, an env var or config value set at build, or copied from the approved manifest, so a changed prompt, model, weights file, or tool setup would still emit the approved ID.
 - **C03.4** Self-hosted weights and adapters are checked by digest and signature at load or deploy.
   - *How to verify:* 1) Find where self-hosted weights and adapters are loaded or deployed (`from_pretrained`, `torch.load`, `safetensors`, download steps). 2) Check a digest compare and a signature check run before use. 3) Answer no if either is missing, wrapped in `try/except` that continues, or a second load path skips it. If only hosted models are used, answer yes citing the config that shows that.
 - **C03.5** A mismatch blocks or quarantines the deployment, not only logs it.
@@ -185,12 +185,12 @@ File these problems under their owning item, not this one, unless this item's ow
 
 **Look for:**
 - A deploy-time or startup check that compares running artifacts (image digest, prompt hash, model ID, tool config, weights digest) with the approved manifest and fails on mismatch.
-- The type hash emitted in `gen_ai.agent.version` is computed from the artifacts actually loaded, not read from a static config value.
+- The type hash emitted in `service.version` (or `gen_ai.agent.version` on a client `invoke_agent` span) is computed from the artifacts actually loaded, not read from a static config value.
 - Admission control that verifies image signatures and digests (for example Sigstore policy-controller, Kyverno, Gatekeeper).
 - Self-hosted weights and adapters checked against digest and signature before load.
 
 **Red flags:**
-- `gen_ai.agent.version` is a constant in config or env that stays the same when the prompt or model changes.
+- The type hash (`service.version` or `gen_ai.agent.version`) is a constant in config or env that stays the same when the prompt or model changes.
 - Prompts or tool definitions fetched at runtime from a mutable source with no hash check.
 - Images deployed by mutable tag with no digest verification.
 - The only check is the agent reporting its own ID.
@@ -474,7 +474,7 @@ Pick a past trace. Using the incident-response role, pull its manifest, model re
 Rate likely_pass only if every check below is true, with a file and line for each:
 
 - **C08.1** Each trace or audit record carries the agent-type-id or manifest reference that resolves to the stored release manifest.
-  - *How to verify:* 1) Open the trace or audit record writer. 2) Check every record carries the type hash (`gen_ai.agent.version`) or a manifest reference. 3) Check that value is the key of a stored manifest. 4) Answer no if the field is missing on some paths (errors, background jobs) or holds a value that resolves to no stored manifest.
+  - *How to verify:* 1) Open the trace or audit record writer. 2) Check every record carries the type hash (`service.version`, or `gen_ai.agent.version` on a client `invoke_agent` span) or a manifest reference. 3) Check that value is the key of a stored manifest. 4) Answer no if the field is missing on some paths (errors, background jobs) or holds a value that resolves to no stored manifest.
 - **C08.2** The context size at each model decision is recorded in the trace.
   - *How to verify:* 1) Find model call sites and their spans. 2) Look for the context size recorded per call (for example `gen_ai.usage.input_tokens` or a context-length attribute). 3) Answer no if it is missing on any model call path, including retries and sub-agents.
 - **C08.3** Prompts passed from a parent to a sub-agent are stored and linked from the trace.
@@ -495,7 +495,7 @@ File these problems under their owning item, not this one, unless this item's ow
 **Provable from code:** partly
 
 **Look for:**
-- Traces carry the type hash in `gen_ai.agent.version` linking to a stored manifest, `gen_ai.usage.input_tokens` (with the cache counts and `gen_ai.conversation.compacted`) on each model-call span that produced a decision, and the parent's prompt for sub-agents (`gen_ai.input.messages` / `gen_ai.input.messages_ref` on the child's `invoke_agent` span, or `gen_ai.tool.call.arguments`).
+- Traces carry the type hash in `service.version` (or `gen_ai.agent.version` on a client `invoke_agent` span) linking to a stored manifest, `gen_ai.usage.input_tokens` (with the cache counts and `gen_ai.conversation.compacted`) on each model-call span that produced a decision, and the parent's prompt for sub-agents (`gen_ai.input.messages` / `gen_ai.input.messages_ref` on the child's `invoke_agent` span, or `gen_ai.tool.call.arguments`).
 - Manifest archive keyed by type ID with retention at least as long as the audit retention period.
 - Storage policies (bucket lifecycle, log retention settings) that match the required retention.
 - Access controls on sensitive artifacts such as prompts and parent prompts.

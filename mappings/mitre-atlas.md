@@ -202,7 +202,7 @@ The tactic rows add up to 243, not 221, because 16 techniques sit under more tha
 | [AML.T0110.002](https://atlas.mitre.org/techniques/AML.T0110.002) | AI Agent Tool Poisoning: Runtime Response | Direct | R01, R02, E06, B05 | Tool responses are validated as untrusted data at the gateway, and action gates block what they ask for. |
 | [AML.T0121](https://atlas.mitre.org/techniques/AML.T0121) | AI Agent Environment Reconstruction | Direct | E09, R12, B04, B11 | The stop revokes access and blocks orphaned restarts, and the runtime has no downloader to rebuild tools. |
 | [AML.T0125](https://atlas.mitre.org/techniques/AML.T0125) | Create Account | Direct | B02, B05 | Agent tokens can't do admin actions such as creating accounts, and B02 tests that they fail. |
-| [AML.T0142](https://atlas.mitre.org/techniques/AML.T0142) | Event Triggered Execution | Partial | B11, E03, C04, R01 | Hooks and startup config are reviewed and drift-checked, and an isolated runtime limits what a triggered command can reach. |
+| [AML.T0142](https://atlas.mitre.org/techniques/AML.T0142) | Event Triggered Execution | Partial | B12, C04, B11, E03 | Hooks and startup config are harness files: B12 reviews them and blocks unreviewed production edits, C04 catches drift, and an isolated runtime limits what a triggered command can reach. Hooks a user's own repository supplies to a local agent are not stopped. |
 | [AML.T0145](https://atlas.mitre.org/techniques/AML.T0145) | Poison AI Agent Learning Environment | Partial | R01, R04, C05 | Web and tool content is untrusted input, and R04 limits who can write to sources. Poisoning of a provider's model training is outside BRACE. |
 
 ## Privilege Escalation (AML.TA0012)
@@ -237,7 +237,7 @@ The tactic rows add up to 243, not 221, because 16 techniques sit under more tha
 | [AML.T0123](https://atlas.mitre.org/techniques/AML.T0123) | Obfuscated Files or Information | Partial | R01, E04, R08 | Inputs and tool metadata are checked for encoded content, and R08 tests encoded payloads. |
 | [AML.T0129](https://atlas.mitre.org/techniques/AML.T0129) | Triggers in Multimodal Inputs | Partial | R01, R02 | R01 checks every input type for hidden instructions; R02 containment covers what the checks miss. |
 | [AML.T0134](https://atlas.mitre.org/techniques/AML.T0134) | AI Targeted Cloaking | Partial | R01, R02, B05 | Content shown only to the agent is still untrusted data, and action gates block what it asks for. |
-| [AML.T0138](https://atlas.mitre.org/techniques/AML.T0138) | Indicator Removal | Partial | R13, E10, B02 | Records the agent can't change, kept across services, make deleting or falsifying its own trail hard. An attacker with admin access to the log store is not stopped. |
+| [AML.T0138](https://atlas.mitre.org/techniques/AML.T0138) | Indicator Removal | Partial | R13, E11, E10, B12, B02 | Records the agent can't change, kept across services with integrity and gap checks, make deleting or falsifying its own trail hard. B12 blocks force-pushes that rewrite protected source history. An attacker with admin access to the log store, or edits on outside platforms, are not stopped. |
 | [AML.T0140](https://atlas.mitre.org/techniques/AML.T0140) | Centralized AI Service Request Routing | Out of scope | — | Spreading requests across routes to evade a provider happens on the attacker's side. |
 | [AML.T0141](https://atlas.mitre.org/techniques/AML.T0141) | AI Service Request Metadata Sanitization | Out of scope | — | Stripping identifiers from the attacker's own requests happens outside the deployment. |
 
@@ -365,7 +365,7 @@ The tactic rows add up to 243, not 221, because 16 techniques sit under more tha
 - Reconnaissance and resource development done on the attacker's own systems are Out of scope. BRACE only limits what that work can later reach.
 - Harmful or misleading text that the model writes for a user is a model-safety and answer-quality problem. BRACE does not filter it, so related Impact rows are Partial.
 - This mapping is BRACE's judgment. MITRE has not reviewed or endorsed it.
-- ATLAS changes often. v2026.10 added 18 technique and sub-technique IDs, renamed AML.T0005 and AML.T0010 and their sub-techniques, and replaced five older IDs (AML.T0024.000 to .002, AML.T0056, AML.T0057) with the new AML.T0135 to AML.T0137, AML.T0144 and AML.T0085.002 to .003 entries. Recheck this mapping on each new ATLAS release. Last checked 2026-11-26.
+- ATLAS changes often. v2026.10 added 18 technique and sub-technique IDs, renamed AML.T0005 and AML.T0010 and their sub-techniques, and replaced five older IDs (AML.T0024.000 to .002, AML.T0056, AML.T0057) with the new AML.T0135 to AML.T0137, AML.T0144 and AML.T0085.002 to .003 entries. Recheck this mapping on each new ATLAS release. Last checked 2026-11-26. The 2026-11-26 review of the new rows against the v2026.10 technique descriptions changed item picks for AML.T0142 (B12 added, R01 dropped) and AML.T0138 (E11 and B12 added); no coverage rating changed.
 
 ---
 *Part of [BRACE](../README.md), a security framework for autonomous AI agents. CC BY 4.0.*
