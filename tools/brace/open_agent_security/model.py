@@ -130,6 +130,17 @@ class CheckContext:
     secrets: Secrets = DEFAULT   # built-in token formats plus the config's custom tokens
 
 
+@dataclass(frozen=True)
+class Suppression:
+    """How a finding was suppressed, for the SARIF and JSON outputs: "inSource" (an inline mark)
+    or "external" (an ignore entry or a rule turned off), why, and where the suppression is
+    written when that is a file in the scanned folder (file "" when not known)."""
+    kind: str
+    justification: str
+    file: str = ""
+    line: int = 0
+
+
 @dataclass
 class Finding:
     """Checks set rule, file, line and detail; the engine sets the effective severity and host.
@@ -141,6 +152,7 @@ class Finding:
     severity: str = ""
     host: bool = False  # a file on this machine, not in the scanned folder
     id: str = ""        # a stable fingerprint, set by the engine
+    suppression: Suppression | None = None  # set by the engine on a suppressed finding
 
 
 SKIP_LABELS = {"symlink": "symlink(s), not followed", "not a regular file": "special file(s) such as FIFOs"}
@@ -174,13 +186,15 @@ class Report:
     skip() are the only ways to record a gap, and verdict reads them, so the text headline,
     Markdown, JSON, SARIF, GitHub outputs and the exit code cannot disagree."""
     findings: list[Finding] = field(default_factory=list)
+    suppressed: list[Finding] = field(default_factory=list)  # at most MAX_SUPPRESSED; never in the verdict
     notes: list[str] = field(default_factory=list)
     kinds: list[str] = field(default_factory=list)  # one per note: "info", "incomplete", "skipped" or "suppressed"
     truncated: bool = False      # stopped at the file limit
     incomplete: bool = False     # a required file could not be read, agent config did not parse, or a check failed
     skipped: int = 0             # files the scan wanted to read but could not
     config: str | None = None    # the config file that was applied
-    rules: tuple = ()            # RuleMeta of every registered rule, with effective severity
+    rules: tuple = ()            # RuleMeta of every rule that ran, with effective severity
+    rules_off: tuple = ()        # RuleMeta of the rules turned off, for their suppressed findings
     tally: Tally = field(default_factory=Tally)
     secrets: Secrets = DEFAULT   # what note() redacts: built-in token formats plus the config's
     started: datetime | None = None   # UTC, set by the engine

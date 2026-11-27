@@ -35,6 +35,7 @@ TOML_NESTING = 100                   # inline tables and arrays nested in one TO
 
 # Findings
 MAX_PER_FILE = 100                   # findings per file and check (and images kept per file); more is incomplete
+MAX_SUPPRESSED = 5000                # suppressed findings kept for SARIF and JSON; past it they are only counted
 MAX_PER_LINE = 20                    # bypass matches examined on one line; one line says enough
 MAX_LINE = 2000                      # characters of a workflow line the line heuristics read
 WORD_PART_CHARS = 200                # characters of each name, package, image or host AP09 reads words from

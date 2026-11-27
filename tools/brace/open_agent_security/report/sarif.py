@@ -4,6 +4,12 @@ Findings on this machine (--host) are left out, with a notification counting the
 result has a line-independent fingerprint, so a consumer can track a finding as code moves;
 rules link to OWASP, MITRE ATLAS and CWE entries through run.taxonomies. The invocation always
 says whether the scan was complete and how many findings were suppressed.
+
+Suppressed findings (inline marks, ignore entries, rules turned off) are listed too, after the
+reported ones, each with a SARIF suppression (SARIF 2.1.0 §3.27.23, §3.35): kind "inSource" or
+"external", status "accepted" and a justification. Consumers such as GitHub code scanning then
+show them as dismissed, not open, and an audit can see every suppression and why it was made.
+They keep the ruleId, level, message, location and fingerprint they would have unsuppressed.
 """
 from __future__ import annotations
 
@@ -12,7 +18,7 @@ import json
 from .. import __version__
 from ..catalog import DOCS, TAXA, TAXONOMIES, RuleMeta
 from ..limits import MAX_RESULTS
-from ..model import Report
+from ..model import Finding, Report
 from ..output import path_uri
 from .common import ReportOptions, rules_by_id
 
@@ -70,29 +76,47 @@ def notification(kind: str, text: str) -> dict:
     return {"level": NOTIFICATIONS[kind][0], "descriptor": {"id": kind}, "message": {"text": text}}
 
 
+def result(f: Finding, meta: dict) -> dict:
+    out = {"ruleId": f.rule, "level": LEVEL[f.severity],
+           "message": {"text": f"{meta[f.rule].title}: {f.detail}. {meta[f.rule].fix}"},
+           "locations": [location(f.file, f.line)],
+           "partialFingerprints": {FINGERPRINT: f.id}}
+    s = f.suppression
+    if s:
+        sup = {"kind": s.kind, "status": "accepted", "justification": s.justification}
+        if s.file:
+            sup["location"] = location(s.file, s.line)
+        out["suppressions"] = [sup]
+    return out
+
+
+def location(file: str, line: int) -> dict:
+    return {"physicalLocation": {"artifactLocation": {"uri": path_uri(file), "uriBaseId": SRCROOT},
+                                 "region": {"startLine": max(1, line)}}}
+
+
 class Sarif:
     name = "sarif"
     media = "json"
 
     def render(self, report: Report, opts: ReportOptions) -> str:
-        meta = rules_by_id(report)
+        meta = {**{r.id: r for r in report.rules_off}, **rules_by_id(report)}
         shown = [f for f in report.findings if not f.host]
-        results = [{"ruleId": f.rule, "level": LEVEL[f.severity],
-                    "message": {"text": f"{meta[f.rule].title}: {f.detail}. {meta[f.rule].fix}"},
-                    "locations": [{"physicalLocation": {
-                        "artifactLocation": {"uri": path_uri(f.file), "uriBaseId": SRCROOT},
-                        "region": {"startLine": max(1, f.line)}}}],
-                    "partialFingerprints": {FINGERPRINT: f.id}} for f in shown[:MAX_RESULTS]]
+        hidden = [f for f in report.suppressed if not f.host]
+        # Reported results come first, so the cap never pushes one out for a suppressed one.
+        listed = (shown + hidden)[:MAX_RESULTS]
+        results = [result(f, meta) for f in listed]
         notes = [notification(kind, text) for text, kind in zip(report.notes, report.kinds)]
         host = len(report.findings) - len(shown)
         if host:
             notes.append(notification("host-findings", f"{host} finding(s) in agent settings on this machine are "
                                                        "not in SARIF; see the text or JSON output"))
-        if len(shown) > MAX_RESULTS:
-            notes.append(notification("results-capped", f"{len(shown) - MAX_RESULTS} more results are not listed; "
-                                                        "see the JSON output"))
+        if len(shown) + len(hidden) > MAX_RESULTS:
+            notes.append(notification("results-capped", f"{len(shown) + len(hidden) - MAX_RESULTS} more results "
+                                                        "are not listed; see the JSON output"))
         driver = {"name": "open-agent-security", "version": __version__, "informationUri": DOCS,
-                  "rules": [rule_entry(r) for r in report.rules],
+                  "rules": [rule_entry(r) for r in report.rules] +
+                           [rule_entry(r) for r in report.rules_off if r.id in {f.rule for f in listed}],
                   "notifications": [{"id": kind, "shortDescription": {"text": text},
                                      "defaultConfiguration": {"level": level}}
                                     for kind, (level, text) in NOTIFICATIONS.items()]}

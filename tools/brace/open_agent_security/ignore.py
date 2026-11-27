@@ -32,6 +32,10 @@ class PathGlob(NamedTuple):
     neg: bool            # `!pattern` re-includes
     segs: list[str]      # path segments; "**" crosses folders
     dir_only: bool       # trailing "/" matches folders only
+    text: str = ""       # the entry as written, for the justification of what it suppresses
+    source: str = ""     # where it was written: IGNORE_FILE, or the config file as shown
+    line: int = 0        # its line in the ignore file (0: not known)
+    reason: str = ""     # the config entry's reason
 
 
 def flex(entry: PathGlob) -> int:
@@ -128,13 +132,13 @@ def load_ignores(root: Path, limit: int = MB, rules: Collection[str] = ()) -> tu
         return [], [f"ignore file: {IGNORE_FILE} is {why}, so it was not applied"]
     out: list[PathGlob] = []
     too_deep = too_complex = budget = 0
-    for raw in text.split("\n"):
+    for number, raw in enumerate(text.split("\n"), 1):
         if len(raw) > 4 * MAX_PATTERN:
             continue  # far too long to be a pattern, even with a comment
         line = TRAILING_COMMENT.sub("", raw).strip()
         if not line or len(line) > MAX_PATTERN:
             continue
-        rule = None
+        rule, written = None, line
         m = RULE_PREFIX.match(line)
         if m and (m.group(1) in rules or BUILTIN_RULE.match(m.group(1))):
             rule, line = m.group(1), m.group(2).strip()
@@ -147,7 +151,7 @@ def load_ignores(root: Path, limit: int = MB, rules: Collection[str] = ()) -> tu
             too_complex += 1
         elif entry:
             budget += flex(entry)
-            out.append(entry)
+            out.append(entry._replace(text=written, source=IGNORE_FILE, line=number))
         if len(out) >= MAX_IGNORES:
             break
     notes = []
@@ -200,10 +204,15 @@ class GlobSet:
         return cur
 
     def match(self, rel: str, rule: str | None = None, is_dir: bool = False) -> bool:
+        entry = self.deciding(rel, rule, is_dir)
+        return entry is not None and not entry.neg
+
+    def deciding(self, rel: str, rule: str | None = None, is_dir: bool = False) -> PathGlob | None:
+        """The last entry that matches (it decides: a `!` entry re-includes), or None."""
         depth = rel.count("/") + 1
         folder, _, name = rel.rpartition("/")
         names = set(rel.split("/")) if self.literal else set()
-        result = False
+        result = None
         for entry, idx in zip(self.entries, self.pattern_of):
             pattern = self.patterns[idx]
             if (entry.rule is not None and entry.rule != rule) or pattern.plain > depth \
@@ -211,7 +220,7 @@ class GlobSet:
                 continue
             hit = self._state(idx, rel)[1] if is_dir else pattern.ends(self._state(idx, folder), name)
             if hit:
-                result = not entry.neg
+                result = entry
         return result
 
 

@@ -14,9 +14,10 @@ from datetime import datetime, timezone
 from .agents import AGENT_SIGNAL, SHARED_SETTINGS
 from .catalog import SEVERITY_ORDER, RuleMeta
 from .config import Config
-from .ignore import Ignores, load_ignores, marked_lines
-from .limits import MAX_PER_FILE, NOTE_PATH_CHARS
-from .model import CheckContext, Document, Finding, ParseError, Project, Report, Skipped, SourceFile, Tally
+from .ignore import IGNORE_FILE, IGNORE_MARK, Ignores, load_ignores, marked_lines
+from .limits import MAX_PER_FILE, MAX_SUPPRESSED, NOTE_CHARS, NOTE_PATH_CHARS
+from .model import (CheckContext, Document, Finding, ParseError, Project, Report, Skipped, SourceFile, Suppression,
+                    Tally)
 from .output import clean, path_bytes, plural
 from .registry import Registry
 from .secrets import Secrets
@@ -38,6 +39,7 @@ class ScanContext:
     origins: dict[str, str] = field(default_factory=dict)     # file -> origin, for files with facts
     marks: dict[str, set[int]] = field(default_factory=dict)  # file -> marked lines, kept for files with facts
     capped: set[str] = field(default_factory=set)             # files already noted as over MAX_PER_FILE
+    capped_suppressed: bool = False                           # past MAX_SUPPRESSED, noted once
     agent_repo: bool = False                                  # an agent runs in the scanned folder
 
 
@@ -48,7 +50,8 @@ def run_scan(config: Config, registry: Registry) -> Report:
     off = len(config.disabled)
     tally = Tally(rules_off=off, overrides=len(config.rules) - off, config_ignores=len(config.ignore),
                   lowered=lowered(config.limits))
-    report = Report(rules=rules, config=config.path, tally=tally, secrets=secrets, started=now())
+    report = Report(rules=rules, rules_off=tuple(m for m in registry.rules.values() if m.id in config.disabled),
+                    config=config.path, tally=tally, secrets=secrets, started=now())
     for n in config.notes:
         report.note(n)
     from_file, notes = load_ignores(config.root, config.limits.max_file_bytes, registry.rules) if config.root else ([], [])
@@ -76,8 +79,12 @@ def run_scan(config: Config, registry: Registry) -> Report:
     run_project_checks(ctx)
     # Ids hash the path within the scanned folder. Paths stay exact (a name that is not UTF-8
     # included): machine outputs need the real file; human outputs show output.shown_path() of it.
-    report.findings = [replace(f, file=("" if f.host else config.display_prefix) + f.file)
-                       for f in assign_ids(dedupe(report.findings))]
+    # Suppressed findings get their ids together with the reported ones, so each id is the one
+    # the finding would have unsuppressed: removing a suppression does not make a "new" finding.
+    every = [prefixed(f, "" if f.host else config.display_prefix)
+             for f in assign_ids(dedupe(report.findings + report.suppressed))]
+    report.findings = [f for f in every if f.suppression is None]
+    report.suppressed = [f for f in every if f.suppression is not None]
     if tally.own_reports:
         report.note(f"skipped {plural(tally.own_reports, 'open-agent-security report file')}")
     note = suppression_note(tally, config.path)
@@ -87,13 +94,28 @@ def run_scan(config: Config, registry: Registry) -> Report:
     return report
 
 
+def prefixed(f: Finding, prefix: str) -> Finding:
+    """The finding with its path, and its suppression's file, as shown from where the scan ran."""
+    s = f.suppression
+    return replace(f, file=prefix + f.file, suppression=replace(s, file=prefix + s.file) if s and s.file else s)
+
+
 def now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 
 
 def enabled_checks(ctx: ScanContext, scope: str) -> list:
-    """Checks of this scope with at least one enabled rule; a check whose rules are all off is not run."""
-    return [c for c in ctx.registry.checks if c.scope == scope and set(c.emits) & ctx.enabled]
+    """Checks of this scope. A check whose rules are all off still runs, so what it finds is listed
+    as suppressed; if it fails, that is only a note (see check_failed)."""
+    return [c for c in ctx.registry.checks if c.scope == scope]
+
+
+def check_failed(ctx: ScanContext, check, text: str) -> None:
+    """A failed check makes the scan incomplete, unless every rule it emits is turned off."""
+    if set(check.emits) & ctx.enabled:
+        ctx.report.fail(text)
+    else:
+        ctx.report.note(f"{text} (its rules are off)")
 
 
 def agent_evidence(src: SourceFile, doc: Document) -> bool:
@@ -135,7 +157,7 @@ def checked(ctx: ScanContext, check, doc: Document, shown: str):
         for f in check.run(doc, ctx.check_ctx):
             yield declared(f, check)
     except Exception as e:
-        ctx.report.fail(f"could not scan {shown} with check {check.name}: {type(e).__name__}")
+        check_failed(ctx, check, f"could not scan {shown} with check {check.name}: {type(e).__name__}")
 
 
 def collect_facts(ctx: ScanContext, src: SourceFile, doc: Document, shown: str) -> None:
@@ -144,7 +166,7 @@ def collect_facts(ctx: ScanContext, src: SourceFile, doc: Document, shown: str) 
         try:
             value = check.facts(doc)
         except Exception as e:
-            ctx.report.fail(f"could not scan {shown} with check {check.name}: {type(e).__name__}")
+            check_failed(ctx, check, f"could not scan {shown} with check {check.name}: {type(e).__name__}")
             continue
         if value is not None:
             ctx.facts.setdefault(check.name, []).append(value)
@@ -182,7 +204,7 @@ def run_project_checks(ctx: ScanContext) -> None:
                     f.host = ctx.origins.get(file) == "host"
                     ctx.report.findings.append(f)
         except Exception as e:
-            ctx.report.fail(f"could not run check {check.name}: {type(e).__name__}")
+            check_failed(ctx, check, f"could not run check {check.name}: {type(e).__name__}")
 
 
 def declared(f: Finding, check) -> Finding:
@@ -196,15 +218,19 @@ def filter_and_cap(ctx: ScanContext, findings, origin: str) -> list[Finding]:
     """The distinct findings of one check on one file that survive the filters, at most MAX_PER_FILE,
     each finalized (redacted, then cut) as it arrives, so no raw detail is kept. Suppression
     comes first, so suppressed findings cannot use up the cap; the rest of the check's output is
-    still drained so suppressed counts stay right."""
+    still drained so suppressed counts stay right. Suppressed findings are kept apart, up to
+    MAX_SUPPRESSED, for the outputs that list them; they never count towards the verdict."""
     out: list[Finding] = []
     seen: set[tuple] = set()
     for f in findings:
-        f = finalize(f, ctx.rules.get(f.rule), ctx.check_ctx.secrets)
+        f = finalize(f, ctx.rules.get(f.rule) or ctx.registry.rules.get(f.rule), ctx.check_ctx.secrets)
+        f.host = origin == "host"
         if (f.rule, f.line, f.detail) in seen:
             continue
         seen.add((f.rule, f.line, f.detail))
-        if not survives(ctx, f, origin):
+        how = suppression(ctx, f, origin)
+        if how:
+            keep_suppressed(ctx, replace(f, suppression=how))
             continue
         if len(out) >= MAX_PER_FILE:
             note_capped(ctx, f.file)
@@ -213,19 +239,40 @@ def filter_and_cap(ctx: ScanContext, findings, origin: str) -> list[Finding]:
     return out
 
 
-def survives(ctx: ScanContext, f: Finding, origin: str) -> bool:
-    """Apply disabled rules, inline marks and ignore entries (repository files only); count what they drop."""
+def suppression(ctx: ScanContext, f: Finding, origin: str) -> Suppression | None:
+    """Apply disabled rules, inline marks and ignore entries (repository files only); count what
+    they drop, and say how each was dropped (None: the finding is reported)."""
+    config = ctx.config.path or "the config"
+    how = None
     if f.rule not in ctx.enabled:
-        dropped = True
+        how = Suppression("external", f"rule {f.rule} turned off in {config}")
     elif origin != "repo":
-        dropped = False
+        return None
     elif f.line in ctx.marks.get(f.file, ()):
-        dropped = True
+        how = Suppression("inSource", f"inline '{IGNORE_MARK}' mark on line {f.line}", f.file, f.line)
         ctx.report.tally.by_mark += 1
     else:
-        dropped = ctx.ignores.match(f.file, f.rule)
-    ctx.report.tally.suppressed += dropped
-    return not dropped
+        entry = ctx.ignores.deciding(f.file, f.rule)
+        if entry is None or entry.neg:
+            return None
+        if entry.source == IGNORE_FILE:
+            how = Suppression("external", f"{IGNORE_FILE} entry '{entry.text}'", IGNORE_FILE, entry.line)
+        else:
+            how = Suppression("external", entry.reason or f"config ignore entry '{entry.text}' in {entry.source}")
+    ctx.report.tally.suppressed += 1
+    # The justification quotes the scanned folder's own files, so it is cleaned like a note.
+    return replace(how, justification=clean(how.justification, NOTE_CHARS, secrets=ctx.check_ctx.secrets))
+
+
+def keep_suppressed(ctx: ScanContext, f: Finding) -> None:
+    """Keep a suppressed finding for SARIF and JSON, up to MAX_SUPPRESSED; past it, only count it."""
+    kept = ctx.report.suppressed
+    if len(kept) < MAX_SUPPRESSED:
+        kept.append(f)
+    elif not ctx.capped_suppressed:
+        ctx.capped_suppressed = True
+        ctx.report.note(f"more than {MAX_SUPPRESSED} findings suppressed; only the first {MAX_SUPPRESSED} are "
+                        "listed in SARIF and JSON", "suppressed")
 
 
 def note_capped(ctx: ScanContext, file: str) -> None:

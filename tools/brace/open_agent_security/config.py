@@ -182,6 +182,7 @@ def parse_ignore(items, known: set[str], shown: str) -> tuple[PathGlob, ...]:
             raise ConfigError(f"{shown}: ignore rules must be a list of known rule IDs")
         entry = glob(item["path"], "ignore", shown, anchor=True)
         paths.append(entry)
+        entry = entry._replace(text=item["path"], source=shown, reason=item.get("reason", ""))
         out += [entry._replace(rule=r) for r in rules]
     if len(out) > MAX_IGNORE_RULES:
         raise ConfigError(f"{shown}: ignore expands to more than {MAX_IGNORE_RULES} path-and-rule pairs; "

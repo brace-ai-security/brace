@@ -67,9 +67,12 @@ def test_the_corpus_reports_carry_the_same_findings():
     sarif = json.loads((GOLDEN / "corpus.sarif").read_text())["runs"][0]["results"]
     gitlab = json.loads((GOLDEN / "corpus.gitlab.json").read_text())["vulnerabilities"]
     ids = [f["id"] for f in findings if not f["host"]]
-    assert [r["partialFingerprints"]["openAgentSecurity/v1"] for r in sarif] == ids
+    assert [r["partialFingerprints"]["openAgentSecurity/v1"] for r in sarif if "suppressions" not in r] == ids
     assert [v["id"].replace("-", "") for v in gitlab] == ids
     assert len(set(ids)) == len(ids)
+    hidden = json.loads((GOLDEN / "corpus.json").read_text().split("\n", 1)[1])["suppressed_findings"]
+    assert [r["partialFingerprints"]["openAgentSecurity/v1"] for r in sarif if "suppressions" in r] == \
+        [f["id"] for f in hidden] and len(hidden) == 2
 
 
 def test_fingerprints_do_not_change_when_lines_move(tmp_path):
@@ -186,3 +189,22 @@ def test_round9_gitlab_findings_sharing_a_line_have_distinct_identifiers(tmp_pat
     assert len({json.dumps(v["identifiers"]) for v in vulns}) == 2
     validator(SCHEMAS / "gitlab-sast-report-format-15.2.5.json", jsonschema.Draft7Validator).validate(
         json.loads(gl.read_text()))
+
+
+def test_suppressed_results_match_the_sarif_and_report_schemas(tmp_path):
+    """Every kind of suppression, including rules turned off and config reasons, validates."""
+    write(tmp_path, "run.sh", "claude --dangerously-skip-permissions  # open-agent-security: ignore\n")
+    write(tmp_path, "Dockerfile", "FROM ubuntu:latest\n")
+    mcp(tmp_path, {"command": "npx", "args": ["tool-mcp"], "env": {"K": "v"}})
+    write(tmp_path, ".open-agent-security-ignore", "AP05 .mcp.json\n")
+    write(tmp_path, ".open-agent-security.toml",
+          'rules = {AP10 = "off"}\n[[ignore]]\npath = ".mcp.json"\nrules = ["AP04"]\nreason = "pinned upstream"\n')
+    sarif = tmp_path.parent / f"{tmp_path.name}.sarif"
+    cli_run(tmp_path, "--fail-on", "none", "--sarif", str(sarif))
+    data = json.loads(sarif.read_text(encoding="utf-8"))
+    validator(SCHEMAS / "sarif-schema-2.1.0.json", jsonschema.Draft4Validator).validate(data)
+    kinds = sorted(r["suppressions"][0]["kind"] for r in data["runs"][0]["results"] if "suppressions" in r)
+    assert kinds[0] == "external" and "inSource" in kinds and len(kinds) >= 3
+    out = report(tmp_path)
+    validator(REPORT_SCHEMA, jsonschema.Draft202012Validator).validate(out)
+    assert len(out["suppressed_findings"]) == len(kinds)

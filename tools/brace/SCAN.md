@@ -308,7 +308,8 @@ SAST or JUnit) found in the scanned folder are not scanned, and a note counts th
   which the `schema` key names. Keys may be added; existing ones keep their meaning while
   the schema stays at version 1. Each finding has an `id`: a hash of the rule, the path in
   the scanned folder, the redacted detail and which occurrence it is, so it stays the same
-  when lines move and never hashes a raw secret.
+  when lines move and never hashes a raw secret. Suppressed findings are listed apart, in
+  `suppressed_findings` (see [Silencing a reviewed finding](#silencing-a-reviewed-finding)).
 - **sarif**: SARIF 2.1.0 for GitHub code scanning and other SARIF tools. Each result carries
   the same `id` as a `partialFingerprints` entry (`openAgentSecurity/v1`) and a `%SRCROOT%`
   base. Rules have readable names, Markdown help, `security-severity`, CWE tags
@@ -319,7 +320,9 @@ SAST or JUnit) found in the scanned folder are not scanned, and a note counts th
   [ATLAS](https://braceframework.org/mappings/mitre-atlas/)). The invocation always says
   whether the scan was complete and how many findings were suppressed, lists the notes
   (gaps as warnings), and counts findings on this machine (`--host`), which SARIF leaves out.
-  At most 5,000 results are listed, with a note when there are more.
+  Suppressed findings are results too, after the reported ones, each with a SARIF
+  suppression (see [Silencing a reviewed finding](#silencing-a-reviewed-finding)).
+  At most 5,000 results are listed, reported ones first, with a note when there are more.
 - **markdown**: a summary table for a pull request or job summary, at most 200 rows.
 - **gitlab-sast**: a GitLab SAST report (schema 15.2.5) for merge request security widgets;
   GitLab does not read SARIF. Host findings are left out, as in SARIF. GitLab deduplicates
@@ -327,10 +330,13 @@ SAST or JUnit) found in the scanned folder are not scanned, and a note counts th
   same line each get an identifier of their own (their fingerprint, after the rule
   identifier, which stays primary), their detail in the name and their short id in
   `location.method`; GitLab may still show them as one vulnerability, so read the JSON or
-  text output for every finding on such a line.
+  text output for every finding on such a line. Suppressed findings are left out: the GitLab
+  SAST schema has no field for a dismissed or suppressed finding (GitLab records dismissals
+  in its vulnerability report, not in the scanner's report).
 - **junit**: JUnit XML for CI dashboards: a failed test case per finding, a passed one per
   rule without findings, and a "the scan is complete" case that is an error when the scan
-  is incomplete.
+  is incomplete. Suppressed findings are left out: JUnit has no "accepted" state, and a
+  skipped test case would read as a check that did not run.
 
 Skipped files are listed as notes: files over 1 MB, binary or unreadable files (including
 bytes that start like UTF-16 but are not), symlinks and special files, and agent config
@@ -378,6 +384,55 @@ file or the config file has entries, rules are off or re-rated, inline marks sup
 finding, or limits were lowered, the scan adds a note such as `.open-agent-security-ignore:
 2 entries; inline ignore marks: 1 finding; 3 findings suppressed; 4 files and 1 folder not
 scanned because of ignore entries`.
+
+### Suppressed findings in SARIF and JSON
+
+A suppressed finding is not dropped: SARIF and JSON list it, so every suppression can be
+audited. It never counts towards the verdict, the exit code, the headline or the findings
+count. Each one says how it was suppressed:
+
+| Suppressed by | Kind | Justification | Location |
+|---|---|---|---|
+| an inline `open-agent-security: ignore` mark | `inSource` | `inline 'open-agent-security: ignore' mark on line 4` | the marked line |
+| a rule-scoped entry in `.open-agent-security-ignore` | `external` | `.open-agent-security-ignore entry 'AP10 legacy/Dockerfile'` | the entry's line |
+| a config `ignore` entry | `external` | its `reason`, or `config ignore entry 'fixtures/' in .open-agent-security.toml` | not given |
+| a rule turned off in the config | `external` | `rule AP10 turned off in .open-agent-security.toml` | not given |
+
+A rule turned off still runs, so its findings can be listed; if its check fails, that is a
+note rather than an incomplete scan. An entry that ignores a path for every rule skips the
+file or folder unread, so nothing in it was found and nothing is listed; such files and
+folders are counted in the note, as before. Suppressed findings are redacted and cut
+exactly like reported ones (justifications too, since they quote the scanned folder's
+files), and keep the `id` (SARIF fingerprint) they would have unsuppressed, so removing a
+suppression does not open a "new" alert. At most 5,000 are listed; past that they are only
+counted, with a note.
+
+In SARIF, a suppressed finding is a normal result (same `ruleId`, `level`, message, location
+and fingerprint) with `suppressions` (SARIF 2.1.0 §3.27.23, §3.35):
+
+```json
+"suppressions": [{
+  "kind": "external", "status": "accepted",
+  "justification": "pinned upstream",
+  "location": {"physicalLocation": {"artifactLocation": {"uri": ".open-agent-security-ignore", "uriBaseId": "%SRCROOT%"}, "region": {"startLine": 2}}}
+}]
+```
+
+In JSON, it is in `suppressed_findings` with the keys of a finding plus `suppression`:
+`{"kind": "inSource", "justification": "...", "file": "run.sh", "line": 4}` (`file` and
+`line` are null when not known).
+
+What consumers do with them:
+
+- **GitHub code scanning** reads `suppressions`: a result whose suppression has status
+  `accepted` is shown as a closed alert, not an open one, so it does not count against
+  the pull request, and it remains visible in the closed alerts with the rule and location.
+- **GitLab** does not read SARIF, and its SAST report has no suppression field, so the
+  gitlab-sast output leaves suppressed findings out (the JSON output still lists them).
+- **Other SARIF tools** differ: tools that implement SARIF suppressions (such as the
+  Microsoft SARIF viewers) show these results as suppressed; a tool that ignores the
+  `suppressions` property shows them as ordinary results. If yours does, filter on it, or
+  check the tool's SARIF import options (DefectDojo, Azure DevOps) before relying on it.
 
 ## Configuration file
 
@@ -436,7 +491,9 @@ max-files = 200000
   .open-agent-security.toml: 1 rule off, 2 ignore entries; 3 findings suppressed; 1 file
   not scanned because of ignore entries`. `ignore` holds at most 200 entries. JSON
   output has `config` (the file used, or null) and `suppressed` (findings dropped by ignore
-  entries, inline marks or rules turned off).
+  entries, inline marks or rules turned off). An ignore entry's `reason` is the
+  justification of the findings it suppresses in SARIF and JSON (see
+  [Suppressed findings in SARIF and JSON](#suppressed-findings-in-sarif-and-json)).
 - The file cannot load plugins. A `plugins` key is ignored with a note.
 
 ## Plugins
