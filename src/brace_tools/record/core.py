@@ -1068,8 +1068,8 @@ class _Parser(argparse.ArgumentParser):
         raise InputError(f"{self.prog}: {message}")
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = _Parser(prog="brace.py", description="Check BRACE evidence records; high-risk reviews report FINDINGS without a release verdict.")
+def build_parser(prog: str = "brace.py") -> argparse.ArgumentParser:
+    p = _Parser(prog=prog, description="Check BRACE evidence records; high-risk reviews report FINDINGS without a release verdict.")
     sub = p.add_subparsers(dest="command", required=True, parser_class=_Parser)
 
     s = sub.add_parser("scan", help="find known-dangerous agent setups in a folder (fast, local, no setup)")
@@ -1130,9 +1130,9 @@ def _date_arg(v: str) -> str:
         raise argparse.ArgumentTypeError("use the form YYYY-MM-DD")
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, prog: str = "brace.py") -> int:
     try:
-        args = build_parser().parse_args(argv)
+        args = build_parser(prog).parse_args(argv)
         return args.func(args)
     except InputError as exc:
         print("Invalid input. Fix these and run again:", file=sys.stderr)

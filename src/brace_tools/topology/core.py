@@ -60,7 +60,7 @@ def load_yaml(path: Path) -> dict:
     try:
         import yaml
     except ImportError:
-        sys.exit("--agent-config needs PyYAML: pip install pyyaml")
+        sys.exit('--agent-config needs PyYAML: pip install "open-agent-security[record]"')
     return yaml.safe_load(path.read_text()) or {}
 
 
@@ -520,7 +520,7 @@ def validate(bom: dict) -> list[str]:
         from jsonschema import Draft7Validator
         from referencing import Registry, Resource
     except ImportError:
-        return ["schema validation needs jsonschema: pip install jsonschema"]
+        return ['schema validation needs jsonschema: pip install "open-agent-security[record]"']
     registry = Registry()
     for f in CDX_DIR.glob("*.schema.json"):
         res = Resource.from_contents(json.loads(f.read_text()))
@@ -1062,8 +1062,8 @@ def redact_home(text: str, home: Path | None = None) -> str:
 
 
 # ---------------------------------------------------------------------------- main
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+def main(argv: list[str] | None = None, prog: str | None = None) -> int:
+    ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build", help="build a CycloneDX topology for a repository")
     b.add_argument("repo", type=Path)
@@ -1162,7 +1162,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Valid" if not errors else f"{len(errors)} errors")
         return 1 if errors else 0
     if a.cmd == "report":
-        import topology_report
+        from brace_tools.report import map_html as topology_report
         m = topology_report.write(a.bom, a.findings, a.output)
         s = m["summary"]
         print(f"wrote {a.output}: {s['parts']} parts, {s['connections']} connections, "

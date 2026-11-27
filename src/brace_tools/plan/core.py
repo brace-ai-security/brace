@@ -391,8 +391,8 @@ def sarif(data: dict) -> dict:
                       "results": results}]}
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+def main(argv: list[str] | None = None, prog: str | None = None) -> int:
+    ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0])
     ap.add_argument("findings", type=Path)
     ap.add_argument("topology", type=Path)
     ap.add_argument("-o", "--output", type=Path, required=True)
@@ -404,6 +404,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--html", type=Path, help="a web page that walks through the plan with diagrams")
     ap.add_argument("--fail-on", choices=list(FAIL_ON), default="none",
                     help="exit 3 if any action matches: blocker = a Blocker gap, gap = any gap, any = any action")
+    ap.add_argument("--github-output", type=Path, metavar="FILE",
+                    help="append actions=, notes= and failing= (counts) to this file ($GITHUB_OUTPUT)")
     a = ap.parse_args(argv)
     findings, bom = load(a.findings), load(a.topology)
     errors = topology.validate(bom)
@@ -421,14 +423,17 @@ def main(argv: list[str] | None = None) -> int:
     if a.sarif:
         a.sarif.write_text(json.dumps(sarif(data), indent=2) + "\n")
     if a.html:
-        import report_html
+        from brace_tools.plan import html as report_html
         a.html.write_text(report_html.render(data, bom))
     for p in problems:
         print(f"note: {p}", file=sys.stderr)
     print(f"wrote {a.output} ({len(actions)} actions, {len(problems)} input notes)")
+    hits = [x["id"] for x in data["actions"] if FAIL_ON[a.fail_on](x)]
+    if a.github_output:
+        with a.github_output.open("a", encoding="utf-8") as out:  # counts only: nothing from the inputs
+            out.write(f"actions={len(actions)}\nnotes={len(problems)}\nfailing={len(hits)}\n")
     if a.strict and problems:
         return 1
-    hits = [x["id"] for x in data["actions"] if FAIL_ON[a.fail_on](x)]
     if hits:
         print(f"fail-on {a.fail_on}: {', '.join(hits)}", file=sys.stderr)
         return 3
